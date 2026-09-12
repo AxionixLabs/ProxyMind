@@ -3,6 +3,7 @@
 import types
 
 import pytest
+from unittest.mock import Mock
 
 from frontends.terminal import probe_windows as terminal_probe_windows
 from frontends.terminal.capabilities import (
@@ -145,6 +146,85 @@ def test_ide_terminal_classification_follows_tmux_client() -> None:
 
     assert identity.is_ide_terminal
     assert identity.multiplexer is TerminalKind.TMUX
+
+
+@pytest.mark.parametrize("program", ("Apple_Terminal", "iTerm.app", "unrecognized-terminal"))
+def test_jediterm_identity_overrides_non_ide_term_program(program: str) -> None:
+    identity = detect_terminal_identity({
+        "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+        "TERM_PROGRAM": program,
+        "TERM_PROGRAM_VERSION": "inherited-version",
+        "TERM": "xterm-256color",
+    })
+
+    assert identity.kind is TerminalKind.JETBRAINS_JEDITERM
+    assert identity.source is TerminalIdentitySource.DIRECT_SIGNAL
+    assert identity.source_variable == "TERMINAL_EMULATOR"
+    assert identity.term == "xterm-256color"
+    assert identity.version is None
+
+
+@pytest.mark.parametrize(("program", "kind"), (
+    ("vscode", TerminalKind.VSCODE),
+    ("Zed", TerminalKind.ZED),
+    ("JetBrains-JediTerm", TerminalKind.JETBRAINS_JEDITERM),
+))
+def test_explicit_ide_program_precedes_inherited_jediterm_signal(
+    program: str,
+    kind: TerminalKind,
+) -> None:
+    identity = detect_terminal_identity({
+        "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+        "TERM_PROGRAM": program,
+        "TERM_PROGRAM_VERSION": "2026.1",
+    })
+
+    assert identity.kind is kind
+    assert identity.source is TerminalIdentitySource.TERM_PROGRAM
+    assert identity.term_program == program
+    assert identity.version == "2026.1"
+
+
+@pytest.mark.parametrize("program", ("", "tmux"))
+@pytest.mark.parametrize(("client", "kind"), (
+    ("iTerm2 3.6", TerminalKind.ITERM2),
+    ("JetBrains-JediTerm 2026.1", TerminalKind.JETBRAINS_JEDITERM),
+))
+def test_tmux_client_precedes_inherited_jediterm_signal(
+    program: str,
+    client: str,
+    kind: TerminalKind,
+) -> None:
+    probe = Mock(return_value=(client, "xterm-256color"))
+    identity = detect_terminal_identity({
+        "TMUX": "/tmp/tmux",
+        "TMUX_VERSION": "3.5",
+        "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+        "TERM_PROGRAM": program,
+    }, tmux_probe=probe)
+
+    assert identity.kind is kind
+    assert identity.source is TerminalIdentitySource.TMUX_CLIENT
+    assert identity.term_program == client
+    assert identity.term == "xterm-256color"
+    assert identity.multiplexer is TerminalKind.TMUX
+    assert identity.multiplexer_version == "3.5"
+    probe.assert_called_once_with()
+
+
+@pytest.mark.parametrize("program", ("", "tmux", "Apple_Terminal"))
+def test_unavailable_tmux_probe_preserves_jediterm_identity(program: str) -> None:
+    probe = Mock(return_value=None)
+    identity = detect_terminal_identity({
+        "TMUX": "/tmp/tmux",
+        "TERMINAL_EMULATOR": "JetBrains-JediTerm",
+        "TERM_PROGRAM": program,
+    }, tmux_probe=probe)
+
+    assert identity.kind is TerminalKind.JETBRAINS_JEDITERM
+    assert identity.source is TerminalIdentitySource.DIRECT_SIGNAL
+    assert identity.multiplexer is TerminalKind.TMUX
+    probe.assert_called_once_with()
 
 
 @pytest.mark.parametrize(

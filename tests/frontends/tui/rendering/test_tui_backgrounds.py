@@ -25,6 +25,7 @@ from frontends.interaction.contracts import PromptContext
 from frontends.terminal.capabilities import (
     TerminalCapabilities,
     TerminalTheme,
+    detect_terminal_capabilities,
 )
 from frontends.terminal.color_support import (
     TerminalColorLevel,
@@ -34,6 +35,7 @@ from frontends.terminal.identity import (
     TerminalIdentity,
     TerminalKind,
 )
+from frontends.terminal.probe import TerminalDefaultColors
 from frontends.terminal.renderers.dispatch import render_presentation_view
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.presentation import TuiPresentationSink
@@ -57,12 +59,18 @@ from tests.pty.contract import TerminalSize
 from tests.pty.terminal import TerminalScreen
 
 
-def _capabilities(kind: TerminalKind) -> TerminalCapabilities:
-    """创建具有相同色深和主题的对照终端。"""
-    return TerminalCapabilities(
-        identity=TerminalIdentity(kind, kind.value),
-        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
-        theme=TerminalTheme(background=(0, 0, 0)),
+def _detected_capabilities(environ: dict[str, str]) -> TerminalCapabilities:
+    """注入终端环境与颜色探测结果，保留真实身份识别和策略派生路径。"""
+    stream = Mock(spec=io.TextIOBase)
+    stream.isatty.return_value = True
+    return detect_terminal_capabilities(
+        input_stream=stream,
+        output_stream=stream,
+        environ={"COLORTERM": "truecolor", "TERM": "xterm-256color", **environ},
+        color_probe=Mock(return_value=TerminalDefaultColors(
+            foreground=(230, 230, 230),
+            background=(0, 0, 0),
+        )),
     )
 
 
@@ -124,13 +132,18 @@ def test_ide_style_removes_all_backgrounds_and_preserves_text_cues(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("kind", (
-    TerminalKind.JETBRAINS_JEDITERM,
-    TerminalKind.VSCODE,
-    TerminalKind.WINDOWS_TERMINAL,
+@pytest.mark.parametrize(("environ", "backgrounds_allowed"), (
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "Apple_Terminal"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "iTerm.app"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "unrecognized-terminal"}, False),
+    ({"TERM_PROGRAM": "vscode"}, False),
+    ({"WT_SESSION": "session"}, True),
+    ({"TERM_PROGRAM": "Apple_Terminal"}, True),
 ))
 async def test_input_background_policy_preserves_layout_after_redraw(
-    kind: TerminalKind,
+    environ: dict[str, str],
+    backgrounds_allowed: bool,
 ) -> None:
     stream = io.StringIO()
     size = Size(rows=16, columns=80)
@@ -138,7 +151,7 @@ async def test_input_background_policy_preserves_layout_after_redraw(
     with create_pipe_input() as input_obj:
         runtime = TuiRuntime(
             input_obj=input_obj, output_obj=output,
-            terminal_capabilities=_capabilities(kind),
+            terminal_capabilities=_detected_capabilities(environ),
         )
         try:
             runtime.set_prompt_context(PromptContext(model="layout-probe"))
@@ -158,26 +171,33 @@ async def test_input_background_policy_preserves_layout_after_redraw(
                 assert "layout-probe" in terminal.snapshot().visible_lines[footer.ypos]
                 for row in range(1, height + 3):
                     background = terminal.cell(row, size.columns - 1).background
-                    if kind is TerminalKind.WINDOWS_TERMINAL:
+                    if backgrounds_allowed:
                         assert background != "default"
                     else:
                         assert background == "default"
 
-                if value == "draft" and kind is not TerminalKind.WINDOWS_TERMINAL:
+                if value == "draft" and not backgrounds_allowed:
                     assert "draft" + " " * 20 not in stream.getvalue()
         finally:
             await runtime.close()
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("kind", (
-    TerminalKind.JETBRAINS_JEDITERM,
-    TerminalKind.WINDOWS_TERMINAL,
+@pytest.mark.parametrize(("environ", "backgrounds_allowed"), (
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "Apple_Terminal"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "iTerm.app"}, False),
+    ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "unrecognized-terminal"}, False),
+    ({"WT_SESSION": "session"}, True),
+    ({"TERM_PROGRAM": "Apple_Terminal"}, True),
 ))
-async def test_native_scrollback_applies_same_background_policy(kind: TerminalKind) -> None:
+async def test_native_scrollback_applies_same_background_policy(
+    environ: dict[str, str],
+    backgrounds_allowed: bool,
+) -> None:
     stream = io.StringIO()
     output = _FrameOutput(stream, lambda: Size(rows=16, columns=80), enable_cpr=False)
-    runtime = TuiRuntime(output_obj=output, terminal_capabilities=_capabilities(kind))
+    runtime = TuiRuntime(output_obj=output, terminal_capabilities=_detected_capabilities(environ))
     try:
         runtime.screen.application.print_text([
             ("class:approval-card class:approval-option-selected", "approval\n"),
@@ -189,7 +209,7 @@ async def test_native_scrollback_applies_same_background_policy(kind: TerminalKi
         assert terminal.cell(0, 0).bold
         assert terminal.cell(1, 0).foreground == "green"
         assert terminal.cell(2, 0).foreground == "cyan"
-        if kind is TerminalKind.JETBRAINS_JEDITERM:
+        if not backgrounds_allowed:
             assert all(terminal.cell(row, 0).background == "default" for row in range(3))
             assert not terminal.cell(2, 0).reverse
             assert terminal.cell(2, 0).bold
