@@ -11,6 +11,7 @@ from agent.adapters.protocol.activity_events import (
 )
 from agent.adapters.protocol.approval_events import ApprovalEventHandler
 from agent.adapters.protocol.approval_reviews import ApprovalReviewEventHandler
+from agent.adapters.protocol.context_usage import context_usage_record
 from agent.adapters.protocol.model_events import ModelStreamEventHandler
 from agent.adapters.protocol.turn_source import (
     SubmittingTurnStreamSource,
@@ -75,6 +76,7 @@ from agent.ports import (
     ProtocolCommandError,
     TurnSessionContextPort,
     TurnSessionStatePort,
+    TransportRecoveryPhase,
 )
 from agent.ports import OutputControlPort
 from agent.ports import OutputSessionFactory
@@ -84,6 +86,7 @@ from observability import (
 )
 from protocol.client.tools import ToolResultRequestError
 from protocol.schema.stream_events import (
+    ContextUsageUpdatedEvent,
     StreamGapEvent,
     ToolApprovalRequiredEvent,
     ToolApprovalReviewEvent,
@@ -174,6 +177,15 @@ async def stream_turn(
         TurnSessionStatePort,
     ):
         raise RuntimeError("turn session state is required")
+    usage_session = (
+        session_state
+        if (
+            turn_context.agent.depth == 0
+            and source.uses_conversation_context
+            and isinstance(session_state, TurnSessionStatePort)
+        )
+        else None
+    )
 
     prompt_blocked: bool = False
     turn_hook_events: TurnHookEvents | None = None
@@ -374,13 +386,31 @@ async def stream_turn(
         )
         tool_turn_boundary = ToolTurnBoundary(turn_context, outcome, approval_handler, tool_dispatcher)
 
+        async def transport_recovery_changed(
+            phase: TransportRecoveryPhase, event_seq: int,
+        ) -> None:
+            """共用传输追平边界，独立归约用量与工具恢复。"""
+            if usage_session is not None and phase in {"reconnecting", "replaying"}:
+                usage_session.context_usage_recovery(
+                    turn_context.cid, turn_context.sid, pending=True,
+                )
+            await tool_turn_boundary.transport_recovery_changed(phase, event_seq)
+            if usage_session is not None and phase == "caught_up":
+                usage_session.context_usage_recovery(
+                    turn_context.cid, turn_context.sid, pending=False,
+                )
+
+        if usage_session is not None and source.historical_replay_target_seq is not None:
+            usage_session.context_usage_recovery(
+                turn_context.cid, turn_context.sid, pending=True,
+            )
         event_stream = await source.open(
             turn_context,
             pref_config=pref_config,
             message=message,
             tools=tools,
             options=kwargs,
-            on_recovery_status=tool_turn_boundary.transport_recovery_changed,
+            on_recovery_status=transport_recovery_changed,
             on_approval_snapshot=tool_turn_boundary.restore_approval_snapshot,
         )
         if not isinstance(event_stream, ModelEventStream):
@@ -408,6 +438,10 @@ async def stream_turn(
                 )
                 first_event = False
             event_type = event.type
+            if isinstance(event, ContextUsageUpdatedEvent):
+                if usage_session is not None:
+                    usage_session.record_context_usage(context_usage_record(event))
+                continue
             if await model_events.handle(event, projection=event_stream):
                 continue
             if await command_projection.observe(event, event_stream.current_item):
@@ -421,6 +455,14 @@ async def stream_turn(
                     await approval_review_handler.handle(event)
                 continue
             if isinstance(event, StreamGapEvent):
+                if (
+                    usage_session is not None
+                    and event.gap_kind == "retained_prefix"
+                    and event.next_seq is not None
+                ):
+                    usage_session.discard_context_usage_prefix(
+                        event.cid, event.sid, event.next_seq,
+                    )
                 gap_decision = await handle_stream_gap(
                     event,
                     activity=activity_projector,

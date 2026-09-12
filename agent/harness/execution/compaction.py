@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import contextlib
 import typing
 from dataclasses import replace
 
@@ -24,6 +25,7 @@ from agent.ports import (
     CompactionSessionPort,
     HookExecutionScopePort,
 )
+from agent.protocol import ContextUsageRecord
 from observability import (
     observe,
     observe_exception
@@ -90,64 +92,68 @@ async def compact_conversation(
         )
         attempted = True
 
-        async for event in client.stream(
+        async with contextlib.aclosing(client.stream(
             cid=metadata["cid"],
             sid=metadata["sid"],
             pref_config=pref_config,
-        ):
-            if event.status == "started":
-                if on_progress is not None:
-                    on_progress(event.message)
-                observe("compact.remote.started")
-                continue
+        )) as events:
+            async for event in events:
+                if isinstance(event, ContextUsageRecord):
+                    session.record_context_usage(event)
+                    continue
+                if event.status == "started":
+                    if on_progress is not None:
+                        on_progress(event.message)
+                    observe("compact.remote.started")
+                    continue
 
-            if event.status == "failed":
-                result = CompactResult(
-                    outcome="failed",
-                    message=(
-                        event.message
-                        or "Context compaction failed. Please try again."
-                    ),
-                    summary=event.summary or event.message,
-                    transcript_path=transcript_path,
-                    trigger=trigger,
-                    trigger_source=trigger_source,
-                )
+                if event.status == "failed":
+                    result = CompactResult(
+                        outcome="failed",
+                        message=(
+                            event.message
+                            or "Context compaction failed. Please try again."
+                        ),
+                        summary=event.summary or event.message,
+                        transcript_path=transcript_path,
+                        trigger=trigger,
+                        trigger_source=trigger_source,
+                    )
+                    observe(
+                        "compact.failed",
+                        level="ERROR",
+                        reason=event.message or "remote_failed",
+                    )
+                    break
+
+                if event.status == "completed":
+                    result = CompactResult(
+                        outcome="completed",
+                        message=event.message or "Context compacted.",
+                        before_items=event.before_items,
+                        after_items=event.after_items,
+                        summary=(
+                            event.summary
+                            or event.message
+                            or "Context compacted."
+                        ),
+                        transcript_path=transcript_path,
+                        trigger=trigger,
+                        trigger_source=trigger_source,
+                        result_source="server",
+                    )
+                    observe(
+                        "compact.complete",
+                        before_items=result.before_items,
+                        after_items=result.after_items,
+                    )
+                    break
+            else:
                 observe(
                     "compact.failed",
                     level="ERROR",
-                    reason=event.message or "remote_failed",
+                    reason="missing_terminal_event",
                 )
-                break
-
-            if event.status == "completed":
-                result = CompactResult(
-                    outcome="completed",
-                    message=event.message or "Context compacted.",
-                    before_items=event.before_items,
-                    after_items=event.after_items,
-                    summary=(
-                        event.summary
-                        or event.message
-                        or "Context compacted."
-                    ),
-                    transcript_path=transcript_path,
-                    trigger=trigger,
-                    trigger_source=trigger_source,
-                    result_source="server",
-                )
-                observe(
-                    "compact.complete",
-                    before_items=result.before_items,
-                    after_items=result.after_items,
-                )
-                break
-        else:
-            observe(
-                "compact.failed",
-                level="ERROR",
-                reason="missing_terminal_event",
-            )
 
     except CompactHookBlockedError as error:
         result = CompactResult(

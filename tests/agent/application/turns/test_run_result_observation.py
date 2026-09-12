@@ -532,6 +532,10 @@ def _host(
     class _SessionState:
         """实现 TurnSessionStatePort 的测试替身。"""
 
+        record_context_usage = Mock()
+        context_usage_recovery = Mock()
+        discard_context_usage_prefix = Mock()
+
         def queue_turn_context(self, contexts) -> None:
             queued_context.append(tuple(contexts))
 

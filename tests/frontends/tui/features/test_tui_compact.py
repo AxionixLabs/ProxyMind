@@ -3,6 +3,7 @@
 import asyncio
 import functools
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -15,6 +16,7 @@ from infrastructure.hooks.discovery import resolve_hook_definitions
 from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
 from protocol.schema.stream_events import parse_compact_event
+from protocol.schema.stream_events import parse_stream_event
 
 
 def _compact_event(status="completed", *, before_items=None, after_items=None):
@@ -115,6 +117,9 @@ class _CompactionSession:
     def queue_turn_context(self, contexts):
         self._host.conversation.queue_turn_context(contexts)
 
+    def record_context_usage(self, record):
+        self._host.conversation.record_context_usage(record)
+
 
 async def _compact(host, **kwargs):
     return await compact_mode.compact_conversation(
@@ -213,8 +218,21 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
 
 @pytest.mark.anyio
 async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
+    closed = []
     async def completed_stream(_payload):
-        yield _compact_event(before_items=18, after_items=6)
+        try:
+            yield parse_stream_event({
+                "type": "context.usage.updated", "proto": "mind.chat",
+                "cid": "cid", "sid": "sid", "turn_id": "compact-turn",
+                "event_seq": 11, "presentation_epoch": 1,
+                "model_context_window": 100_000,
+                "last_token_usage": {"total_tokens": 13_000},
+                "total_token_usage": {"total_tokens": 250_000},
+                "usage_source": "estimate", "model": "test-model", "route": "responses",
+            })
+            yield _compact_event(before_items=18, after_items=6)
+        finally:
+            closed.append(True)
 
     class ApplicationHostStub(object):
         transcripts = _TranscriptStore()
@@ -222,6 +240,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
         permissions = preset_permissions("auto")
         conversation = SimpleNamespace(
             snapshot=lambda: {"cid": "cid", "sid": "sid"},
+            record_context_usage=Mock(),
         )
 
         def __init__(self):
@@ -249,6 +268,11 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
         pref_config={},
     )
     conversation.render_compact_result(host, result)
+
+    record = host.conversation.record_context_usage.call_args.args[0]
+    assert record.last_total_tokens == 13_000
+    assert record.total_tokens == 250_000
+    assert closed == [True]
 
     status = next(view for view in host.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (

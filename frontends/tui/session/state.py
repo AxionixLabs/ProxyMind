@@ -221,6 +221,7 @@ class TuiSessionState(object):
 async def preload_tui_prompt_context(host: "ResumeApplicationHost") -> None:
     """在主画布显示前加载输入上下文和后台进程状态。"""
     runtime = require_tui_runtime(host.frontend.runtime)
+    runtime.bind_context_usage(host.conversation.context_usage)
 
     runtime.input_model.set_skills(configured_skills(
         host.settings.config.load(), Path(host.history_workspace),

@@ -14,6 +14,7 @@ from frontends.tui.session.state import (
     preload_tui_prompt_context,
 )
 from agent.domain.policies import preset_permissions
+from agent.application.turns.context_usage import ContextUsageProjection
 
 
 @pytest.mark.anyio
@@ -21,6 +22,7 @@ async def test_prompt_context_is_loaded_before_runtime_open() -> None:
     runtime = TuiRuntime()
     workspace_updates = []
     host = SimpleNamespace(
+        conversation=SimpleNamespace(context_usage=ContextUsageProjection()),
         history_workspace=Path("D:/workspace"),
         frontend=SimpleNamespace(runtime=runtime),
         settings=SimpleNamespace(
@@ -95,6 +97,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             assert played == []
 
             host = SimpleNamespace(
+                conversation=SimpleNamespace(context_usage=ContextUsageProjection()),
                 history_workspace=workspace,
                 frontend=SimpleNamespace(runtime=runtime),
                 settings=SimpleNamespace(
@@ -131,7 +134,9 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             assert runtime.context.model == "gpt-test high"
             assert "gpt-test high" in footer
             assert "Ask for approval" in footer
-            assert str(workspace.resolve()) in footer
+            assert runtime.context.workspace_label == str(workspace.resolve())
+            assert str(workspace.resolve().parent) in footer
+            assert footer.endswith("100% context left ")
             assert " · -" not in footer
             assert played == []
 

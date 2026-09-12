@@ -37,6 +37,11 @@ class TurnStreamSource(typing.Protocol):
     """
 
     @property
+    def uses_conversation_context(self) -> bool:
+        """声明用量是否属于普通会话上下文；独立 Review 必须返回假。"""
+        ...
+
+    @property
     def continuation_capability(self) -> ModelCapability | None:
         """返回 Stop continuation 创建新 Turn 使用的模型能力。"""
         ...
@@ -83,6 +88,11 @@ class TurnStreamSource(typing.Protocol):
 
 class SubmittingTurnStreamSource(TurnStreamSource):
     """运行提交 Hook 并为一条新 Turn 创建模型事件流。"""
+
+    @property
+    def uses_conversation_context(self) -> bool:
+        """普通提交使用会话上下文。"""
+        return True
 
     def __init__(
         self,
@@ -167,6 +177,11 @@ class SubmittingTurnStreamSource(TurnStreamSource):
 
 class ObservingTurnStreamSource(TurnStreamSource):
     """只 attach 已由其他提交路径创建的既有远端 Turn。"""
+
+    @property
+    def uses_conversation_context(self) -> bool:
+        """普通 Turn 观察恢复原会话上下文。"""
+        return True
 
     def __init__(
         self,
@@ -267,6 +282,11 @@ class ObservingTurnStreamSource(TurnStreamSource):
 class SubmittingReviewTurnStreamSource(TurnStreamSource):
     """登记冻结 Review 请求并把确认后的事件流交给共享 Turn 生命周期。"""
 
+    @property
+    def uses_conversation_context(self) -> bool:
+        """Review 使用独立上下文，不覆盖普通会话用量。"""
+        return False
+
     def __init__(
         self,
         capability: ReviewCapability,
@@ -332,6 +352,11 @@ class SubmittingReviewTurnStreamSource(TurnStreamSource):
 
 class ObservingReviewTurnStreamSource(TurnStreamSource):
     """只 attach 已登记 Review，并保留共享事件泵的历史水位语义。"""
+
+    @property
+    def uses_conversation_context(self) -> bool:
+        """Review 重放仍属于独立上下文。"""
+        return False
 
     def __init__(
         self,

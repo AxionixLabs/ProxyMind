@@ -10,6 +10,7 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.domain.transcripts import TranscriptEntry
+from agent.protocol.context_usage import ContextUsageRecord
 from agent.stores.sessions import (
     HISTORY_LIMIT,
     ConversationHistoryStore,
@@ -111,6 +112,26 @@ class LocalConversationHistory:
             )
             return False
         return True
+
+    def load_context_usage(self, cid: str, sid: str) -> ContextUsageRecord | None:
+        """读取已确认事实的缓存，读取失败时明确返回未知。"""
+        try:
+            return self._store.load_context_usage(cid, sid)
+        except (OSError, sqlite3.Error, TypeError, ValueError) as error:
+            observe_exception("history.context_usage.read_failed", error, level="WARNING")
+            return None
+
+    def save_context_usage(self, record: ContextUsageRecord) -> bool:
+        """缓存完整用量记录，持久化故障不改写远端事实。"""
+        try:
+            return self._store.save_context_usage(record)
+        except (OSError, OverflowError, sqlite3.Error, ValueError) as error:
+            observe_exception("history.context_usage.write_failed", error, level="WARNING")
+            return False
+
+    def discard_context_usage_prefix(self, cid: str, sid: str, event_seq: int) -> None:
+        """作废无法确认完整性的旧缓存，存储故障保持显式错误。"""
+        self._store.discard_context_usage_prefix(cid, sid, event_seq)
 
     def recent(
         self,

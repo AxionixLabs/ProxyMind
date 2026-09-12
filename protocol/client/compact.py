@@ -13,6 +13,7 @@ from protocol.schema.json_value import (
 )
 from protocol.schema.stream_events import (
     ContextCompactionEvent,
+    ContextUsageUpdatedEvent,
     parse_compact_event,
 )
 from protocol.transport.auth import build_service_headers
@@ -38,9 +39,11 @@ async def stream_compact_events(
     payload: JsonObject,
     *,
     timeout: float = 120.0
-) -> typing.AsyncGenerator[ContextCompactionEvent, None]:
+) -> typing.AsyncGenerator[ContextCompactionEvent | ContextUsageUpdatedEvent, None]:
     """读取并校验同一手动压缩操作的 SSE，不自动重提压缩请求。"""
     operation: tuple[str, str] | None = None
+    operation_turn_id: str | None = None
+    last_event_seq = 0
     terminal: ContextCompactionEvent | None = None
     async with contextlib.aclosing(streaming(
         service_endpoints.endpoint("/compact"),
@@ -54,10 +57,21 @@ async def stream_compact_events(
             event = parse_compact_event(raw)
             if event.cid != payload["cid"] or event.sid != payload["sid"]:
                 raise ValueError("compact event does not match the requested session")
-            identity = (event.turn_id, event.item_id)
-            if operation is not None and operation != identity:
+            if operation_turn_id is not None and event.turn_id != operation_turn_id:
                 raise ValueError("compact event does not match the current operation")
-            operation = identity
+            operation_turn_id = event.turn_id
+            if isinstance(event, ContextCompactionEvent):
+                identity = (event.turn_id, event.item_id)
+                if operation is not None and operation != identity:
+                    raise ValueError("compact event does not match the current operation")
+                operation = identity
+            if event.event_seq is not None:
+                if event.event_seq <= last_event_seq:
+                    continue
+                last_event_seq = event.event_seq
+            if isinstance(event, ContextUsageUpdatedEvent):
+                yield event
+                continue
             if event.item_status in {"completed", "failed"}:
                 terminal = event
                 break

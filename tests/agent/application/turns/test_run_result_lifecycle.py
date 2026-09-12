@@ -472,6 +472,10 @@ def _host(
     class _SessionState:
         """实现 TurnSessionStatePort 的测试替身。"""
 
+        record_context_usage = Mock()
+        context_usage_recovery = Mock()
+        discard_context_usage_prefix = Mock()
+
         def queue_turn_context(self, contexts) -> None:
             queued_context.append(tuple(contexts))
 
@@ -1034,6 +1038,63 @@ async def test_stream_returns_completed_result(monkeypatch) -> None:
         },
     }
     assert not hasattr(host, "hook_scope")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("child_agent", [False, True])
+async def test_context_usage_updates_session_without_content_or_wait_activity(
+    monkeypatch, child_agent,
+) -> None:
+    usage = {
+        "type": "context.usage.updated",
+        "model_context_window": 100_000,
+        "last_token_usage": {"total_tokens": 20_000},
+        "total_token_usage": {"total_tokens": 250_000},
+        "usage_source": "provider", "model": "test-model", "route": "responses",
+    }
+    result, host = await _run_stream(monkeypatch, [
+        usage,
+        {**usage, "last_token_usage": {"total_tokens": 13_000}, "usage_source": "estimate"},
+        {"type": "turn.completed"},
+    ], child_agent=child_agent)
+    assert result.status == "completed"
+    assert result.assistant_text == ""
+    records = host.turn_session_state.record_context_usage.call_args_list
+    if child_agent:
+        assert records == []
+    else:
+        assert [call.args[0].last_total_tokens for call in records] == [20_000, 13_000]
+        assert [call.args[0].total_tokens for call in records] == [250_000, 250_000]
+    assert not any(
+        isinstance(item, ModelWaitRequested) and item.reason == "lifecycle"
+        for item in host.output_session.activity.items
+    )
+    assert not any(entry["event"].startswith("context.usage") for entry in host.transcripts.entries)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("child_agent", [False, True])
+async def test_retained_gap_invalidates_only_main_session_context_usage(
+    monkeypatch, child_agent,
+) -> None:
+    result, host = await _run_stream(monkeypatch, [
+        {
+            "type": "stream.gap",
+            "cid": "cid_test",
+            "sid": "sid_test",
+            "gap_kind": "retained_prefix",
+            "requested_after_seq": 1,
+            "first_event_seq": 5,
+            "next_seq": 4,
+        },
+        {"type": "turn.completed"},
+    ], child_agent=child_agent)
+    assert result.status == "completed"
+    discarded = host.turn_session_state.discard_context_usage_prefix
+    if child_agent:
+        discarded.assert_not_called()
+    else:
+        discarded.assert_called_once_with("cid_test", "sid_test", 4)
 
 
 @pytest.mark.anyio

@@ -11,6 +11,7 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.application.agents.views import AgentSnapshot
+from agent.application.turns.context_usage import ContextUsageProjection
 from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import SessionEndReason
 from agent.domain.policies import PermissionSettings
@@ -31,6 +32,8 @@ from agent.ports import (
     TranscriptFactory,
 )
 from agent.protocol import AssistantReplySnapshot
+from agent.protocol.context_usage import ContextUsageRecord
+from agent.ports.conversation import ContextUsageFeed
 from agent.ports.workspace import WorkspaceChangePort
 from observability import (
     observe,
@@ -121,6 +124,39 @@ class RootConversationSession:
         self._state = ConversationState()
         self._lifecycle_id = 0
         self._assistant_reply_snapshot: AssistantReplySnapshot | None = None
+        self._context_usage = ContextUsageProjection()
+
+    @property
+    def context_usage(self) -> ContextUsageFeed:
+        """提供跨 Turn 保留的用量展示订阅。"""
+        return self._context_usage
+
+    def record_context_usage(self, record: ContextUsageRecord) -> None:
+        """先缓存当前会话的新事实，再提交展示投影。"""
+        if self._context_usage.accepts(record):
+            self._history.save_context_usage(record)
+            self._context_usage.apply(record)
+
+    def context_usage_recovery(self, cid: str, sid: str, *, pending: bool) -> None:
+        """沿既有恢复边界抑制中间画面或提交最终快照。"""
+        if pending:
+            self._context_usage.begin_replay(cid, sid)
+        else:
+            self._context_usage.finish_replay(cid, sid)
+
+    def discard_context_usage_prefix(self, cid: str, sid: str, event_seq: int) -> None:
+        """沿远端裁剪信号作废旧投影及缓存，禁止重启后恢复失效值。"""
+        self._context_usage.discard_retained_prefix(cid, sid, event_seq)
+        self._history.discard_context_usage_prefix(cid, sid, event_seq)
+
+    def _activate_context_usage(self, cid: str, sid: str, *, initial: bool) -> None:
+        """切换活动投影；已有会话先进入 pending，再恢复精确缓存。"""
+        self._context_usage.activate(cid, sid, initial=initial)
+        if not initial:
+            record = self._history.load_context_usage(cid, sid)
+            if record is not None:
+                self._context_usage.apply(record)
+            self._context_usage.finish_replay(cid, sid)
 
     @property
     def cid(self) -> str | None:
@@ -199,7 +235,11 @@ class RootConversationSession:
 
     def snapshot(self) -> dict[str, str]:
         """返回当前会话的稳定身份快照。"""
-        return self._state.snapshot()
+        unbound = self._state.cid is None or self._state.sid is None
+        metadata = self._state.snapshot()
+        if unbound:
+            self._activate_context_usage(metadata["cid"], metadata["sid"], initial=True)
+        return metadata
 
     def update_title(
         self,
@@ -280,6 +320,7 @@ class RootConversationSession:
         source: str = "begin",
     ) -> ConversationTurn:
         """为新轮次初始化或续用当前会话标识。"""
+        previous_identity = (self._state.cid, self._state.sid)
         external_cid = str(cid or "").strip()
         external_sid = str(sid or "").strip()
         if external_cid or external_sid:
@@ -309,6 +350,11 @@ class RootConversationSession:
             title=title,
             source=source,
         )
+        if previous_identity != (turn.cid, turn.sid):
+            self._activate_context_usage(
+                turn.cid, turn.sid, initial=turn.session_mode == "create",
+            )
+        self._context_usage.mark_started()
         observe(
             "conversation.begin",
             cid=metadata.get("cid"),
@@ -329,6 +375,7 @@ class RootConversationSession:
         """结束当前生命周期并开始一个新的模型对话。"""
         await self.end(reason="reset")
         metadata = self._state.reset(reason=reason)
+        self._activate_context_usage(metadata["cid"], metadata["sid"], initial=True)
         self._lifecycle_id += 1
         self._assistant_reply_snapshot = None
         self._history.touch(
@@ -390,6 +437,8 @@ class RootConversationSession:
             )
             return None
         if self._state.cid == cid and self._state.sid == sid and workspace_change is None:
+            if not self._state.fork_source_available:
+                self._activate_context_usage(cid, sid, initial=False)
             self._state.session_bound = True
             self._state.fork_source_available = True
             metadata = self._state.snapshot()
@@ -413,6 +462,7 @@ class RootConversationSession:
         )
         self._lifecycle_id += 1
         self._assistant_reply_snapshot = assistant_reply
+        self._activate_context_usage(cid, sid, initial=False)
         metadata = self._state.snapshot()
         self._history.touch(
             metadata,
@@ -424,6 +474,7 @@ class RootConversationSession:
 
     async def end(self, *, reason: SessionEndReason) -> None:
         """结束当前已绑定的根会话生命周期。"""
+        self._context_usage.close(clear_listeners=reason == "exit")
         cid = str(self._state.cid or "").strip()
         sid = str(self._state.sid or "").strip()
         if not self._state.session_bound or not valid_session_ids(cid, sid):

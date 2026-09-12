@@ -87,6 +87,7 @@ TUI_APPLICATION_OVERRIDES = Style.from_dict({
     "directory-trust.hint": "dim",
     "footer.mailbox": "bold",
     "footer.queue-hint": "dim",
+    "footer.context": "dim nobold",
     "shell.title.dot.running": "bold",
     "shell.title.dot.success": "bold",
     "shell.title.dot.failure": "bold",

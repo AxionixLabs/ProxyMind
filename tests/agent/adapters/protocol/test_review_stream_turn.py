@@ -2,11 +2,15 @@
 
 from collections.abc import AsyncIterator
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 import pytest
 
 from agent.adapters.protocol.client import MindChatProtocolClient
+from protocol.schema.stream_events import parse_stream_event
 from agent.adapters.protocol.items import CanonicalItemReducer
 from agent.adapters.protocol.review_events import ReviewEventProjector
 from agent.adapters.protocol.turn_source import SubmittingReviewTurnStreamSource
@@ -162,6 +166,9 @@ class _SessionState:
     def __init__(self) -> None:
         self.replies = []
         self.contexts = []
+        self.record_context_usage = Mock()
+        self.context_usage_recovery = Mock()
+        self.discard_context_usage_prefix = Mock()
 
     def remember_assistant_reply(self, text: str) -> None:
         self.replies.append(text)
@@ -457,7 +464,16 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         "agent.adapters.protocol.turn_stream.ClientToolCallRunner.execute",
         execute_tool,
     )
-    stream = _ReviewStream(_events())
+    usage = parse_stream_event({
+        "type": "context.usage.updated", "proto": "mind.chat",
+        "cid": CID, "sid": SID, "turn_id": TURN_ID,
+        "event_seq": 1, "presentation_epoch": 1,
+        "model_context_window": 100_000,
+        "last_token_usage": {"total_tokens": 20_000},
+        "total_token_usage": None, "usage_source": "provider",
+        "model": "review-model", "route": "responses",
+    })
+    stream = _ReviewStream((usage, *_events()))
     capability = _ReviewCapability(stream)
     source = SubmittingReviewTurnStreamSource(capability, command.request)
     projector = ReviewEventProjector(
@@ -526,6 +542,8 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
 
     assert result.status == "completed"
     assert result.assistant_text == "No findings."
+    session_state.record_context_usage.assert_not_called()
+    session_state.context_usage_recovery.assert_not_called()
     assert [event.type for event in input_events] == [
         "turn.started",
         "session.title.updated",

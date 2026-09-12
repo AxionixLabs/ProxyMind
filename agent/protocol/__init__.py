@@ -18,6 +18,7 @@ from .commands import (
     ForkPrompt,
     parse_run_command,
 )
+from .context_usage import ContextUsageRecord
 from .events import (
     ModelEvent,
     RunEvent,
@@ -40,6 +41,7 @@ from .model import (
 )
 
 __all__ = (
+    "ContextUsageRecord",
     "RunEvent",
     "ModelEvent",
     "validate_model_event",

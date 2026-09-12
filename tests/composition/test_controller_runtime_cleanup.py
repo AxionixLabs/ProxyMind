@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from types import SimpleNamespace
+from dataclasses import replace
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -15,6 +16,7 @@ from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
 from agent.ports import TurnSessionContextPort
+from agent.protocol.context_usage import ContextUsageRecord
 from agent.stores.sessions import normalize_workspace
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
@@ -37,6 +39,9 @@ def _root_session(
         ttl_ms=1000,
         max_items=10,
         touch_session=Mock(),
+        load_context_usage=Mock(return_value=None),
+        save_context_usage=Mock(return_value=True),
+        discard_context_usage_prefix=Mock(),
         rename_session=Mock(return_value={"title": "Review current changes"}),
         archive_session=Mock(return_value={"status": "archived"}),
         unarchive_session=Mock(return_value={"status": "active"}),
@@ -95,6 +100,50 @@ def _root_session(
         command_cleanup=command_cleanup,
         event_close=event_close,
     )
+
+
+@pytest.mark.anyio
+async def test_root_context_usage_survives_turn_and_restores_only_target_session() -> None:
+    session, resources = _root_session()
+    metadata = session.snapshot()
+    record = ContextUsageRecord(
+        **metadata, turn_id="turn_1", event_seq=12, presentation_epoch=1,
+        model_context_window=100_000, last_total_tokens=20_000, total_tokens=250_000,
+        usage_source="provider", model="test-model", route="responses",
+    )
+    views = []
+    session.context_usage.subscribe(views.append)
+    await session.begin_turn()
+    session.record_context_usage(record)
+    await session.begin_turn()
+    assert session.context_usage.view.record == record
+    session.record_context_usage(replace(record, sid="other", event_seq=99))
+    session.record_context_usage(record)
+    resources.store.save_context_usage.assert_called_once_with(record)
+    await session.reset()
+    assert session.context_usage.view.status == "initial"
+    assert session.context_usage.view.record is None
+    resources.store.load_context_usage.return_value = record
+    await session.bind(record.cid, record.sid)
+    assert session.context_usage.view.record == record
+    assert [view.status for view in views][-2:] == ["pending", "known"]
+    session.context_usage_recovery(record.cid, record.sid, pending=True)
+    session.discard_context_usage_prefix(record.cid, record.sid, record.event_seq)
+    resources.store.discard_context_usage_prefix.assert_called_once_with(
+        record.cid, record.sid, record.event_seq,
+    )
+    session.record_context_usage(record)
+    session.context_usage_recovery(record.cid, record.sid, pending=False)
+    assert session.context_usage.view.status == "unknown"
+    resources.store.save_context_usage.assert_called_once_with(record)
+    resources.store.load_context_usage.return_value = None
+    await session.bind("cid_fork_12345678", "sid_fork_1_abcdef", source="fork")
+    assert session.context_usage.view.status == "unknown"
+    assert session.context_usage.view.record is None
+    await session.end(reason="exit")
+    count = len(views)
+    await session.reset()
+    assert len(views) == count
 
 
 def test_controller_rebuilds_workspace_tools_after_runtime_replacement(

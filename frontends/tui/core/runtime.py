@@ -20,6 +20,8 @@ from agent.application.approvals.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest,
 )
+from agent.application.views.context_usage import ContextUsageView
+from agent.ports.conversation import ContextUsageFeed
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import (
     ActivityRuntimePort,
@@ -35,6 +37,7 @@ from frontends.terminal.progress import (
     TerminalProgress,
 )
 from frontends.terminal.text import sanitize_terminal_line
+from frontends.tui.rendering.screen.surfaces import context_usage_label
 from frontends.tui.contracts.resume import (
     ResumePickerRequest,
     ResumePickerResult,
@@ -161,6 +164,8 @@ class TuiRuntime(object):
         # Chromium。隔离必须覆盖整个 TUI runtime，才能让这些后代继承空设备。
         self._terminal_stderr_guard = TerminalStderrGuard.install()
         self.context = PromptContext(model="")
+        self._context_usage_feed: ContextUsageFeed | None = None
+        self._unsubscribe_context_usage: typing.Callable[[], None] | None = None
         self.keymap = keymap or TuiRuntimeKeymap.defaults()
         self.input_model = input_model or TuiInputModel(keymap=self.keymap)
         self.input_model.set_keymap(self.keymap)
@@ -941,6 +946,22 @@ class TuiRuntime(object):
             workspace_title = workspace_title.rsplit("/", 1)[-1]
         self.terminal_progress.set_workspace_title(workspace_title)
         if context != previous:
+            self.screen.invalidate()
+
+    def bind_context_usage(self, feed: ContextUsageFeed) -> None:
+        """订阅根会话投影，并在重新绑定或运行时关闭时释放订阅。"""
+        if self._context_usage_feed is feed:
+            return
+        if self._unsubscribe_context_usage is not None:
+            self._unsubscribe_context_usage()
+        self._context_usage_feed = feed
+        self._unsubscribe_context_usage = feed.subscribe(self.set_context_usage)
+
+    def set_context_usage(self, view: ContextUsageView) -> None:
+        """仅在 footer 可见文案变化时请求重绘。"""
+        label = context_usage_label(view)
+        if label != self.screen.context_usage_label:
+            self.screen.context_usage_label = label
             self.screen.invalidate()
 
     def set_process_status_label(self, label: str) -> None:
@@ -2311,6 +2332,10 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+        if self._unsubscribe_context_usage is not None:
+            self._unsubscribe_context_usage()
+            self._unsubscribe_context_usage = None
+        self._context_usage_feed = None
         self._application_lifecycle.mark_closing()
 
         async with self._approval_session_lock:

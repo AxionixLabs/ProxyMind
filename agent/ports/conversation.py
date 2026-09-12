@@ -2,22 +2,57 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import Collection
+from collections.abc import (
+    Callable,
+    Collection,
+)
 from pathlib import Path
 
 from agent.domain.hooks import SessionEndReason
 from agent.domain.transcripts import TranscriptEntry
 from agent.ports.workspace import WorkspaceChangePort
 from agent.protocol import AssistantReplySnapshot
+from agent.protocol.context_usage import ContextUsageRecord
+
+if typing.TYPE_CHECKING:
+    from agent.application.views.context_usage import ContextUsageView
 
 __all__ = (
+    "ContextUsageFeed",
     "ConversationHistoryPort",
     "RootConversationPort",
 )
 
 
+class ContextUsageFeed(typing.Protocol):
+    """提供根会话用量的只读视图；订阅者须在展示生命周期结束时解除订阅。"""
+
+    @property
+    def view(self) -> "ContextUsageView":
+        """读取空闲期间仍保留的当前投影。"""
+        ...
+
+    def subscribe(
+        self, listener: Callable[["ContextUsageView"], None],
+    ) -> Callable[[], None]:
+        """立即发送当前视图，并返回幂等取消订阅函数。"""
+        ...
+
+
 class ConversationHistoryPort(typing.Protocol):
     """定义入口查询和维护本地会话游标所需的边界。"""
+
+    def load_context_usage(self, cid: str, sid: str) -> ContextUsageRecord | None:
+        """读取随历史游标保留的已确认用量缓存，不补算缺失数据。"""
+        ...
+
+    def save_context_usage(self, record: ContextUsageRecord) -> bool:
+        """单调缓存完整事实，返回是否已持久化；不推进远端确认游标。"""
+        ...
+
+    def discard_context_usage_prefix(self, cid: str, sid: str, event_seq: int) -> None:
+        """删除指定历史裁剪水位以内的缓存；实现方必须保留更新记录。"""
+        ...
 
     @property
     def ttl_ms(self) -> int:
@@ -105,6 +140,11 @@ class ConversationHistoryPort(typing.Protocol):
 
 class RootConversationPort(typing.Protocol):
     """定义入口观察和控制根会话生命周期所需的公共边界。"""
+
+    @property
+    def context_usage(self) -> ContextUsageFeed:
+        """提供随根会话存在的只读展示订阅，调用方负责取消订阅。"""
+        ...
 
     @property
     def cid(self) -> str | None:

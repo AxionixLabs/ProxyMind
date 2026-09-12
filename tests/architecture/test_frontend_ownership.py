@@ -262,6 +262,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
         "approval.py",
         "commands.py",
         "contracts.py",
+        "context_usage.py",
         "hooks.py",
         "patch.py",
         "plan.py",

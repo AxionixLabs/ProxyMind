@@ -18,6 +18,7 @@ import pytest
 from protocol.client import chat
 from protocol.schema.stream_events import (
     ContextCompactionEvent,
+    ContextUsageUpdatedEvent,
     StreamGapEvent,
     TextDeltaEvent,
     TurnCompletedEvent,
@@ -130,6 +131,33 @@ def _install_reconnect_stream(
 
 async def _collect(stream):
     return [event async for event in stream]
+
+
+@pytest.mark.anyio
+async def test_context_usage_shares_stream_identity_and_confirmation_cursor(monkeypatch) -> None:
+    async def payloads():
+        usage = {
+            "type": "context.usage.updated", "turn_id": "turn_1", "event_seq": 3,
+            "model_context_window": 100_000,
+            "last_token_usage": {"total_tokens": 20_000},
+            "total_token_usage": {"total_tokens": 250_000},
+            "usage_source": "provider", "model": "test-model", "route": "responses",
+        }
+        yield usage
+        yield usage
+        yield {**usage, "event_seq": 2}
+        yield {"type": "turn.completed", "turn_id": "turn_1", "event_seq": 4}
+
+    transport = _install_stream(monkeypatch, payloads())
+    stream = chat.stream_chat({}, "hello", [])
+    events = await _collect(stream)
+    assert [event.event_seq for event in events] == [3, 4]
+    assert isinstance(events[0], ContextUsageUpdatedEvent)
+    assert events[0].snapshot.model_context_window == 100_000
+    assert isinstance(events[1], TurnCompletedEvent)
+    assert stream.last_event_seq == 4
+    assert stream.end_reason == "settled"
+    assert transport.closed
 
 
 @pytest.mark.anyio

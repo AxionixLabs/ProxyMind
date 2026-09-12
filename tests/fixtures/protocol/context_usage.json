@@ -1,0 +1,28 @@
+{
+  "event": {
+    "type": "context.usage.updated",
+    "proto": "mind.chat",
+    "cid": "cid_alpha_12345678",
+    "sid": "sid_alpha_1_abcdef",
+    "turn_id": "turn_context_1",
+    "event_seq": 12,
+    "presentation_epoch": 1,
+    "model_context_window": 100000,
+    "last_token_usage": {"total_tokens": 20000},
+    "total_token_usage": {"total_tokens": 250000},
+    "usage_source": "provider",
+    "model": "test-model",
+    "route": "responses"
+  },
+  "expected_percent": 91,
+  "percentage_examples": [
+    [100000, 0, 100],
+    [100000, 12000, 100],
+    [100000, 20000, 91],
+    [100000, 99560, 1],
+    [100000, 100000, 0],
+    [100000, 120000, 0],
+    [12000, 0, 0],
+    [2, 0, 0]
+  ]
+}

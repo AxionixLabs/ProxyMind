@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from agent.adapters.protocol.compaction import ProtocolCompactionClient
+from agent.protocol.context_usage import ContextUsageRecord
 from protocol.client import compact
 from protocol.schema.json_value import (
     JsonObject,
@@ -139,6 +140,55 @@ async def test_manual_compaction_consumes_current_server_sse_and_closes_at_termi
     assert payload["strategy"] == "memento"
     assert exchange.response.is_closed
     assert exchange.client.is_closed
+
+
+@pytest.mark.anyio
+async def test_manual_compaction_delivers_usage_before_closed_terminal() -> None:
+    usage: JsonObject = {
+        "type": "context.usage.updated", "proto": "mind.chat",
+        "cid": "cid-1", "sid": "sid-1", "turn_id": "compact-turn-1",
+        "event_seq": 11, "presentation_epoch": 1,
+        "model_context_window": 100_000,
+        "last_token_usage": {"total_tokens": 13_000},
+        "total_token_usage": {"total_tokens": 250_000},
+        "usage_source": "estimate", "model": "test-model", "route": "responses",
+    }
+    with _compact_http([
+        _event("started", event_seq=10), usage, usage,
+        _event("completed", event_seq=12, before_items=18, after_items=6),
+    ]) as exchange:
+        async with contextlib.aclosing(ProtocolCompactionClient().stream(
+            cid="cid-1", sid="sid-1", pref_config={},
+        )) as events:
+            await anext(events)
+            record = await anext(events)
+            assert isinstance(record, ContextUsageRecord)
+            assert record.last_total_tokens == 13_000
+            assert record.total_tokens == 250_000
+            assert not exchange.response.is_closed
+            completed = await anext(events)
+            assert completed.status == "completed"
+            assert exchange.response.is_closed
+            assert exchange.client.is_closed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field", ["cid", "sid", "turn_id"])
+async def test_manual_compaction_rejects_usage_for_other_operation(field) -> None:
+    usage: JsonObject = {
+        "type": "context.usage.updated", "proto": "mind.chat",
+        "cid": "cid-1", "sid": "sid-1", "turn_id": "compact-turn-1",
+        "event_seq": 11, "presentation_epoch": 1,
+        "model_context_window": None, "last_token_usage": None,
+        "total_token_usage": None, "usage_source": "unknown",
+        "model": "test-model", "route": "responses",
+    }
+    usage[field] = "other"
+    with _compact_http([_event("started", event_seq=10), usage]) as exchange:
+        with pytest.raises(ValueError, match="does not match"):
+            await _collect()
+        assert exchange.response.is_closed
+        assert exchange.client.is_closed
 
 
 @pytest.mark.anyio

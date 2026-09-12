@@ -311,6 +311,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._validate_keymap(keymap)
 
         self._startup_gate_active: bool = False
+        self.context_usage_label: str = ""
         self._startup_surface_cleared: bool = False
 
         self._clear_for_viewport_change_pending: bool = False
@@ -2276,6 +2277,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return render_footer_fragments(
                 mode=mode,
                 width=self.terminal_width,
+                context_label=self.context_usage_label,
                 history_search_query=(
                     history_search.query
                     if history_search is not None
@@ -2304,6 +2306,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 else ""
             ),
             model_label=context.model,
+            context_label=self.context_usage_label,
             permissions_label=context.permissions_label,
             raw_output_label=(
                 "raw output" if self.document.raw_output_mode else ""

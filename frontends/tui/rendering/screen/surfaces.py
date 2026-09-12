@@ -5,6 +5,10 @@ from enum import Enum
 
 from prompt_toolkit.utils import get_cwidth
 
+from agent.application.views.context_usage import (
+    ContextUsageView,
+    context_remaining_percent,
+)
 from frontends.terminal.text import sanitize_terminal_text
 from frontends.tui.contracts.text import FormattedText
 from metadata import const
@@ -19,6 +23,52 @@ class FooterMode(str, Enum):
     EXIT_ARMED = "exit_armed"
     QUEUE_SUBMISSION = "queue_submission"
     HIDDEN = "hidden"
+
+
+def context_usage_label(view: ContextUsageView) -> str:
+    """将可靠用量投影为默认 footer 文案，恢复中和未知状态不显示。"""
+    if view.status == "initial":
+        return "100% context left"
+    if view.status != "known" or view.record is None:
+        return ""
+    percent = context_remaining_percent(view.record)
+    if percent is not None:
+        return f"{percent}% context left"
+    total = view.record.total_tokens
+    if view.record.model_context_window is not None or total is None:
+        return ""
+    return f"{_compact_tokens(total)} used"
+
+
+def _compact_tokens(value: int) -> str:
+    """按 Codex 的三位有效数字规则缩写绝对 token 用量。"""
+    for divisor, suffix in (
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ):
+        if value >= divisor:
+            decimals = 2 if value < 10 * divisor else 1 if value < 100 * divisor else 0
+            scale = 10 ** decimals
+            rounded, remainder = divmod(value * scale, divisor)
+            if 2 * remainder > divisor or (2 * remainder == divisor and rounded % 2):
+                rounded += 1
+            formatted = str(rounded)
+            if decimals:
+                formatted = f"{rounded // scale}.{rounded % scale:0{decimals}d}"
+                formatted = formatted.rstrip("0").rstrip(".")
+            return formatted + suffix
+    return str(value)
+
+
+def _with_context(
+    left: FormattedText, context: str, *, width: int,
+) -> FormattedText:
+    """在单行右边距内放置用量，调用方先保证至少一列左右间隔。"""
+    left_width = sum(get_cwidth(text) for _style, text in left)
+    gap = width - 1 - left_width - get_cwidth(context)
+    return [*left, ("", " " * gap), ("class:footer.context", context), ("", " ")]
 
 
 def resolve_footer_mode(
@@ -52,12 +102,15 @@ def footer_fragments(
     permissions_label: str = "",
     raw_output_label: str = "",
     workspace_label: str = "",
+    context_label: str = "",
     history_search_query: str = "",
     history_search_status: str = "idle",
     history_search_accept_label: str = "enter",
     history_search_cancel_label: str = "esc",
 ) -> FormattedText:
     """生成指定模式下的输入 footer 片段。"""
+    context = sanitize_terminal_text(context_label).strip()
+    context_width = get_cwidth(context)
     if mode is FooterMode.HISTORY_SEARCH:
         fragments: FormattedText = [
             ("class:footer.search-label", "reverse-i-search: "),
@@ -93,8 +146,14 @@ def footer_fragments(
         ]
     if mode is FooterMode.QUEUE_SUBMISSION:
         full_hint = "  tab to queue message"
+        if context:
+            for candidate in (full_hint, "  tab to queue"):
+                if get_cwidth(candidate) + context_width + 2 <= width:
+                    return _with_context(
+                        [("class:footer.queue-hint", candidate)], context, width=width,
+                    )
         hint = full_hint if get_cwidth(full_hint) <= width else "  tab to queue"
-        return [("class:footer.queue-hint", hint)]
+        return clip_fragments([("class:footer.queue-hint", hint)], width=width)
     if mode is FooterMode.HIDDEN:
         return []
 
@@ -119,6 +178,9 @@ def footer_fragments(
                 ("class:footer.separator", " · "),
                 (style, text),
             ])
+    if context and get_cwidth(const.APP_DESC) + context_width + 2 <= width:
+        left = clip_fragments(parts, width=width - context_width - 2)
+        return _with_context(left, context, width=width)
     return clip_fragments(parts, width=width)
 
 

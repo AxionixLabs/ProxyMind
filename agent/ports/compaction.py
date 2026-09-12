@@ -3,7 +3,7 @@
 
 import typing
 from collections.abc import (
-    AsyncIterator,
+    AsyncGenerator,
     Awaitable,
     Iterable,
     Mapping,
@@ -12,6 +12,7 @@ from collections.abc import (
 from agent.domain.policies import PermissionSettings
 from agent.ports.hooks import HookScopeProviderPort
 from agent.ports.transcript import TranscriptFactory
+from agent.protocol.context_usage import ContextUsageRecord
 
 if typing.TYPE_CHECKING:
     from agent.application.turns.compact_result import CompactEvent
@@ -36,13 +37,17 @@ class CompactionClientPort(typing.Protocol):
         cid: str,
         sid: str,
         pref_config: dict[str, typing.Any],
-    ) -> AsyncIterator["CompactEvent"]:
+    ) -> AsyncGenerator["CompactEvent | ContextUsageRecord", None]:
         """提交压缩请求并返回归一化进度和终态事件。"""
         ...
 
 
 class CompactionSessionPort(typing.Protocol):
     """定义压缩用例读取当前会话状态和生命周期所需的最小端口。"""
+
+    def record_context_usage(self, record: ContextUsageRecord) -> None:
+        """把已提交的压缩用量保存到所属根会话投影。"""
+        ...
 
     @property
     def workspace_root(self) -> str:

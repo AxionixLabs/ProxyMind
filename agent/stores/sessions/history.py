@@ -10,10 +10,12 @@ import typing
 from pathlib import Path
 
 from agent.domain.workspaces import workspace_path_key
+from agent.protocol.context_usage import ContextUsageRecord
 from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
 TABLE_PENDING_FORKS = "conversation_pending_forks"
+TABLE_CONTEXT_USAGE = "conversation_context_usage"
 
 HISTORY_TTL_MS = 24 * 60 * 60 * 1000
 HISTORY_LIMIT = 200
@@ -47,6 +49,23 @@ ON {TABLE_SESSION_CURSORS} (expires_at);
 CREATE INDEX IF NOT EXISTS idx_conversation_session_cursors_updated
 ON {TABLE_SESSION_CURSORS} (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS {TABLE_CONTEXT_USAGE} (
+    cid TEXT NOT NULL,
+    sid TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    event_seq INTEGER NOT NULL,
+    presentation_epoch INTEGER NOT NULL,
+    model_context_window INTEGER,
+    last_total_tokens INTEGER,
+    total_tokens INTEGER,
+    usage_source TEXT NOT NULL,
+    model TEXT NOT NULL,
+    route TEXT NOT NULL,
+    PRIMARY KEY (cid, sid),
+    FOREIGN KEY (cid, sid) REFERENCES {TABLE_SESSION_CURSORS} (cid, sid)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS {TABLE_PENDING_FORKS} (
     cid         TEXT NOT NULL,
     sid         TEXT NOT NULL,
@@ -77,6 +96,86 @@ class ConversationHistoryStore(object):
         self.db_path = Path(db_path).expanduser()
         self.ttl_ms = max(1, int(ttl_ms or HISTORY_TTL_MS))
         self.max_items = max(1, int(max_items or HISTORY_LIMIT))
+
+    def load_context_usage(self, cid: str, sid: str) -> ContextUsageRecord | None:
+        """读取历史游标有效期内的完整远端用量缓存。"""
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                self._prune_expired(conn, now_ms=_now_ms())
+                row = conn.execute(
+                    f"SELECT * FROM {TABLE_CONTEXT_USAGE} WHERE cid = ? AND sid = ?",
+                    (cid, sid),
+                ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return ContextUsageRecord(
+            cid=row["cid"],
+            sid=row["sid"],
+            turn_id=row["turn_id"],
+            event_seq=row["event_seq"],
+            presentation_epoch=row["presentation_epoch"],
+            model_context_window=row["model_context_window"],
+            last_total_tokens=row["last_total_tokens"],
+            total_tokens=row["total_tokens"],
+            usage_source=row["usage_source"],
+            model=row["model"],
+            route=row["route"],
+        )
+
+    def save_context_usage(self, record: ContextUsageRecord) -> bool:
+        """按远端事件序号原子替换缓存，随父历史游标删除。"""
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                cursor = conn.execute(
+                    f"""
+                    INSERT INTO {TABLE_CONTEXT_USAGE} (
+                        cid, sid, turn_id, event_seq, presentation_epoch,
+                        model_context_window, last_total_tokens, total_tokens,
+                        usage_source, model, route
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(cid, sid) DO UPDATE SET
+                        turn_id = excluded.turn_id,
+                        event_seq = excluded.event_seq,
+                        presentation_epoch = excluded.presentation_epoch,
+                        model_context_window = excluded.model_context_window,
+                        last_total_tokens = excluded.last_total_tokens,
+                        total_tokens = excluded.total_tokens,
+                        usage_source = excluded.usage_source,
+                        model = excluded.model,
+                        route = excluded.route
+                    WHERE excluded.event_seq > {TABLE_CONTEXT_USAGE}.event_seq
+                    """,
+                    (
+                        record.cid, record.sid, record.turn_id, record.event_seq,
+                        record.presentation_epoch, record.model_context_window,
+                        record.last_total_tokens, record.total_tokens,
+                        record.usage_source, record.model, record.route,
+                    ),
+                )
+                return cursor.rowcount == 1
+        finally:
+            conn.close()
+
+    def discard_context_usage_prefix(self, cid: str, sid: str, event_seq: int) -> None:
+        """仅删除指定会话中落在已裁剪历史区间的旧用量缓存。"""
+        if isinstance(event_seq, bool) or not isinstance(event_seq, int) or event_seq < 0:
+            raise ValueError("context usage retention floor must be non-negative")
+        conn = self._connect()
+        try:
+            with conn:
+                self._init_schema(conn)
+                conn.execute(
+                    f"DELETE FROM {TABLE_CONTEXT_USAGE} WHERE cid = ? AND sid = ? AND event_seq <= ?",
+                    (cid, sid, event_seq),
+                )
+        finally:
+            conn.close()
 
     def touch_session(
         self,
@@ -554,6 +653,7 @@ class ConversationHistoryStore(object):
         """建立历史库连接。"""
         os.makedirs(self.db_path.parent, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.row_factory = sqlite3.Row
         conn.create_function("workspace_identity", 1, workspace_identity)
         return conn

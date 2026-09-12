@@ -11,6 +11,11 @@ from dataclasses import (
     field,
 )
 
+from protocol.schema.context_usage import (
+    CONTEXT_USAGE_FIELDS,
+    ContextUsageSnapshot,
+    parse_context_usage,
+)
 from protocol.schema.item_projection import (
     ItemKind,
     ItemStatus,
@@ -118,6 +123,13 @@ class ItemStreamEvent(StreamEvent):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MarkerEvent(StreamEvent):
     """描述不携带业务载荷的流式标记。"""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ContextUsageUpdatedEvent(StreamEvent):
+    """交付会话上下文快照，不创建 Item 或改变 Turn 生命周期。"""
+
+    snapshot: ContextUsageSnapshot
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -556,6 +568,7 @@ ChatStreamEvent: typing.TypeAlias = (
     | TurnReconciliationRequiredEvent
     | PresentationSupersededEvent
     | ContextCompactionEvent
+    | ContextUsageUpdatedEvent
     | ReviewStartedEvent
     | ReviewCompletedEvent
     | ReviewFailedEvent
@@ -635,6 +648,17 @@ def parse_stream_event(
         return _stream_gap_event(raw)
 
     common = _common_fields(raw, event_type)
+
+    if event_type == "context.usage.updated":
+        allowed = _STREAM_EVENT_FIELDS | CONTEXT_USAGE_FIELDS
+        if set(raw) - allowed or raw.get("display") is not None:
+            raise ValueError("context.usage.updated contains unsupported fields or display")
+        return ContextUsageUpdatedEvent(
+            **common,
+            snapshot=parse_context_usage({
+                key: value for key, value in raw.items() if key in CONTEXT_USAGE_FIELDS
+            }),
+        )
 
     if event_type == "tool.calls.start":
         return ToolCallsStartEvent(
@@ -1031,10 +1055,17 @@ def parse_stream_event(
     return UnknownStreamEvent(**common, payload=raw)
 
 
-def parse_compact_event(payload: Mapping[str, JsonValue]) -> ContextCompactionEvent:
+def parse_compact_event(
+    payload: Mapping[str, JsonValue],
+) -> ContextCompactionEvent | ContextUsageUpdatedEvent:
     """校验手动压缩端点的 Item；操作失败事件允许没有持久化序号。"""
     raw = dict(payload)
     event_type = _required_text(raw.get("type"), "compact event type")
+    if event_type == "context.usage.updated":
+        event = parse_stream_event(payload)
+        if not isinstance(event, ContextUsageUpdatedEvent):
+            raise TypeError("compact context usage event is invalid")
+        return event
     if event_type not in {
         "context.compaction.started",
         "context.compaction.completed",
