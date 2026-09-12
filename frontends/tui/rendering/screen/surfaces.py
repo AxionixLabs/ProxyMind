@@ -15,6 +15,11 @@ from metadata import const
 from ..fragments import clip_fragments
 
 
+FOOTER_RIGHT_MARGIN = 2
+FOOTER_CONTEXT_GAP = 1
+CONTEXT_PERCENT_WIDTH = len("100% context left")
+
+
 class FooterMode(str, Enum):
     """描述输入 footer 当前采用的互斥展示模式。"""
     DEFAULT = "default"
@@ -63,12 +68,12 @@ def _compact_tokens(value: int) -> str:
 
 
 def _with_context(
-    left: FormattedText, context: str, *, width: int,
+    left: FormattedText, context: str, *, width: int, right_padding: int,
 ) -> FormattedText:
     """在单行右边距内放置用量，调用方先保证至少一列左右间隔。"""
     left_width = sum(get_cwidth(text) for _style, text in left)
-    gap = width - 1 - left_width - get_cwidth(context)
-    return [*left, ("", " " * gap), ("class:footer.context", context), ("", " ")]
+    gap = width - right_padding - left_width - get_cwidth(context)
+    return [*left, ("", " " * gap), ("class:footer.context", context), ("", " " * right_padding)]
 
 
 def resolve_footer_mode(
@@ -103,6 +108,7 @@ def footer_fragments(
     raw_output_label: str = "",
     workspace_label: str = "",
     context_label: str = "",
+    reserved_right_columns: int = 0,
     history_search_query: str = "",
     history_search_status: str = "idle",
     history_search_accept_label: str = "enter",
@@ -110,7 +116,8 @@ def footer_fragments(
 ) -> FormattedText:
     """生成指定模式下的输入 footer 片段。"""
     context = sanitize_terminal_text(context_label).strip()
-    context_width = get_cwidth(context)
+    right_padding = max(0, FOOTER_RIGHT_MARGIN - reserved_right_columns)
+    context_width = max(CONTEXT_PERCENT_WIDTH, get_cwidth(context))
     if mode is FooterMode.HISTORY_SEARCH:
         fragments: FormattedText = [
             ("class:footer.search-label", "reverse-i-search: "),
@@ -146,12 +153,14 @@ def footer_fragments(
         ]
     if mode is FooterMode.QUEUE_SUBMISSION:
         full_hint = "  tab to queue message"
-        if context:
-            for candidate in (full_hint, "  tab to queue"):
-                if get_cwidth(candidate) + context_width + 2 <= width:
+        for candidate in (full_hint, "  tab to queue"):
+            if get_cwidth(candidate) + context_width + FOOTER_CONTEXT_GAP + right_padding <= width:
+                left = [("class:footer.queue-hint", candidate)]
+                if context:
                     return _with_context(
-                        [("class:footer.queue-hint", candidate)], context, width=width,
+                        left, context, width=width, right_padding=right_padding,
                     )
+                return left
         hint = full_hint if get_cwidth(full_hint) <= width else "  tab to queue"
         return clip_fragments([("class:footer.queue-hint", hint)], width=width)
     if mode is FooterMode.HIDDEN:
@@ -178,9 +187,6 @@ def footer_fragments(
                 ("class:footer.separator", " · "),
                 (style, text),
             ])
-    if context and get_cwidth(const.APP_DESC) + context_width + 2 <= width:
-        left = clip_fragments(parts, width=width - context_width - 2)
-        return _with_context(left, context, width=width)
     return clip_fragments(parts, width=width)
 
 

@@ -282,6 +282,7 @@ class TuiRuntime(object):
             get_context=lambda: self.context,
             get_placeholder_text=lambda: self.submissions.placeholder_text,
             get_submission_deferred=lambda: self.submission_deferred,
+            get_turn_running=lambda: self.task_state.turn_running,
             get_queued_submission_text=(
                 lambda: self.submissions.queued_submission_text
             ),
@@ -960,13 +961,11 @@ class TuiRuntime(object):
         self._unsubscribe_context_usage = feed.subscribe(self.set_context_usage)
 
     def set_context_usage(self, view: ContextUsageView) -> None:
-        """仅在 footer 可见文案变化时请求重绘。"""
+        """投影可靠用量，由 screen 判断当前显示模式是否需要重绘。"""
         if view.status != "initial":
             self._context_usage_pending = False
         label = "" if self._context_usage_pending else context_usage_label(view)
-        if label != self.screen.context_usage_label:
-            self.screen.context_usage_label = label
-            self.screen.invalidate()
+        self.screen.set_context_usage_label(label)
 
     def set_process_status_label(self, label: str) -> None:
         """更新动画区域下方的后台进程摘要。"""

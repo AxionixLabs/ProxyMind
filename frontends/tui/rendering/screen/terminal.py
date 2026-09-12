@@ -79,6 +79,18 @@ def supports_vt_control(output: Output) -> bool:
     return True
 
 
+def output_reserved_right_columns(output: Output) -> int:
+    """返回输出后端在可绘制宽度之外保留的右侧列数，不改变终端写入边界。"""
+    if sys.platform == "win32":
+        from prompt_toolkit.output.conemu import ConEmuOutput
+        from prompt_toolkit.output.win32 import Win32Output
+        from prompt_toolkit.output.windows10 import Windows10_Output
+
+        if isinstance(output, (Win32Output, Windows10_Output, ConEmuOutput)):
+            return 1
+    return 0
+
+
 def erase_terminal_scrollback(output: Output) -> None:
     """清除支持 VT 擦除指令的终端滚屏缓冲区。"""
     if not supports_vt_control(output):

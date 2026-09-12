@@ -136,7 +136,7 @@ async def test_first_trust_keeps_input_hidden_until_startup_finishes() -> None:
             assert "Ask for approval" in footer
             assert runtime.context.workspace_label == str(workspace.resolve())
             assert str(workspace.resolve().parent) in footer
-            assert footer.endswith("100% context left ")
+            assert "context left" not in footer
             assert " · -" not in footer
             assert played == []
 

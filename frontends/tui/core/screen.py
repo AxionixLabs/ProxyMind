@@ -186,6 +186,7 @@ from ..rendering.screen.surfaces import (
 from ..rendering.screen.terminal import (
     clear_terminal_for_resize_replay as _clear_terminal_for_resize_replay,
     erase_terminal_scrollback as _erase_terminal_scrollback,
+    output_reserved_right_columns,
     queued_message_edit_binding as _queued_message_edit_binding,
     set_alternate_scroll_mode as _set_alternate_scroll_mode,
     set_synchronized_output as _set_synchronized_output,
@@ -231,6 +232,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         get_context: typing.Callable[[], PromptContext],
         get_placeholder_text: typing.Callable[[], str],
         get_submission_deferred: typing.Callable[[], bool],
+        get_turn_running: typing.Callable[[], bool],
         get_queued_submission_text: typing.Callable[[], str | None],
         get_surface_submission_pending: typing.Callable[[], bool],
         can_transcript_backtrack: typing.Callable[[], bool],
@@ -274,6 +276,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._get_context = get_context
         self._get_placeholder_text = get_placeholder_text
         self._get_submission_deferred = get_submission_deferred
+        self._get_turn_running = get_turn_running
         self._get_queued_submission_text = get_queued_submission_text
         self._get_surface_submission_pending = get_surface_submission_pending
         self._get_transcript_view_row = get_transcript_view_row
@@ -1203,6 +1206,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             lambda _sender: self.input_model.finish_key_dispatch()
         )
 
+        self._reserved_output_columns = output_reserved_right_columns(self.application.output)
         self.hyperlinks_enabled = bool(
             _supports_terminal_hyperlinks(terminal_capabilities.identity)
             and _supports_vt_control(self.application.output)
@@ -2256,6 +2260,15 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             ),
         )
 
+    def set_context_usage_label(self, label: str) -> None:
+        """保存最新用量文案，仅在实际 footer 片段改变时重绘。"""
+        if label == self.context_usage_label:
+            return
+        previous = self._footer_fragments()
+        self.context_usage_label = label
+        if previous != self._footer_fragments():
+            self.invalidate()
+
     def _footer_fragments(self) -> FormattedText:
         """生成单行 TUI 信息栏。"""
         history_search = self.input_model.history_search_snapshot()
@@ -2277,7 +2290,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return render_footer_fragments(
                 mode=mode,
                 width=self.terminal_width,
-                context_label=self.context_usage_label,
+                context_label=(
+                    self.context_usage_label
+                    if self._get_turn_running() and not self.input_model.shell_mode
+                    else ""
+                ),
+                reserved_right_columns=self._reserved_output_columns,
                 history_search_query=(
                     history_search.query
                     if history_search is not None
@@ -2306,7 +2324,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 else ""
             ),
             model_label=context.model,
-            context_label=self.context_usage_label,
             permissions_label=context.permissions_label,
             raw_output_label=(
                 "raw output" if self.document.raw_output_mode else ""
