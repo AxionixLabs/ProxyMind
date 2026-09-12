@@ -85,27 +85,28 @@ def detect_terminal_identity(
     multiplexer, mux_version = _detect_multiplexer(env)
     program = str(env.get("TERM_PROGRAM") or "").strip()
 
-    if program:
-        if multiplexer is TerminalKind.TMUX:
-            queried = (tmux_probe or _query_tmux_client)()
-            if queried is not None:
-                term_type, term_name = queried
-                kind, version = _kind_and_version_from_program(term_type)
-                return TerminalIdentity(
-                    kind,
-                    term_name or term_type or "tmux",
-                    multiplexer=multiplexer,
-                    term_program=term_type or None,
-                    version=version,
-                    term=term_name or None,
-                    multiplexer_version=mux_version,
-                    source=TerminalIdentitySource.TMUX_CLIENT,
-                    source_variable="TMUX",
-                )
+    if multiplexer is TerminalKind.TMUX:
+        queried = (tmux_probe or _query_tmux_client)()
+        if queried is not None:
+            term_type, term_name = queried
+            kind, version = _kind_and_version_from_program(term_type)
+            return TerminalIdentity(
+                kind,
+                term_name or term_type or "tmux",
+                multiplexer=multiplexer,
+                term_program=term_type or None,
+                version=version,
+                term=term_name or None,
+                multiplexer_version=mux_version,
+                source=TerminalIdentitySource.TMUX_CLIENT,
+                source_variable="TMUX",
+            )
 
+    program_identity: TerminalIdentity | None = None
+    if program:
         kind, version = _kind_and_version_from_program(program)
         version = version or str(env.get("TERM_PROGRAM_VERSION") or "").strip() or None
-        return TerminalIdentity(
+        program_identity = TerminalIdentity(
             kind,
             program,
             multiplexer=multiplexer,
@@ -116,7 +117,10 @@ def detect_terminal_identity(
             source=TerminalIdentitySource.TERM_PROGRAM,
             source_variable="TERM_PROGRAM",
         )
+        if program_identity.is_ide_terminal:
+            return program_identity
 
+    # IDE 可继承外层终端的 TERM_PROGRAM，须先处理 JetBrains 明确标识。
     terminal_emulator = str(env.get("TERMINAL_EMULATOR") or "").strip()
     if terminal_emulator.casefold() == "jetbrains-jediterm":
         return TerminalIdentity(
@@ -128,6 +132,9 @@ def detect_terminal_identity(
             source=TerminalIdentitySource.DIRECT_SIGNAL,
             source_variable="TERMINAL_EMULATOR",
         )
+
+    if program_identity is not None:
+        return program_identity
 
     direct_signals = (
         ("WEZTERM_VERSION", TerminalKind.WEZTERM, "WezTerm"),
@@ -157,21 +164,6 @@ def detect_terminal_identity(
             )
 
     if multiplexer is TerminalKind.TMUX:
-        queried = (tmux_probe or _query_tmux_client)()
-        if queried is not None:
-            term_type, term_name = queried
-            kind, version = _kind_and_version_from_program(term_type)
-            return TerminalIdentity(
-                kind,
-                term_name or term_type or "tmux",
-                multiplexer=multiplexer,
-                term_program=term_type or None,
-                version=version,
-                term=term_name or None,
-                multiplexer_version=mux_version,
-                source=TerminalIdentitySource.TMUX_CLIENT,
-                source_variable="TMUX",
-            )
         return TerminalIdentity(
             TerminalKind.TMUX,
             "tmux",
