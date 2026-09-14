@@ -5,6 +5,8 @@ P1–P4 的实现项在代码复核和定向测试通过后勾选，P5 记录客
 每个阶段复核通过后单独提交、推送代码，并在本清单记录实际验证结果；不得提前勾选尚未执行的门禁。
 原有 context left 的显示条件、右侧留白和稳定布局继续按 [上下文用量客户端契约](docs/context-usage-protocol.md) 执行。
 
+当前状态：P1–P6 已完成。自动/手动活动、权威耗时、原位交接、恢复与真机矩阵均已复核；末尾保留实际失败边界和测试环境复测记录。
+
 ## 依据与职责
 
 - 客户端内部职责以 [ARCHITECTURE.md](ARCHITECTURE.md) 为准，跨系统职责以 [ARCHITECTURE_SYSTEM.md](ARCHITECTURE_SYSTEM.md) 为准。
@@ -15,7 +17,7 @@ P1–P4 的实现项在代码复核和定向测试通过后勾选，P5 记录客
 - AppServer 拥有压缩执行、replacement 提交、结果和耗时；客户端拥有动画相位、布局、输入提示及视觉交接。后台终端数量来自现有终端注册表，不能固定显示示例中的 2。
 - 本地参考：[StatusIndicatorWidget](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/status_indicator_widget.rs)、[ChatWidget](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/chatwidget.rs)、[Replay](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/chatwidget/replay.rs)。真机验证时记录双方实际 revision，GitHub main 链接只作为导航。
 
-## 实施基线（2026-09-14）
+## 实施前基线（2026-09-14，以下缺口已由 P1–P4 修复）
 
 - 自动路径已经保留 `ContextCompactionEvent → ContextCompactionView → Transcript` 的身份与 `latency_ms`；Canonical Item 和 Transcript replay 已有去重基础。
 - 手动路径已有 `TuiForegroundTasks` 屏障、compact 活动 lease 和 `activity_handoff`，但 `CompactEvent/CompactResult` 及字符串进度回调丢失结构化身份、耗时和失败分类。
@@ -249,20 +251,44 @@ P6 首轮实际恢复发现前端在 Session 对账前已读取历史快照，�
 
 | 勾选 | 场景                         | 必须观察到的结果                                         |
 |------|------------------------------|----------------------------------------------------------|
-| [ ]  | 手动 `/compact` 成功         | 两行进行态，真实计时，服务端完成后原位显示权威耗时       |
-| [ ]  | 自动 pre_turn                | 位于所属 Turn 开始后，完成后继续模型生成                 |
-| [ ]  | 自动 mid_turn                | 已有正文/工具记录保留，完成记录在当前尾部原位接续        |
-| [ ]  | 真实快速完成                 | 无强制等待、无空白帧、只有一条完成记录                   |
-| [ ]  | 压缩失败                     | 显示真实原因；无假成功，后续行为与服务端一致             |
-| [ ]  | 自动压缩期间 Esc             | 中断登记后等待权威终态，再完成中断态交接                 |
-| [ ]  | 手动压缩期间 Esc             | 仅提示停止等待；恢复后能核对服务端实际结果               |
-| [ ]  | 后台终端 0、1、2 个          | 数量与单复数正确，完成后终端仍可通过 `/ps`、`/stop` 操作 |
-| [ ]  | 120→80→50→25→120 列          | 裁剪与恢复正确，无输入焦点/草稿丢失或持续抖动            |
-| [ ]  | 有草稿、无草稿、中文多行草稿 | context left 仍遵守原有可见条件，计时刷新不移动输入位置  |
-| [ ]  | 压缩开始后断开并重连         | 历史动画受抑制，追平后状态准确，完成态去重且耗时一致     |
-| [ ]  | 已完成会话冷启动恢复         | 不播放压缩动画，只恢复完成记录及原始服务端耗时           |
-| [ ]  | 连续两次压缩                 | 每个 Item 计时独立，第一项迟到事件不覆盖第二项           |
-| [ ]  | 压缩期间退出/切换            | 无残留 timer、spinner、后台任务或下一会话污染            |
+| [x]  | 手动 `/compact` 成功         | 两行进行态，真实计时，服务端完成后原位显示权威耗时       |
+| [x]  | 自动 pre_turn                | 位于所属 Turn 开始后，完成后继续模型生成                 |
+| [x]  | 自动 mid_turn                | 已有正文/工具记录保留，完成记录在当前尾部原位接续        |
+| [x]  | 真实完成帧交接               | 无人为延时、无空白帧、只有一条完成记录；同绘制周期瞬时完成由 P3 renderer 用例覆盖 |
+| [x]  | 压缩失败                     | 显示真实原因；无假成功，后续行为与服务端一致             |
+| [x]  | 自动压缩期间 Esc             | 中断登记后等待权威终态，再完成中断态交接                 |
+| [x]  | 手动压缩期间 Esc             | 仅提示停止等待；恢复后能核对服务端实际结果               |
+| [x]  | 后台终端 0、1、2 个          | 数量与单复数正确，完成后终端仍可通过 `/ps`、`/stop` 操作 |
+| [x]  | 120→80→50→25→120 列          | 裁剪与恢复正确，无输入焦点/草稿丢失或持续抖动            |
+| [x]  | 有草稿、无草稿、中文多行草稿 | context left 仍遵守原有可见条件，计时刷新不移动输入位置  |
+| [x]  | 压缩开始后断开并重连         | 历史动画受抑制，追平后状态准确，完成态去重且耗时一致     |
+| [x]  | 已完成会话冷启动恢复         | 不播放压缩动画，只恢复完成记录及原始服务端耗时           |
+| [x]  | 连续两次压缩                 | 真机核对每个 Item 计时独立；旧事件迟到拒绝由 P2/P4 契约用例覆盖 |
+| [x]  | 压缩期间退出/切换            | 前台任务期间禁止切换；停止等待后可退出，结束后可切换，无残留活动或下一会话污染 |
 
 验收结论必须注明实际终端、服务版本、模型、窗口/阈值、会话/Item ID 与成功/失败结果。
 服务端事件真实验收不等于客户端视觉验收；客户端动画完成实现并通过对应真机验收后才能勾选。
+
+### 2026-09-14 实测记录
+
+- 客户端：Windows ConPTY，真实 `mind.py` 入口，28 行；P1–P5 提交及恢复修复已推送，最终标题交接修复为 `7845ebf2`。
+- 本地 AppServer 源码：`209a4518c8f44d9de01c1363926e7e5b35d8da04`，工作树干净。真实部署为 `192.168.2.81` 的 `appserver-runtime:20260912113255-4adc5eeacd45-3d3077d1ba58`；部署目录无 `.git`，不能把本地 HEAD 写成线上 revision。本轮未修改服务端配置或部署。
+- 模型：OpenAI / `gpt-5.6-sol` / `chat_completions` / low；窗口始终为 100000，自动阈值按场景使用 60000、40000、1000。所有覆盖均为子进程启动参数，状态位于 `.cache/compaction-acceptance/state`，用户配置未修改；不信任、不执行用户尚未审核的 Hook。
+- 主验收坐标：`cid_tlcgmh_b028646b` / `sid_tlcgmh_mu0y5sk7_0cd8ce`。以下 Item 均属于该 Session。
+- 证据目录：[本地 ConPTY 验收产物](D:/PycharmProjects/ProxyMind/.cache/compaction-acceptance)。每个场景保存 `trace.jsonl`、`raw-output.bin`、`screen.txt`；产物留在本地，不提交人工测试输入或原始终端输出。
+
+| 场景与证据子目录 | 实际观察 |
+|---|---|
+| `manual-success` | `compaction_mu0y6np9_934c585e`，seq 7→9，7379ms 显示 7s；最后进行帧 292 与首个完成帧 293 均在行 21。随后另一 Item 4736ms 显示 4s，独立计时。 |
+| `manual-cancel-fixed` → `auto-pre` | `compaction_mu0yhrnc_323fdad2` 开始后 Esc，只记录停止等待；恢复当次读回 seq 18 的完成事件并显示原始 5s。首次历史快照读取顺序缺陷已由 `0f8b3047` 修复。 |
+| `auto-pre` | pre_turn、mid_turn 返回真实 `no_gain`，均显示失败原因；Turn `d7sthlggnbbh` 正常完成。中文两行草稿在 120→80→50→25→120 列间哈希不变、光标保持 15、输入高度为 2，context left 只在 Turn 运行且有草稿时显示。ConPTY 可用列数分别为 119/79/49/24/119。 |
+| `auto-fixed` | Turn `xfz5st2hcvce`：pre_turn `compaction_mu0zbute_f01797d6`，8527ms→8s，帧 518→519 均在行 21，首个完成帧已接回 Thinking；mid_turn `compaction_mu0zc1jn_c05a6460`，4482ms→4s，帧 646→647 均在行 21。两项均无空白交接帧、无重复完成记录，随后同一 Turn 正常完成。 |
+| `auto-mid` | 真实后台终端 2 个时，`compaction_mu0z1ddd_14338174` 完成后 `/ps` 仍显示两个进程；`/stop` 清理后重新启动 1 个，`compaction_mu0z6ww0_02ebc9d8` 完成时仍显示单数，`/ps`、`/stop` 正常。0 个的手动和自动路径由其他场景覆盖。 |
+| `auto-interrupt` | `compaction_mu0z8e29_552f064c`，started seq 179 → POST `/turn/interrupt` → 权威 `turn.completed` seq 180、`interrupted`；之后才在帧 52 显示中断记录，活动与前台屏障释放。 |
+| `auto-reconnect` | `compaction_mu0z9lrg_80065142` started 后关闭实际响应连接；正式恢复依次经过 reconnecting/replaying/caught_up 和 `/mind-attach`。恢复期间显示 Retrying，未重提 Turn；该 Item 与下一 mid_turn Item 真实失败后，原 Turn `gl6szfu6bjgo` 正常完成。 |
+| `auto-fixed` → `exit-recovered` | 手动 `compaction_mu0zcqmz_63dc2172` started 后停止等待并通过 Ctrl-C 退出，原客户端进程退出；冷启动恢复 seq 217 的 completed，8133ms 仍显示 8s，没有播放历史压缩动画。 |
+| `exit-recovered` 切换会话 | `compaction_mu0zfb6k_29d219a6` 进行中，`/new` 被现有前台屏障明确拒绝；压缩结束后 `/new` 成功，新 Session `sid_tlciar_mu0zgar2_16996e` 的 Turn `qpzvchbgezd3` 正常完成，未出现旧压缩活动。 |
+
+验收边界：为了形成足够大的历史，人工构造的超长当前输入曾在压缩 completed 后仍超出窗口，所属 Turn 因预算不足失败；这属于真实失败路径，未计作“成功后继续生成”。随后小输入的 `xfz5st2hcvce` 才用于验证成功续写。真服务最快完成样本为 4482ms，不把它宣称为 0ms；同周期开始/完成及人为迟到旧事件由确定性 renderer/协议测试补足。
+
+提交记录：P1 `7cab6ae9`、P2 `d298dab4`、P3 `cc675fe0`、P4 `51e733c7`、恢复补充 `0f8b3047`、P5 `3b74da10`、标题交接补充 `7845ebf2`。P6 的逐帧观察器只记录测试客户端的脱敏事实；断线场景只关闭一次实际连接，继续使用正式恢复路径，不注入模拟服务端事件。

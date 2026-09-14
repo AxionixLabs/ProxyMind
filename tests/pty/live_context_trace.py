@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import contextlib
+import hashlib
 import json
 import runpy
 import sys
@@ -15,8 +16,11 @@ from unittest.mock import patch
 from prompt_toolkit.application import Application
 
 from frontends.tui.core.runtime import TuiRuntime
+from agent.application.views import ContextCompactionView
+from frontends.tui.rendering.fragments import fragments_text
 from protocol.client import chat
 from protocol.client import compact
+from protocol.client import session_replay
 
 
 def main() -> None:
@@ -24,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--entry", type=Path, required=True)
-    parser.add_argument("--disconnect-event", choices=("context.usage.updated", "tool.call", "text.delta"))
+    parser.add_argument("--disconnect-event", choices=("context.usage.updated", "tool.call", "text.delta", "context.compaction.started"))
     parser.add_argument("--replay-delay", type=float, default=0.0)
     options, arguments = parser.parse_known_args()
     if arguments[:1] == ["--"]:
@@ -33,13 +37,13 @@ def main() -> None:
     original_usage_view = TuiRuntime.set_context_usage
     original_chat = chat.parse_stream_event
     original_compact = compact.parse_compact_event
+    original_replay = session_replay.parse_stream_event
     original_lines = httpx.Response.aiter_lines
     original_send = httpx.AsyncClient.send
     original_recovery = chat.TurnEventStream._notify_recovery
     disconnected = set()
     delayed = set()
     attached = set()
-    previous = {}
     with options.trace.open("w", encoding="utf-8", buffering=1) as trace:
         def emit(value):
             """写入不含鉴权、正文或工具参数的验收事实。"""
@@ -74,7 +78,7 @@ def main() -> None:
                     delayed.add(path)
                     await asyncio.sleep(options.replay_delay)
                 yield line
-                if not options.disconnect_event or disconnected or path != "/mind-chat" or not line.startswith("data:"):
+                if not options.disconnect_event or disconnected or path not in {"/mind-chat", "/compact"} or not line.startswith("data:"):
                     continue
                 payload = json.loads(line[len("data:"):])
                 if isinstance(payload, dict) and payload.get("type") == options.disconnect_event:
@@ -94,6 +98,7 @@ def main() -> None:
                     "type", "proto", "cid", "sid", "turn_id", "event_seq",
                     "presentation_epoch", "context_usage", "before_items", "after_items",
                     "item_status", "reason", "error_type", "status", "gap_kind", "next_seq",
+                    "item_id", "latency_ms", "phase", "trigger", "retryable",
                 ) if key in payload}})
             return parse(payload)
 
@@ -108,8 +113,19 @@ def main() -> None:
                     if screen is None:
                         return
                     position = screen.visible_windows_to_write_positions.get(runtime.screen.input.window)
+                    compaction_rows = []
+                    for y, row in sorted(screen.data_buffer.items()):
+                        text = "".join(row[x].char for x in sorted(row))
+                        if any(phrase in text for phrase in (
+                            "Context compac", "Making room", "Stopped waiting", "Lost contact",
+                        )):
+                            compaction_rows.append({
+                                "row": application.output.get_size().rows - runtime.screen._visible_height() + y,
+                                "text": text,
+                            })
                     state = {
                         "kind": "frame", "footer": runtime.screen.context_usage_label,
+                        "frame": application.render_counter,
                         "turn_running": runtime.execution_active,
                         "has_draft": bool(runtime.screen.input.buffer.text.strip()),
                         "context_visible": any(
@@ -120,6 +136,18 @@ def main() -> None:
                         "rows": application.output.get_size().rows,
                         "input_row": position.ypos if position is not None else None,
                         "input_height": position.height if position is not None else None,
+                        "draft_hash": hashlib.sha256(runtime.screen.input.buffer.text.encode("utf-8")).hexdigest(),
+                        "draft_cursor": runtime.screen.input.buffer.cursor_position,
+                        "foreground_active": runtime.submission_deferred,
+                        "activity": fragments_text(runtime.screen.activity_block.fragments) if runtime.screen.activity_block is not None else None,
+                        "process_status": fragments_text(runtime.screen.process_status.fragments()),
+                        "compaction_rows": compaction_rows,
+                        "compaction_records": [
+                            {"item_id": cell.source.item_id if isinstance(cell.source, ContextCompactionView) else "",
+                             "text": fragments_text(cell.transcript_block.fragments)}
+                            for cell in runtime.document.blocks
+                            if "Context compact" in fragments_text(cell.transcript_block.fragments)
+                        ],
                         "footer_cells": [
                             {"row": y, "column": x, "text": cell.char, "style": cell.style,
                              "dim": application._merged_style.get_attrs_for_style_str(cell.style).dim,
@@ -128,10 +156,7 @@ def main() -> None:
                             for x, cell in row.items() if "footer.context" in cell.style
                         ],
                     }
-                    signature = json.dumps(state, sort_keys=True)
-                    if previous.get(runtime) != signature:
-                        previous[runtime] = signature
-                        emit(state)
+                    emit(state)
 
                 runtime.screen.application.after_render += capture
             await original_open(runtime)
@@ -145,6 +170,7 @@ def main() -> None:
                 patches.enter_context(patch.object(httpx.Response, "aiter_lines", lines_with_disconnect))
             patches.enter_context(patch.object(chat, "parse_stream_event", lambda p: observe_payload(p, original_chat)))
             patches.enter_context(patch.object(compact, "parse_compact_event", lambda p: observe_payload(p, original_compact)))
+            patches.enter_context(patch.object(session_replay, "parse_stream_event", lambda p: observe_payload(p, original_replay)))
             entry = options.entry.resolve(strict=True)
             sys.argv = [str(entry), *arguments]
             runpy.run_path(str(entry), run_name="__main__")
