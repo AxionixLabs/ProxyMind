@@ -6,7 +6,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from protocol.client import context_usage
+from protocol.client import (
+    context_usage,
+    session_replay,
+)
 from agent.adapters.protocol.context_usage import ProtocolContextUsageRecovery
 from agent.ports.conversation import ContextUsageRecoveryError
 
@@ -25,13 +28,13 @@ async def test_recovery_finishes_pages_without_treating_snapshot_as_cursor(usage
         assert request.url.params['vt'] == 'view-test'
         first = request.url.params['after_seq'] == '0'
         return httpx.Response(200, json={'ok': True, 'data': {
-            'context_usage': usage_event, 'next_seq': 5 if first else 14,
+            'context_usage': usage_event, 'events': [], 'next_seq': 5 if first else 14,
             'has_more': first, 'gap': 'retained_prefix' if first else 'none',
         }})
     client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     with (
-        patch.object(context_usage, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
-        patch.object(context_usage.httpx, 'AsyncClient', return_value=client),
+        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
     ):
         event = await context_usage.recover_context_usage(usage_event['cid'], usage_event['sid'])
     assert event.event_seq == 12
@@ -48,12 +51,12 @@ async def test_recovery_finishes_pages_without_treating_snapshot_as_cursor(usage
 async def test_recovery_rejects_invalid_or_incomplete_pages(usage_event, changes):
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
         200, json={'ok': True, 'data': {
-            'context_usage': usage_event, 'next_seq': 14, 'has_more': False, 'gap': 'none', **changes,
+            'context_usage': usage_event, 'events': [], 'next_seq': 14, 'has_more': False, 'gap': 'none', **changes,
         }},
     )))
     with (
-        patch.object(context_usage, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
-        patch.object(context_usage.httpx, 'AsyncClient', return_value=client),
+        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
         pytest.raises(ValueError),
     ):
         await context_usage.recover_context_usage(usage_event['cid'], usage_event['sid'])
@@ -64,12 +67,12 @@ async def test_recovery_rejects_invalid_or_incomplete_pages(usage_event, changes
 async def test_recovery_rejects_cross_session_snapshot(usage_event):
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
         200, json={'ok': True, 'data': {
-            'context_usage': usage_event, 'next_seq': 14, 'has_more': False, 'gap': 'none',
+            'context_usage': usage_event, 'events': [], 'next_seq': 14, 'has_more': False, 'gap': 'none',
         }},
     )))
     with (
-        patch.object(context_usage, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
-        patch.object(context_usage.httpx, 'AsyncClient', return_value=client),
+        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
         pytest.raises(ValueError, match='identity'),
     ):
         await context_usage.recover_context_usage(usage_event['cid'], 'other')
@@ -86,8 +89,8 @@ async def test_recovery_handles_empty_retained_history_and_unknown(usage_event, 
         }},
     )))
     with (
-        patch.object(context_usage, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
-        patch.object(context_usage.httpx, 'AsyncClient', return_value=client),
+        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
     ):
         event = await context_usage.recover_context_usage(usage_event['cid'], usage_event['sid'])
     assert (event is not None) == known

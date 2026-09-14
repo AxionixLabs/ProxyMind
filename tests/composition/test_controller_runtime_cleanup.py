@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from types import SimpleNamespace
-from dataclasses import replace
+from dataclasses import (
+    asdict,
+    replace,
+)
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -11,6 +15,8 @@ import pytest
 
 from composition import ApplicationHost
 from agent.domain.transcripts import TranscriptEntry
+from agent.application.turns.compact_result import CompactEvent
+from agent.ports.compaction import CompactionRecoveryError
 from agent.harness.process_resources import ProcessResourceOwner
 from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
@@ -55,6 +61,7 @@ def _root_session(
     command_cleanup = Mock()
     event_close = AsyncMock()
     context_recovery = SimpleNamespace(load=AsyncMock(return_value=None))
+    compaction_recovery = SimpleNamespace(load=AsyncMock(return_value=()))
 
     async def fresh_preferences(_ttl_sec):
         return {"primary": {"model": "test-model"}}
@@ -72,6 +79,7 @@ def _root_session(
     session = RootConversationSession(
         history,
         context_usage_recovery=context_recovery,
+        compaction_recovery=compaction_recovery,
         workspace=lambda: "D:/workspace",
         permissions=lambda: preset_permissions("auto"),
         preference_config=lambda: {"primary": {"model": "test-model"}},
@@ -102,7 +110,67 @@ def _root_session(
         command_cleanup=command_cleanup,
         event_close=event_close,
         context_recovery=context_recovery,
+        compaction_recovery=compaction_recovery,
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", ("completed", "failed"))
+async def test_resume_recovers_only_observed_manual_compaction_once(status) -> None:
+    started = CompactEvent(status="started", cid="cid_test_12345678", sid="sid_test_1_abcdef", item_id="compact_1", event_seq=4)
+    entry = TranscriptEntry("2026-09-14T00:00:00Z", "context.compaction.started", "sid_test_1_abcdef", None, "system", asdict(started))
+    session, resources = _root_session(transcript_entries=(entry,))
+    terminal = replace(started, status=status, event_seq=9, latency_ms=86420 if status == "completed" else None)
+    resources.compaction_recovery.load.return_value = (
+        replace(terminal, item_id="other"), replace(terminal, sid="other"), terminal, terminal,
+    )
+    await session.bind("cid_test_12345678", "sid_test_1_abcdef")
+    resources.compaction_recovery.load.assert_awaited_once_with("cid_test_12345678", "sid_test_1_abcdef", after_seq=4)
+    resources.transcript.append.assert_called_once()
+    event_name = "context.compacted" if status == "completed" else "context.compaction.failed"
+    assert resources.transcript.append.call_args.args[0] == event_name
+    assert resources.transcript.append.call_args.kwargs["payload"]["latency_ms"] == terminal.latency_ms
+    recovered = replace(entry, event=event_name, payload=asdict(terminal))
+    session._history.read_transcript = Mock(return_value=(entry, recovered))
+    await session.bind("cid_test_12345678", "sid_test_1_abcdef")
+    assert resources.compaction_recovery.load.await_count == 1
+    assert not session._pending_compactions
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failed", (False, True))
+async def test_compaction_recovery_keeps_unknown_without_remote_terminal(failed) -> None:
+    session, resources = _root_session(ConversationState(cid="cid_test_12345678", sid="sid_test_1_abcdef", fork_source_available=True))
+    session.record_compaction(CompactEvent(status="started", cid="cid_test_12345678", sid="sid_test_1_abcdef", item_id="compact_1", event_seq=4))
+    if failed:
+        resources.compaction_recovery.load.side_effect = CompactionRecoveryError("unavailable")
+    await session.bind("cid_test_12345678", "sid_test_1_abcdef")
+    assert session._pending_compactions == {"compact_1": 4}
+    resources.transcript.append.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_session_end_cancels_pending_compaction_recovery() -> None:
+    session, resources = _root_session(ConversationState(cid="cid_test_12345678", sid="sid_test_1_abcdef", fork_source_available=True))
+    session.record_compaction(CompactEvent(status="started", cid="cid_test_12345678", sid="sid_test_1_abcdef", item_id="compact_1", event_seq=4))
+    entered, closed = asyncio.Event(), asyncio.Event()
+
+    async def pending(*_args, **_kwargs):
+        entered.set()
+        try:
+            await asyncio.Future()
+        finally:
+            closed.set()
+
+    resources.compaction_recovery.load.side_effect = pending
+    recovery = asyncio.create_task(session.bind("cid_test_12345678", "sid_test_1_abcdef"))
+    await entered.wait()
+    await session.end(reason="exit")
+    with pytest.raises(asyncio.CancelledError):
+        await recovery
+    assert closed.is_set()
+    assert session._compaction_recovery_task is None
+    assert not session._pending_compactions
 
 
 @pytest.mark.anyio

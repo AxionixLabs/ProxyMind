@@ -28,6 +28,7 @@ from frontends.terminal.mcp_status import (
 from frontends.terminal.renderers.lifecycle import (
     render_compaction_completed,
     render_compaction_failed,
+    render_compaction_observation_stopped,
 )
 from frontends.tui.adapters.clipboard import (
     ClipboardError,
@@ -118,7 +119,9 @@ def render_compact_result(host: "TuiApplicationHost", status: "CompactLiveStatus
     if not status.notice_presented:
         block = (
             render_compaction_completed(result.latency_ms)
-            if result.outcome == "completed" else render_compaction_failed(result.message)
+            if result.outcome == "completed"
+            else render_compaction_observation_stopped(result.message) if result.outcome == "unknown"
+            else render_compaction_failed(result.message)
         )
         _present(host, block, view_type="tui.compact.status")
         status.notice_presented = True
@@ -638,16 +641,6 @@ def render_compact_failure(host: "TuiApplicationHost", error: BaseException) -> 
     status.failed(f"Context compaction failed{detail}")
 
     render_compact_result(host, status)
-
-
-def render_compact_interrupted(host: "TuiApplicationHost") -> None:
-    """展示上下文压缩被用户中断的状态。"""
-    _present(
-        host,
-        interrupted_status_block("Context compaction"),
-        view_type="tui.compact.interrupted",
-    )
-    _present(host, view_type="tui.gap")
 
 
 def _positive_int(value: typing.Any) -> int:

@@ -10,6 +10,7 @@ from pathlib import Path
 from prompt_toolkit.utils import get_cwidth
 
 from agent.application.views import uses_native_tool_view
+from agent.application.turns.compact_result import compact_failure_message
 from agent.application.views.builders.tools import (
     build_generic_tool_result_view,
     build_native_tool_result_view,
@@ -30,7 +31,11 @@ from frontends.terminal.renderers.dispatch import (
     render_presentation_transcript_view,
     render_presentation_view
 )
-from frontends.terminal.renderers.lifecycle import render_compaction_completed
+from frontends.terminal.renderers.lifecycle import (
+    render_compaction_completed,
+    render_compaction_failed,
+    render_compaction_observation_stopped,
+)
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
@@ -360,6 +365,7 @@ def _render_replay_blocks(
         if entry.event in {
             "context.compacted",
             "context.compaction.failed",
+            "context.compaction.observation_stopped",
             "turn.failed",
             "turn.incomplete",
             "turn.interrupted",
@@ -386,9 +392,22 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
             source=entry,
             raw_text=completed.plain_text,
         )
-    if entry.event.startswith("context."):
-        fallback = "Context compaction failed"
-        text = str(entry.payload.get("summary") or fallback).strip()
+    if entry.event in {"context.compaction.failed", "context.compaction.observation_stopped"}:
+        error_type = entry.payload.get("error_type")
+        summary = entry.payload.get("summary")
+        message = (
+            summary if isinstance(summary, str) and summary else compact_failure_message(
+                error_type if isinstance(error_type, str) else "",
+            )
+        )
+        notice = (
+            render_compaction_observation_stopped(message)
+            if entry.event == "context.compaction.observation_stopped" else render_compaction_failed(message)
+        )
+        block = styled_fragment_block(notice)
+        return TranscriptBlock(
+            display_block=block, transcript_block=block, kind="notice", source=entry, raw_text=notice.plain_text,
+        )
     else:
         fallback = (
             "Turn interrupted"

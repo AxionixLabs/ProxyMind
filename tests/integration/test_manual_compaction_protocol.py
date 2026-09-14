@@ -4,14 +4,22 @@ import contextlib
 import json
 import typing
 from dataclasses import dataclass
-from unittest.mock import patch
+from unittest.mock import (
+    AsyncMock,
+    patch,
+)
 
 import httpx
 import pytest
 
-from agent.adapters.protocol.compaction import ProtocolCompactionClient
+from agent.adapters.protocol.compaction import (
+    ProtocolCompactionClient,
+    ProtocolCompactionRecovery,
+)
+from agent.ports.compaction import CompactionRecoveryError
 from agent.protocol.context_usage import ContextUsageRecord
 from protocol.client import compact
+from protocol.client import session_replay
 from protocol.schema.json_value import (
     JsonObject,
     JsonValue,
@@ -241,11 +249,14 @@ def test_manual_failure_does_not_weaken_chat_event_sequence_requirement() -> Non
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("wire_events", [[], [_event("started", event_seq=1)]])
-async def test_manual_compaction_incomplete_stream_fails_without_resubmission(wire_events) -> None:
+async def test_manual_compaction_incomplete_stream_keeps_unknown_without_resubmission(wire_events) -> None:
     with _compact_http(wire_events) as exchange:
         events = await _collect()
 
-    assert events[-1].status == "failed"
+    assert events[-1].status == "unknown"
+    if wire_events:
+        assert events[-1].item_id == "compaction-1"
+        assert events[-1].event_seq == 1
     assert all(event.status != "completed" for event in events)
     assert len(exchange.requests) == 1
     assert exchange.response.is_closed
@@ -253,10 +264,59 @@ async def test_manual_compaction_incomplete_stream_fails_without_resubmission(wi
 
 
 @pytest.mark.anyio
+async def test_manual_recovery_paginates_real_wire_and_preserves_terminal_metadata() -> None:
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.method == "GET"
+        assert request.url.path == "/mind-replay"
+        first = request.url.params["after_seq"] == "1"
+        return httpx.Response(200, json={"ok": True, "data": {
+            "context_usage": None,
+            "events": [_event("started", event_seq=2)] if first else [_event("completed", event_seq=3, latency_ms=86420)],
+            "next_seq": 2 if first else 3, "gap": "none", "has_more": first,
+        }})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    with (
+        patch.object(session_replay, "open_report_session", AsyncMock(return_value={"vt": "test-token"})),
+        patch.object(session_replay.httpx, "AsyncClient", return_value=client),
+    ):
+        events = await ProtocolCompactionRecovery().load("cid-1", "sid-1", after_seq=1)
+    assert [event.status for event in events] == ["started", "completed"]
+    assert events[-1].latency_ms == 86420
+    assert events[-1].item_id == "compaction-1"
+    assert [request.url.params["after_seq"] for request in requests] == ["1", "2"]
+    assert client.is_closed
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid", [
+    _event("completed", event_seq=2, cid="other"),
+    _event("completed", event_seq=1),
+    _event("completed", event_seq=4),
+    _event("completed", event_seq=2, latency_ms=-1),
+])
+async def test_manual_recovery_rejects_invalid_identity_sequence_or_timing(invalid) -> None:
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"ok": True, "data": {
+        "context_usage": None, "events": [invalid], "next_seq": 3, "gap": "none", "has_more": False,
+    }})))
+    with (
+        patch.object(session_replay, "open_report_session", AsyncMock(return_value={"vt": "private-token"})),
+        patch.object(session_replay.httpx, "AsyncClient", return_value=client),
+        pytest.raises(CompactionRecoveryError) as failure,
+    ):
+        await ProtocolCompactionRecovery().load("cid-1", "sid-1", after_seq=1)
+    assert "private-token" not in str(failure.value)
+    assert client.is_closed
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(("status_code", "message"), [
     (404, "There is no conversation history to compact."),
     (409, "Conversation is busy or changed. Try /compact again after the current operation finishes."),
-    (502, "Context compaction failed. Please try again."),
+    (502, "Lost contact with context compaction; remote outcome unknown."),
 ])
 async def test_manual_compaction_http_failure_is_local_and_not_retried(
     status_code: int,
@@ -265,7 +325,7 @@ async def test_manual_compaction_http_failure_is_local_and_not_retried(
     with _compact_http([], status_code=status_code) as exchange:
         events = await _collect()
 
-    assert [event.status for event in events] == ["failed"]
+    assert [event.status for event in events] == ["unknown" if status_code >= 500 else "failed"]
     assert events[0].message == message
     assert len(exchange.requests) == 1
     assert exchange.response.is_closed
@@ -273,11 +333,11 @@ async def test_manual_compaction_http_failure_is_local_and_not_retried(
 
 
 @pytest.mark.anyio
-async def test_manual_compaction_timeout_fails_without_resubmission() -> None:
+async def test_manual_compaction_timeout_keeps_unknown_without_resubmission() -> None:
     with _compact_http([], error=httpx.ReadTimeout("timeout")) as exchange:
         events = await _collect()
 
-    assert [event.status for event in events] == ["failed"]
+    assert [event.status for event in events] == ["unknown"]
     assert len(exchange.requests) == 1
     assert exchange.client.is_closed
 
@@ -290,7 +350,7 @@ async def test_manual_compaction_corrupt_json_is_not_skipped_before_success() ->
     )) as exchange:
         events = await _collect()
 
-    assert [event.status for event in events] == ["failed"]
+    assert [event.status for event in events] == ["unknown"]
     assert exchange.response.is_closed
     assert exchange.client.is_closed
 

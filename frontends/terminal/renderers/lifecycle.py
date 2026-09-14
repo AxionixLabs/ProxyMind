@@ -113,5 +113,11 @@ def render_compaction_failed(message: str) -> StyledBlock:
     )
 
 
+def render_compaction_observation_stopped(message: str) -> StyledBlock:
+    """展示本地观察结束且远端结果未知的提示，不声称远端取消。"""
+    title = f"• {message}"
+    return StyledBlock(plain_text=title, spans=tuple(render_lifecycle_display_parts(title)))
+
+
 if __name__ == '__main__':
     pass

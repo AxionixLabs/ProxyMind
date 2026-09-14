@@ -10,7 +10,10 @@ from dataclasses import (
 )
 
 from agent.application.hooks.context import HookExecutionContext
-from agent.application.turns.compact_result import CompactResult
+from agent.application.turns.compact_result import (
+    CompactEvent,
+    CompactResult,
+)
 from agent.application.turns.context import AgentContext
 from agent.domain.hooks import (
     CompactTriggerReason,
@@ -74,6 +77,7 @@ async def compact_conversation(
     )
 
     attempted: bool = False
+    observed: CompactEvent | None = None
 
     transcript = session.transcript_factory(
         transcript_path,
@@ -104,11 +108,18 @@ async def compact_conversation(
                 if isinstance(event, ContextUsageRecord):
                     session.record_context_usage(event)
                     continue
+                observed = event
+                session.record_compaction(event)
                 if event.status == "started":
+                    transcript.append("context.compaction.started", actor="system", payload=asdict(event))
                     if on_progress is not None:
                         on_progress(event)
                     observe("compact.remote.started")
                     continue
+
+                if event.status == "unknown":
+                    result = replace(result, outcome="unknown", message=event.message, summary=event.message, event=event)
+                    break
 
                 if event.status == "failed":
                     result = CompactResult(
@@ -152,6 +163,11 @@ async def compact_conversation(
                     )
                     break
             else:
+                unknown = replace(
+                    observed or CompactEvent(status="unknown"), status="unknown",
+                    message="Lost contact with context compaction; remote outcome unknown.",
+                )
+                result = replace(result, outcome="unknown", message=unknown.message, summary=unknown.message, event=unknown)
                 observe(
                     "compact.failed",
                     level="ERROR",
@@ -174,15 +190,17 @@ async def compact_conversation(
         )
 
     except asyncio.CancelledError:
-        result = CompactResult(
-            outcome="interrupted",
-            message="Context compaction interrupted.",
-            summary="Context compaction interrupted.",
-            transcript_path=transcript_path,
-            trigger=trigger,
-            trigger_source=trigger_source,
-        )
-        observe("compact.interrupted", level="WARNING")
+        if result.outcome != "completed":
+            message = (
+                "Context compaction cancelled before submission." if not attempted
+                else "Stopped waiting for context compaction; server continues." if observed is not None and observed.item_id
+                else "Stopped waiting for context compaction; remote outcome unknown."
+            )
+            stopped = replace(observed or CompactEvent(status="unknown"), status="unknown", message=message)
+            result = replace(result, outcome="unknown", message=message, summary=message, event=stopped)
+            if not attempted and on_progress is not None:
+                on_progress(stopped)
+        observe("compact.observation_stopped", level="WARNING")
         raise
 
     except Exception as error:
@@ -193,9 +211,9 @@ async def compact_conversation(
             else f": {type(error).__name__}"
         )
         result = CompactResult(
-            outcome="failed",
-            message=f"Context compaction failed{detail}",
-            summary=f"Context compaction failed{detail}",
+            outcome="unknown" if attempted else "failed",
+            message="Context compaction observation failed; remote outcome unknown." if attempted else f"Context compaction failed{detail}",
+            summary="Context compaction observation failed; remote outcome unknown." if attempted else f"Context compaction failed{detail}",
             transcript_path=transcript_path,
             trigger=trigger,
             trigger_source=trigger_source,
@@ -203,60 +221,62 @@ async def compact_conversation(
         observe_exception("compact.failed", error)
 
     finally:
-        if attempted:
-            transcript.append(
-                (
-                    "context.compacted"
-                    if result.outcome == "completed"
-                    else "context.compaction.failed"
-                ),
-                actor="system",
-                payload={
-                    **(asdict(result.event) if result.event is not None else {}),
-                    "outcome": result.outcome,
-                    "trigger": trigger,
-                    "before_items": result.before_items,
-                    "after_items": result.after_items,
-                    "summary": result.summary,
-                },
-            )
-            if on_progress is not None and result.event is not None:
-                on_progress(result.event)
-            if result.outcome == "completed":
-                try:
-                    post_decision = await session.await_cleanup(
-                        hook_events.post_compact(
-                            trigger=trigger,
-                            trigger_source=trigger_source,
-                            result_source=result.result_source,
-                            outcome=result.outcome,
-                            message=result.message,
-                            summary=result.summary,
-                            transcript_path=result.transcript_path,
-                            before_items=result.before_items,
-                            after_items=result.after_items,
+        try:
+            if attempted:
+                transcript.append(
+                    (
+                        "context.compacted"
+                        if result.outcome == "completed"
+                        else "context.compaction.observation_stopped" if result.outcome == "unknown"
+                        else "context.compaction.failed"
+                    ),
+                    actor="system",
+                    payload={
+                        **(asdict(result.event) if result.event is not None else {}),
+                        "outcome": result.outcome,
+                        "trigger": trigger,
+                        "before_items": result.before_items,
+                        "after_items": result.after_items,
+                        "summary": result.summary,
+                    },
+                )
+                if on_progress is not None and result.event is not None:
+                    on_progress(result.event)
+                if result.outcome == "completed":
+                    try:
+                        post_decision = await session.await_cleanup(
+                            hook_events.post_compact(
+                                trigger=trigger,
+                                trigger_source=trigger_source,
+                                result_source=result.result_source,
+                                outcome=result.outcome,
+                                message=result.message,
+                                summary=result.summary,
+                                transcript_path=result.transcript_path,
+                                before_items=result.before_items,
+                                after_items=result.after_items,
+                            )
                         )
-                    )
-                except Exception as error:
-                    observe_exception(
-                        "hooks.post_compact.failed",
-                        error,
-                        level="WARNING",
-                    )
-                else:
-                    result = _apply_post_compact_decision(
-                        result,
-                        post_decision,
-                    )
+                    except Exception as error:
+                        observe_exception(
+                            "hooks.post_compact.failed",
+                            error,
+                            level="WARNING",
+                        )
+                    else:
+                        result = _apply_post_compact_decision(
+                            result,
+                            post_decision,
+                        )
 
-                if result.ok:
-                    result = await _run_compact_session_start(
-                        session,
-                        scope,
-                        result,
-                    )
-
-        transcript.close()
+                    if result.ok:
+                        result = await _run_compact_session_start(
+                            session,
+                            scope,
+                            result,
+                        )
+        finally:
+            transcript.close()
 
     return result
 

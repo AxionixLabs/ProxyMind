@@ -38,6 +38,7 @@ def _compact_event(status="completed", *, before_items=None, after_items=None, l
         "trigger": "manual",
         "reason": "summary_failed" if status == "failed" else "user_requested",
         "presentation_epoch": 1,
+        "event_seq": 1 if status == "started" else 2,
         "before_items": before_items,
         "after_items": after_items,
         "latency_ms": latency_ms,
@@ -140,6 +141,9 @@ class _CompactionSession:
     def record_context_usage(self, record):
         self._host.conversation.record_context_usage(record)
 
+    def record_compaction(self, event):
+        return None
+
 
 async def _compact(host, **kwargs):
     return await compact_mode.compact_conversation(
@@ -177,7 +181,7 @@ def _compact_hook_runtime(tmp_path, runner, hooks=None) -> HookRuntime:
 
 
 @pytest.mark.anyio
-async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch) -> None:
+async def test_compact_empty_stream_finishes_unknown_activity_status(monkeypatch) -> None:
     snapshots = []
 
     async def empty_stream(_payload):
@@ -228,10 +232,10 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
 
     final = snapshots[0]()
     assert final.done is True
-    assert final.message == "Context compaction failed. Please try again."
+    assert final.message == "Lost contact with context compaction; remote outcome unknown."
     status = next(view for view in host.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (
-        "• Context compaction failed\n  └ Context compaction failed. Please try again."
+        "• Lost contact with context compaction; remote outcome unknown."
     )
 
 
@@ -358,18 +362,13 @@ async def test_compact_cancellation_clears_animation_without_failure(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    conversation.render_compact_interrupted(host)
-
     assert host.stopped == []
-    assert any(view.type == "tui.compact.interrupted" for view in host.views)
+    assert any(view.type == "tui.compact.status" for view in host.views)
     interrupted = next(
         view for view in host.views
-        if view.type == "tui.compact.interrupted"
+        if view.type == "tui.compact.status"
     )
-    assert "".join(
-        text for _style, text in interrupted.renderable.fragments
-    ) == "• Context compaction · interrupted"
-    assert not any(view.type == "tui.compact.status" for view in host.views)
+    assert interrupted.renderable.plain_text == "• Stopped waiting for context compaction; remote outcome unknown."
 
 
 def test_fork_interruption_uses_the_shared_neutral_prefix() -> None:
@@ -670,6 +669,47 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert host.views[0].renderable.plain_text == "• Context compacted"
     assert result.continuation_message in fragments_text(host.views[1].renderable.fragments)
     assert len(host.views) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("after_completion", (False, True))
+async def test_cancel_preserves_remote_fact_and_closes_transcript(monkeypatch, tmp_path, after_completion) -> None:
+    pending = asyncio.Event()
+
+    async def stream(_payload):
+        yield _compact_event("started")
+        if after_completion:
+            yield _compact_event("completed", latency_ms=86420)
+        else:
+            pending.set()
+            await asyncio.Future()
+
+    class Runner(_RecordingHookRunner):
+        async def execute(self, definition, payload):
+            if definition.event == "PostCompact":
+                pending.set()
+                await asyncio.Future()
+            return await super().execute(definition, payload)
+
+    runner = Runner()
+    host = _HookedCompactHost(tmp_path, _compact_hook_runtime(tmp_path, runner))
+    writer = Mock()
+    host.transcripts = SimpleNamespace(path_for_session=lambda _sid: "session.jsonl", writer=Mock(return_value=writer))
+    progress = []
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", stream)
+    task = asyncio.create_task(_compact(host, pref_config={}, source="test", on_progress=progress.append))
+    await pending.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    names = [call.args[0] for call in writer.append.call_args_list]
+    assert names == ["context.compaction.started", "context.compacted" if after_completion else "context.compaction.observation_stopped"]
+    assert progress[-1].status == ("completed" if after_completion else "unknown")
+    assert progress[-1].item_id == "compaction-1"
+    if not after_completion:
+        assert progress[-1].message == "Stopped waiting for context compaction; server continues."
+    assert [event for event, _payload in runner.calls] == ["PreCompact"]
+    writer.close.assert_called_once()
 
 
 @pytest.mark.anyio

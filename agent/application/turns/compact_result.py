@@ -15,7 +15,7 @@ from agent.domain.hooks import (
 @dataclass(frozen=True, slots=True)
 class CompactResult:
     """描述一次上下文压缩的稳定结果值对象。"""
-    outcome: CompactOutcome
+    outcome: CompactOutcome | typing.Literal["unknown"]
     message: str
     event: "CompactEvent | None" = None
     summary: str = ""
@@ -49,9 +49,9 @@ class CompactResult:
 
 @dataclass(frozen=True, slots=True)
 class CompactEvent:
-    """描述协议适配器归一化后的会话压缩进度或终态。"""
+    """描述压缩进度、远端终态或本地观察结束；unknown 不属于线上 Item 状态。"""
 
-    status: typing.Literal["started", "completed", "failed"]
+    status: typing.Literal["started", "completed", "failed", "unknown"]
     message: str = ""
     cid: str = ""
     sid: str = ""

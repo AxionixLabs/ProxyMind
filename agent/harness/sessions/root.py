@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import contextlib
 import typing
+from dataclasses import asdict
 from collections.abc import (
     Awaitable,
     Callable,
@@ -11,6 +13,7 @@ from collections.abc import (
 from pathlib import Path
 
 from agent.application.agents.views import AgentSnapshot
+from agent.application.turns.compact_result import CompactEvent
 from agent.application.turns.context_usage import ContextUsageProjection
 from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import SessionEndReason
@@ -39,6 +42,10 @@ from agent.ports.conversation import (
     ContextUsageRecoveryError,
 )
 from agent.ports.workspace import WorkspaceChangePort
+from agent.ports.compaction import (
+    CompactionRecovery,
+    CompactionRecoveryError,
+)
 from observability import (
     observe,
     observe_exception,
@@ -90,6 +97,7 @@ class RootConversationSession:
         history: ConversationHistoryPort,
         *,
         context_usage_recovery: ContextUsageRecovery,
+        compaction_recovery: CompactionRecovery,
         workspace: WorkspaceProvider,
         permissions: PermissionProvider,
         preference_config: PreferenceConfigProvider,
@@ -110,6 +118,10 @@ class RootConversationSession:
     ) -> None:
         self._history = history
         self._context_usage_recovery = context_usage_recovery
+        self._compaction_recovery = compaction_recovery
+        self._compaction_scope: tuple[str, str] | None = None
+        self._pending_compactions: dict[str, int] = {}
+        self._compaction_recovery_task: asyncio.Task[tuple[CompactEvent, ...]] | None = None
         self._workspace = workspace
         self._permissions = permissions
         self._preference_config = preference_config
@@ -136,6 +148,77 @@ class RootConversationSession:
     def context_usage(self) -> ContextUsageFeed:
         """提供跨 Turn 保留的用量展示订阅。"""
         return self._context_usage
+
+    def record_compaction(self, event: CompactEvent) -> None:
+        """保存已观察的手动压缩身份及水位，终态确认后解除待核对状态。"""
+        if (event.cid, event.sid) != (self.cid, self.sid) or event.turn_id or event.trigger != "manual":
+            return
+        if not event.item_id or event.event_seq is None:
+            return
+        scope = (event.cid, event.sid)
+        if self._compaction_scope != scope:
+            self._pending_compactions.clear()
+            self._compaction_scope = scope
+        if event.status == "started":
+            self._pending_compactions[event.item_id] = event.event_seq
+        elif event.status in {"completed", "failed"}:
+            self._pending_compactions.pop(event.item_id, None)
+
+    async def _restore_manual_compactions(self, cid: str, sid: str) -> None:
+        """从持久 started 证据恢复未知 Item，并只回写匹配的远端终态。"""
+        if (self.cid, self.sid) != (cid, sid):
+            return
+        if self._compaction_scope != (cid, sid):
+            self._pending_compactions.clear()
+            self._compaction_scope = (cid, sid)
+        for entry in self._history.read_transcript(sid):
+            payload = entry.payload
+            if entry.turn_id or (payload.get("cid"), payload.get("sid")) != (cid, sid):
+                continue
+            if payload.get("trigger") != "manual":
+                continue
+            item_id, seq = payload.get("item_id"), payload.get("event_seq")
+            if not isinstance(item_id, str) or not item_id or isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+                continue
+            if entry.event == "context.compaction.started":
+                self._pending_compactions[item_id] = seq
+            elif entry.event in {"context.compacted", "context.compaction.failed"}:
+                self._pending_compactions.pop(item_id, None)
+        if not self._pending_compactions:
+            return
+        task = asyncio.create_task(self._compaction_recovery.load(
+            cid, sid, after_seq=min(self._pending_compactions.values()),
+        ))
+        self._compaction_recovery_task = task
+        lifecycle_id = self._lifecycle_id
+        try:
+            events = await task
+        except CompactionRecoveryError:
+            observe("compact.recovery.unknown", level="WARNING", cid=cid, sid=sid)
+            return
+        finally:
+            if self._compaction_recovery_task is task:
+                self._compaction_recovery_task = None
+        if lifecycle_id != self._lifecycle_id or (self.cid, self.sid) != (cid, sid):
+            return
+        transcript = self._transcript_factory(self._transcript_path_for(sid), session_id=sid)
+        transcript.open()
+        try:
+            for event in events:
+                cursor = self._pending_compactions.get(event.item_id)
+                if (
+                    cursor is None or event.event_seq is None or event.event_seq <= cursor
+                    or (event.cid, event.sid) != (cid, sid) or event.turn_id
+                    or event.trigger != "manual" or event.status not in {"completed", "failed"}
+                ):
+                    continue
+                transcript.append(
+                    "context.compacted" if event.status == "completed" else "context.compaction.failed",
+                    actor="system", payload=asdict(event),
+                )
+                self.record_compaction(event)
+        finally:
+            transcript.close()
 
     def record_context_usage(self, record: ContextUsageRecord) -> None:
         """先缓存当前会话的新事实，再提交展示投影。"""
@@ -379,6 +462,7 @@ class RootConversationSession:
             )
             if turn.session_mode != "create":
                 await self.restore_context_usage(turn.cid, turn.sid)
+                await self._restore_manual_compactions(turn.cid, turn.sid)
         self._context_usage.mark_started()
         observe(
             "conversation.begin",
@@ -467,6 +551,7 @@ class RootConversationSession:
                 await self.restore_context_usage(cid, sid)
             self._state.session_bound = True
             self._state.fork_source_available = True
+            await self._restore_manual_compactions(cid, sid)
             metadata = self._state.snapshot()
             self._history.touch(
                 metadata,
@@ -496,11 +581,18 @@ class RootConversationSession:
             source=source,
         )
         await self.restore_context_usage(cid, sid)
+        await self._restore_manual_compactions(cid, sid)
         observe("conversation.bound", cid=cid, sid=sid, source=source)
         return metadata
 
     async def end(self, *, reason: SessionEndReason) -> None:
         """结束当前已绑定的根会话生命周期。"""
+        recovery = self._compaction_recovery_task
+        if recovery is not None:
+            recovery.cancel()
+            await asyncio.gather(recovery, return_exceptions=True)
+        self._pending_compactions.clear()
+        self._compaction_scope = None
         self._context_usage.close(clear_listeners=reason == "exit")
         cid = str(self._state.cid or "").strip()
         sid = str(self._state.sid or "").strip()

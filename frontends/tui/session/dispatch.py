@@ -52,7 +52,6 @@ from ..features.conversation import (
     copy_whole_assistant_reply,
     fork_current_conversation,
     render_compact_failure,
-    render_compact_interrupted,
     render_compact_result,
     render_fork_failure,
     render_fork_interrupted,
@@ -1327,7 +1326,6 @@ class TuiCommandDispatcher(object):
                     self.host,
                     error,
                 ),
-                on_cancelled=lambda: render_compact_interrupted(self.host),
             )
             await self.foreground_tasks.wait()
             return DispatchAction.HANDLED

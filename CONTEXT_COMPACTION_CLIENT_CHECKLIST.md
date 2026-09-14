@@ -210,15 +210,19 @@ P2 已推送：`d298dab4`。
 
 ### P4：回放、恢复与收尾
 
-- [ ] replay 只恢复历史完成记录，不播放历史 started 动画；追平后仅恢复仍活动的压缩 Item。
-- [ ] 回放完成耗时等于服务端事件值；缺失耗时时显示未知，不按离线时长累计。
-- [ ] 断开重连、取消、失败、Turn 终态、退出及切换会话均释放 timer 和 lease。
-- [ ] 迟到旧 completed 不覆盖当前新 Item；重复 completed 不增加第二条完成记录。
-- [ ] 手动停止等待后再恢复会话，能读取服务端真实最终状态，不将本地停止等待持久化为远端已取消。
+- [x] replay 只恢复历史完成记录，不播放历史 started 动画；追平后仅恢复仍活动的自动压缩 Item。
+- [x] 回放完成耗时等于服务端事件值；缺失耗时时显示未知，不按离线时长累计。
+- [x] 断开重连、取消、失败、Turn 终态、退出及切换会话均释放 timer 和 lease。
+- [x] 迟到旧 completed 不覆盖当前新 Item；重复 completed 不增加第二条完成记录。
+- [x] 手动停止等待后再恢复会话，读取匹配 Item 的服务端真实最终状态，不将本地停止等待持久化为远端已取消。
 
 恢复实现必须在 Session 所有者保存已观察的手动 Item 身份及水位，经既有报告授权与 `/mind-replay` 分页读取该 Session 的压缩事实；不新建压缩/取消端点，不重提 `/compact`，不推进聊天确认游标。
 复用 Transcript 的 Item 去重，把匹配的远端 completed/failed 回写本地记录；读取设置总超时并随会话关闭取消，仍未终态时保留未知。
 现有 `recover_context_usage` 只恢复用量，不能作为压缩结果恢复已完成的证据。取消发生在远端完成之后时保留完成事实，PostCompact 也不得在回放中重复执行。
+
+2026-09-14 复核：恢复、取消与手动协议 91 passed；历史、Transcript、renderer 与活动回归 169 passed；架构审计 138 passed（同一第三方弃用警告）；compileall、git diff --check 通过。
+报告授权与分页读取已收敛到 `protocol/client/session_replay.py`；用量恢复和手动压缩恢复共用该读取路径。Session 从持久 started 证据恢复待核对 Item；读取失败或服务端尚无终态时仍为未知。若断线发生在客户端观察到 Item 身份之前，不能可靠配对，保持未知且不重新提交。
+手动本地停止等待记录为 `context.compaction.observation_stopped`；该本地事件及 `unknown` 不属于线上 Item 状态。真实终态写回时不触发 Hook。取消发生在 PostCompact 等待期间，保留此前完成记录并关闭 Transcript。P3 已推送：`cc675fe0`。
 
 验收入口：恢复/历史相关测试、协议 Item reducer、现有断线恢复场景。
 

@@ -232,7 +232,7 @@ class TranscriptReplay:
                     )
                 continue
 
-            if entry.event == "context.compacted":
+            if entry.event in {"context.compacted", "context.compaction.failed"}:
                 item_id = _payload_text(entry.payload, "item_id")
                 event_seq = _payload_positive_int(entry.payload, "event_seq")
                 if item_id and event_seq is not None:
@@ -275,6 +275,7 @@ class TranscriptReplay:
                 if entry.event in {
                     "context.compacted",
                     "context.compaction.failed",
+                    "context.compaction.observation_stopped",
                     "turn.failed",
                     "turn.incomplete",
                     "turn.interrupted",
