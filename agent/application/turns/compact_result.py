@@ -74,5 +74,26 @@ class CompactEvent:
     replacement_version: int | None = None
 
 
+def compact_failure_message(error_type: str = "", *, status_code: int = 0) -> str:
+    """把压缩错误类别转换为所有客户端路径一致使用的简短原因。"""
+    if error_type == "empty_history" or status_code == 404:
+        return "There is no conversation history to compact."
+    if error_type == "not_compactable":
+        return "A tool call is still running. Try again after it finishes."
+    if error_type == "summary_failed":
+        return "Could not generate a context summary."
+    if error_type == "snapshot_failed":
+        return "Could not read the conversation context."
+    if error_type == "no_gain":
+        return "Compaction did not reduce the context."
+    if error_type == "cas_conflict":
+        return "Conversation changed while compacting. Please try again."
+    if error_type == "persist_failed":
+        return "Failed to save the compacted context. Please try again."
+    if status_code == 409:
+        return "Conversation is busy or changed. Try /compact again after the current operation finishes."
+    return "Context compaction failed. Please try again."
+
+
 if __name__ == '__main__':
     pass

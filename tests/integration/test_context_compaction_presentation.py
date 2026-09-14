@@ -164,9 +164,11 @@ def test_compaction_completion_matches_history_and_preserves_dot_styles(latency_
     assert fragments_text(history.display_block.fragments) == expected
 
 
-def test_only_completed_compaction_renders_permanent_notice() -> None:
+def test_only_terminal_compaction_renders_permanent_notice() -> None:
     assert render_presentation_view(_view("in_progress")) == ()
-    assert render_presentation_view(_view("failed")) == ()
+    assert render_presentation_view(_view("failed"))[0].plain_text == (
+        "• Context compaction failed\n  └ Could not generate a context summary."
+    )
     assert render_presentation_view(_view())[0].plain_text == (
         "• Context compacted"
     )

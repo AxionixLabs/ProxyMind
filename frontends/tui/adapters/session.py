@@ -5,6 +5,8 @@ from agent.ports import (
     OutputSession,
     OutputSurfaceContext,
 )
+from frontends.terminal.renderers.lifecycle import render_compaction_interrupted
+from frontends.tui.core.styles import styled_fragment_block
 from frontends.tui.runtime.turn_surface import (
     SurfaceProjection,
     TuiTurnSurfaceCoordinator,
@@ -66,6 +68,9 @@ async def _apply_surface_projection(
         runtime.activity.finish_wait()
         return None
     if not projection.visible:
+        if projection.compaction_interrupted:
+            with runtime.activity_handoff("wait", preserve_title_anchor=True):
+                runtime.append_block(styled_fragment_block(render_compaction_interrupted()), kind="notice")
         if projection.hidden_wait_timing == "pause":
             runtime.activity.pause_wait()
         elif projection.hidden_wait_timing == "continue":
@@ -79,6 +84,7 @@ async def _apply_surface_projection(
         title=projection.title,
         detail=projection.detail,
         compaction_started_at=projection.compaction_started_at,
+        compaction_identity=projection.compaction_identity,
     )
 
 

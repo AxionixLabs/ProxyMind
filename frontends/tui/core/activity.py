@@ -143,6 +143,8 @@ class ActivityLease(object):
     key: ActivitySlotKey
     kind: ActivityStatusKind
     generation: int
+    preserve_wait_timing: bool = False
+    preserve_title_anchor: bool = False
 
 
 class TuiActivity(object):
@@ -173,6 +175,7 @@ class TuiActivity(object):
         self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
         self._compaction_started_at: float | None = None
+        self._compaction_identity: tuple[str, int] | None = None
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
@@ -210,6 +213,7 @@ class TuiActivity(object):
         title: str = "",
         detail: str = "",
         compaction_started_at: float | None = None,
+        compaction_identity: tuple[str, int] | None = None,
     ) -> None:
         """在同一前景槽中投影 Turn 的唯一活动提示。"""
         if indicator not in {
@@ -225,11 +229,20 @@ class TuiActivity(object):
         self._turn_surface_title = " ".join(str(title or "").split())
         self._turn_surface_detail = _normalize_status_detail(detail)
         self._compaction_started_at = compaction_started_at
+        self._compaction_identity = compaction_identity
         slot = self._slots.get("foreground")
         if slot is None:
             await self._activate_wait_slot()
         elif slot.kind == "wait" and not slot.frozen:
             self._render_slots()
+
+    def compaction_matches(self, item_id: str, presentation_epoch: int) -> bool:
+        """返回当前可见压缩槽是否属于即将交接的稳定 Item。"""
+        return (
+            self._turn_surface_indicator == "compacting"
+            and self._compaction_identity == (item_id, presentation_epoch)
+            and self.lease("wait") is not None
+        )
 
     async def begin_upload(
         self,
@@ -390,13 +403,16 @@ class TuiActivity(object):
         self._settle_deadlines.pop(key, None)
         await self._refresh_task()
 
-    def lease(self, kind: ActivityStatusKind) -> ActivityLease | None:
+    def lease(
+        self, kind: ActivityStatusKind, *, preserve_wait_timing: bool = False,
+        preserve_title_anchor: bool = False,
+    ) -> ActivityLease | None:
         """返回指定活动当前可用于视觉交接的租约。"""
         key = _SLOT_KEYS[kind]
         slot = self._slots.get(key)
         if slot is None or slot.kind != kind:
             return None
-        return ActivityLease(key, kind, slot.generation)
+        return ActivityLease(key, kind, slot.generation, preserve_wait_timing, preserve_title_anchor)
 
     def freeze(self, lease: ActivityLease) -> bool:
         """把租约对应的活动冻结为静态最终帧。"""
@@ -422,7 +438,10 @@ class TuiActivity(object):
             return False
 
         if slot.kind == "wait":
-            self._complete_wait()
+            if lease.preserve_wait_timing:
+                self._wait_phase = slot.phase
+            else:
+                self._complete_wait()
         self._remove_slot(slot)
 
         return True
@@ -790,6 +809,7 @@ class TuiActivity(object):
         self._wait_phase = 0.0
         self._turn_surface_indicator = "thinking"
         self._compaction_started_at = None
+        self._compaction_identity = None
         self._turn_surface_title = "Thinking"
         self._turn_surface_detail = ""
 
@@ -864,9 +884,9 @@ def _compaction_progress_block(
         if started_at is not None else ""
     )
     fragments.append((prompt_style(STATUS_MUTED), f" ({elapsed}esc to {action})"))
-    first_line = clip_fragments(fragments, width=max(1, width))
+    first_line = _clip_activity_line(fragments, width=max(1, width))
     detail = "  └ Making room to continue." if started_at is not None else "  └ Waiting for compaction to start."
-    detail_line = clip_fragments([(prompt_style(STATUS_MUTED), detail)], width=max(1, width))
+    detail_line = _clip_activity_line([(prompt_style(STATUS_MUTED), detail)], width=max(1, width))
     return FragmentBlock((*first_line, ("", "\n"), *detail_line), preserve_newlines=True)
 
 

@@ -244,7 +244,7 @@ def _render_presentation_view(
             measure_width=measure_width,
         ),)
     if isinstance(view, ContextCompactionView):
-        if view.status != "completed":
+        if view.status == "in_progress":
             return ()
         return (render_context_compaction_view(view),)
     if isinstance(view, LifecycleView):

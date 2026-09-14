@@ -6,7 +6,10 @@ import typing
 
 import httpx
 
-from agent.application.turns.compact_result import CompactEvent
+from agent.application.turns.compact_result import (
+    CompactEvent,
+    compact_failure_message,
+)
 from agent.protocol.context_usage import ContextUsageRecord
 from protocol.client.compact import (
     build_compact_payload,
@@ -52,7 +55,7 @@ class ProtocolCompactionClient:
                         message=(
                             "Context compacting..." if status == "started"
                             else "Context compacted." if status == "completed"
-                            else _compact_failure_message(event.error_type or "")
+                            else compact_failure_message(event.error_type or "")
                         ),
                         cid=event.cid,
                         sid=event.sid,
@@ -79,28 +82,13 @@ class ProtocolCompactionClient:
         except httpx.HTTPStatusError as error:
             yield CompactEvent(
                 status="failed",
-                message=_compact_failure_message(status_code=error.response.status_code),
+                message=compact_failure_message(status_code=error.response.status_code),
             )
         except httpx.HTTPError:
             yield CompactEvent(
                 status="failed",
                 message="Context compaction failed. Please try again.",
             )
-
-
-def _compact_failure_message(error_type: str = "", *, status_code: int = 0) -> str:
-    """把服务端错误类别或 HTTP 状态转换为本地压缩提示。"""
-    if error_type == "empty_history" or status_code == 404:
-        return "There is no conversation history to compact."
-    if error_type == "not_compactable":
-        return "A tool call is still running. Try again after it finishes."
-    if error_type == "cas_conflict":
-        return "Conversation changed while compacting. Please try again."
-    if error_type == "persist_failed":
-        return "Failed to save the compacted context. Please try again."
-    if status_code == 409:
-        return "Conversation is busy or changed. Try /compact again after the current operation finishes."
-    return "Context compaction failed. Please try again."
 
 
 if __name__ == '__main__':

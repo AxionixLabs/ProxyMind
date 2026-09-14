@@ -1,7 +1,11 @@
 """把生产 Turn activity event 和真实 renderer commit 验证为稳定帧契约。"""
 
 import asyncio
-from dataclasses import dataclass
+import time
+from dataclasses import (
+    dataclass,
+    replace,
+)
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +21,7 @@ from agent.application.views.builders.tools import (
     build_native_tool_result_view,
     build_tool_start_view,
 )
+from agent.application.views import ContextCompactionView
 from agent.ports import (
     ApprovalPresentationChanged,
     AssistantBuffered,
@@ -24,6 +29,8 @@ from agent.ports import (
     AssistantSettled,
     AssistantTextDelta,
     AssistantVisible,
+    CompactionActivitySnapshot,
+    ContextCompactionChanged,
     ModelWaitRequested,
     OutputSurfaceContext,
     ResponseIdentity,
@@ -33,8 +40,12 @@ from agent.ports import (
     TurnTerminal,
 )
 from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.adapters.application import TuiApplicationSink
+from agent.ports.presentation import ApplicationView
+from frontends.terminal.renderers.lifecycle import render_compaction_completed
 from frontends.tui.core.activity import ActivityLease
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.rendering.fragments import fragments_text
 from frontends.tui.runtime.turn_surface import (
     SurfaceProjection,
     TuiTurnSurfaceCoordinator,
@@ -204,6 +215,183 @@ async def _wait_for_screen_text(runtime: TuiRuntime, expected: str) -> None:
             return None
         await asyncio.sleep(0.005)
     raise AssertionError(f"TUI text was not rendered: {expected}")
+
+
+@pytest.mark.anyio
+@pytest.mark.runtime_frame
+@pytest.mark.parametrize("columns", (50, 120))
+@pytest.mark.parametrize("terminals", (0, 1, 2))
+@pytest.mark.parametrize("manual", (False, True))
+async def test_compaction_completion_replaces_activity_in_same_renderer_row(columns, terminals, manual) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+        frames = []
+
+        def capture(_application):
+            screen = runtime.screen.application.renderer.last_rendered_screen
+            rows = [
+                (18 - runtime.screen._visible_height() + row, "".join(cells[column].char for column in sorted(cells)))
+                for row, cells in sorted(screen.data_buffer.items())
+            ]
+            frames.append(rows)
+
+        with patch.object(runtime.screen.application.output, "get_size", return_value=Size(rows=18, columns=columns)):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(not manual)
+                runtime.set_foreground_active(manual)
+                if terminals:
+                    runtime.set_process_status_label(
+                        f"{terminals} background terminal{'s' if terminals != 1 else ''} running · /ps to view · /stop to close",
+                    )
+                if manual:
+                    progress = CompactionActivitySnapshot(time.perf_counter(), False, "Context compacting")
+                    await runtime.begin_compact_status(lambda: progress)
+                else:
+                    await session.open()
+                    await session.activity.emit(ContextCompactionChanged(
+                        **_scope(), item_id="compact_1", status="started", event_seq=1, presentation_epoch=1,
+                    ))
+                await _wait_for_screen_text(runtime, "Context compacting")
+                runtime.screen.application.after_render += capture
+                await _render_next_frame(runtime)
+                if manual:
+                    TuiApplicationSink(runtime).emit(ApplicationView(
+                        type="tui.compact.status", renderable=render_compaction_completed(86420),
+                    ))
+                    assert not runtime.execution_active
+                    assert runtime.submission_deferred
+                else:
+                    await session.presentation.emit(ContextCompactionView(
+                        turn_id=CONTEXT.turn_id, item_id="compact_1", event_seq=2,
+                        presentation_epoch=1, status="completed", phase="mid_turn",
+                        trigger="automatic", reason="context_limit", latency_ms=86420,
+                    ))
+                    await session.activity.emit(ContextCompactionChanged(
+                        **_scope(), item_id="compact_1", status="completed", event_seq=2, presentation_epoch=1,
+                    ))
+                await _wait_for_screen_text(runtime, "Context compacted")
+                matching = [
+                    [(row, text) for row, text in frame if "Context compact" in text]
+                    for frame in frames
+                ]
+                assert all(len(frame) == 1 for frame in matching), matching
+                assert len({frame[0][0] for frame in matching}) == 1, matching
+                assert "1m26s" in matching[-1][0][1]
+                assert all("Making room" not in text for _row, text in frames[-1])
+            finally:
+                runtime.screen.application.after_render -= capture
+                runtime.set_execution_active(False)
+                runtime.set_foreground_active(False)
+                await session.close()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.runtime_frame
+async def test_compaction_pending_commit_resize_and_consecutive_items_preserve_input() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+        with patch.object(runtime.screen.application.output, "get_size", return_value=Size(rows=24, columns=120)) as size:
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await session.open()
+                draft = runtime.screen.input.buffer
+                draft.text = "继续核对中文草稿\n第二行暂不发送"
+                draft.cursor_position = 4
+                draft.start_selection()
+                draft.cursor_position = 8
+                selection = draft.selection_state
+                focus = runtime.screen.application.layout.current_control
+                await session.activity.emit(ContextCompactionChanged(
+                    **_scope(), item_id="compact_1", status="started", event_seq=1, presentation_epoch=1,
+                ))
+                for columns in (120, 80, 50, 25, 120):
+                    size.return_value = Size(rows=24, columns=columns)
+                    for _ in range(2):
+                        await _render_next_frame(runtime)
+                    assert draft.text == "继续核对中文草稿\n第二行暂不发送"
+                    assert draft.cursor_position == 8
+                    assert draft.selection_state is selection
+                    assert runtime.screen.application.layout.current_control is focus
+                completed = ContextCompactionView(
+                    turn_id=CONTEXT.turn_id, item_id="compact_1", event_seq=2,
+                    presentation_epoch=1, status="completed", phase="mid_turn",
+                    trigger="automatic", reason="context_limit", latency_ms=86420,
+                )
+                entered, release = asyncio.Event(), asyncio.Event()
+                original = session.control.prepare_active_presentation
+
+                async def prepare():
+                    entered.set()
+                    await release.wait()
+                    await original()
+
+                with patch.object(session.control, "prepare_active_presentation", side_effect=prepare):
+                    pending = asyncio.create_task(session.presentation.emit(completed))
+                    await entered.wait()
+                    frame = await _render_next_frame(runtime)
+                    assert "Context compacting" in _rendered_screen_text(frame)
+                    assert "Context compacted" not in _rendered_screen_text(frame)
+                    release.set()
+                    await pending
+                await session.activity.emit(ContextCompactionChanged(
+                    **_scope(), item_id="compact_1", status="completed", event_seq=2, presentation_epoch=1,
+                ))
+                await session.activity.emit(ModelWaitRequested(**_scope(), revision=1, reason="lifecycle"))
+                await _wait_for_screen_text(runtime, "Thinking")
+                await session.activity.emit(ContextCompactionChanged(
+                    **_scope(), item_id="compact_2", status="started", event_seq=3, presentation_epoch=1,
+                ))
+                await session.presentation.emit(completed)
+                assert runtime.activity.compaction_matches("compact_2", 1)
+                await session.presentation.emit(replace(completed, item_id="compact_2", event_seq=4, latency_ms=1000))
+                await session.activity.emit(ContextCompactionChanged(
+                    **_scope(), item_id="compact_2", status="completed", event_seq=4, presentation_epoch=1,
+                ))
+                frame = await _render_next_frame(runtime)
+                text = _rendered_screen_text(frame)
+                assert text.count("Context compacted") == 1
+                completed_cells = [cell for cell in runtime.document.blocks if isinstance(cell.source, ContextCompactionView)]
+                assert [cell.source.item_id for cell in completed_cells] == ["compact_1", "compact_2"]
+                assert "Context compacting" not in text
+                assert runtime.execution_active
+                assert draft.text == "继续核对中文草稿\n第二行暂不发送"
+            finally:
+                runtime.set_execution_active(False)
+                await session.close()
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("started", (False, True))
+async def test_compaction_terminal_without_animation_or_after_turn_interruption(started) -> None:
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+    runtime.set_execution_active(True)
+    try:
+        await session.open()
+        if started:
+            await session.activity.emit(ContextCompactionChanged(
+                **_scope(), item_id="compact_1", status="started", event_seq=1, presentation_epoch=1,
+            ))
+            await session.activity.emit(TurnTerminal(**_scope(), status="interrupted"))
+            assert fragments_text(runtime.document.blocks[-1].display_block.fragments) == "• Context compaction · interrupted"
+        else:
+            await session.presentation.emit(ContextCompactionView(
+                turn_id=CONTEXT.turn_id, item_id="compact_1", event_seq=2,
+                presentation_epoch=1, status="completed", phase="mid_turn",
+                trigger="automatic", reason="context_limit", latency_ms=0,
+            ))
+        assert runtime.screen.activity_block is None
+        assert len(runtime.document.blocks) == 1
+    finally:
+        runtime.set_execution_active(False)
+        await session.close()
+        await runtime.close()
 
 
 def _scope() -> dict[str, str]:

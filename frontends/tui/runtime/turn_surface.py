@@ -164,6 +164,8 @@ class SurfaceProjection:
     detail: str = ""
     hidden_wait_timing: HiddenWaitTiming = "finish"
     compaction_started_at: float | None = None
+    compaction_identity: tuple[str, int] | None = None
+    compaction_interrupted: bool = False
     revision: int = 0
 
     @property
@@ -182,12 +184,16 @@ class SurfaceProjection:
             self.detail,
             self.hidden_wait_timing,
             self.compaction_started_at,
+            self.compaction_identity,
+            self.compaction_interrupted,
         ) == (
             other.indicator,
             other.title,
             other.detail,
             other.hidden_wait_timing,
             other.compaction_started_at,
+            other.compaction_identity,
+            other.compaction_interrupted,
         )
 
 
@@ -252,7 +258,13 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     """从正交状态派生单一活动区域投影。"""
     revision = state.revision
     if state.lifecycle != "active":
-        return SurfaceProjection("hidden", revision=revision)
+        return SurfaceProjection(
+            "hidden", revision=revision,
+            compaction_interrupted=(
+                state.lifecycle == "terminal" and state.terminal_status in {"interrupted", "cancelled"}
+                and state.compaction is not None and state.compaction.status == "started"
+            ),
+        )
     if state.approval_presentation_active:
         return SurfaceProjection(
             "hidden",
@@ -278,6 +290,7 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             "compacting",
             title="Context compacting",
             detail="Making room to continue.",
+            compaction_identity=(state.compaction.item_id, state.compaction.presentation_epoch),
             revision=revision,
         )
     if state.content == "visible":
@@ -1072,7 +1085,6 @@ def _reduce_active_surface(
             approval_reviews=(),
             retries=(),
             terminal_status=event.status,
-            compaction=None,
         )
     if isinstance(event, SurfaceClosed):
         return replace(

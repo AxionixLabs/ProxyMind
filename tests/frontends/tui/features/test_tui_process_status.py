@@ -30,6 +30,7 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
 
     assert runtime.screen._process_status_height() == 0
 
+
     runtime.set_process_status_label("pytest -q · +2")
 
     assert runtime.screen._process_status_height() == 1
@@ -53,6 +54,18 @@ def test_process_status_is_a_dedicated_optional_row() -> None:
     runtime.set_process_status_label("")
 
     assert runtime.screen._process_status_height() == 0
+
+
+@pytest.mark.parametrize(("width", "expected"), [
+    (100, " · 2 background terminals running · /ps to view · /stop to close"),
+    (50, " · 2 background terminals running · /ps to view"),
+    (35, " · 2 background terminals running"),
+    (25, ""),
+])
+def test_inline_process_actions_are_omitted_as_complete_segments(width, expected) -> None:
+    status = TuiProcessStatus(invalidate=lambda: None, get_width=lambda: width)
+    status.set_label("2 background terminals running · /ps to view · /stop to close")
+    assert fragments_text(status.inline_fragments(available_width=width)) == expected
 
 
 def test_process_status_is_inline_when_activity_is_visible() -> None:

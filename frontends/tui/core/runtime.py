@@ -778,6 +778,10 @@ class TuiRuntime(object):
         activity_lease: ActivityLease | None = None
     ) -> None:
         """在当前视觉事务中追加正文并完成相关状态交接。"""
+        previous_activity_height = (
+            self.screen.activity_layout_height()
+            if activity_lease is not None and activity_lease.preserve_title_anchor else None
+        )
         appended = self.document.append_block(
             block,
             kind=kind,
@@ -791,6 +795,8 @@ class TuiRuntime(object):
 
         if activity_lease is not None:
             self.activity.release(activity_lease)
+        if appended and previous_activity_height is not None:
+            self.screen.preserve_activity_title_spacing(previous_activity_height, block)
 
         if appended:
             self._complete_command_layout()
@@ -1510,12 +1516,21 @@ class TuiRuntime(object):
     def activity_handoff(
         self,
         kind: ActivityStatusKind | None,
+        *,
+        preserve_wait_timing: bool = False,
+        preserve_title_anchor: bool = False,
     ) -> contextlib.AbstractContextManager[None]:
         """让当前任务的首个可见结果接管指定活动区域。"""
 
         @contextlib.contextmanager
         def transaction() -> typing.Iterator[None]:
-            lease = self.activity.lease(kind) if kind is not None else None
+            lease = (
+                self.activity.lease(
+                    kind, preserve_wait_timing=preserve_wait_timing,
+                    preserve_title_anchor=preserve_title_anchor,
+                )
+                if kind is not None else None
+            )
             deferred = bool(
                 self.execution_active
                 or self.document.active_block is not None

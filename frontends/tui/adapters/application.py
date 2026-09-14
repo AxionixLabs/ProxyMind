@@ -43,8 +43,6 @@ FAILURE_BODY = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 _BACKGROUND_VIEW_TYPES = frozenset({
     "tui.background.error",
-    "tui.compact.interrupted",
-    "tui.compact.status",
     "tui.external_mcp.interrupted",
     "tui.external_mcp.status",
     "tui.helix.interrupted",
@@ -182,6 +180,10 @@ class TuiApplicationSink(ApplicationSink):
         block_kind: TuiBlockKind,
     ) -> None:
         """按展示类型提交正文块或延迟后台结果。"""
+        if view_type in {"tui.compact.status", "tui.compact.interrupted"}:
+            with self.runtime.activity_handoff("compact", preserve_title_anchor=True):
+                self.runtime.append_block(block, kind="notice")
+            return
         if view_type in _BACKGROUND_VIEW_TYPES:
             self.runtime.queue_background_block(block)
             return None

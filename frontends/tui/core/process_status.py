@@ -5,6 +5,8 @@ import asyncio
 import time
 import typing
 
+from prompt_toolkit.utils import get_cwidth
+
 from frontends.terminal.text import sanitize_terminal_text
 from .models import FormattedText
 from .status_frames import (
@@ -61,14 +63,14 @@ class TuiProcessStatus(object):
         width = max(1, int(self._get_width()))
         return clip_fragments(self._label_fragments(), width=width)
 
-    def inline_fragments(self) -> FormattedText:
+    def inline_fragments(self, *, available_width: int | None = None) -> FormattedText:
         """生成附着在活动状态行末尾的进程摘要。"""
         if not self.label:
             return []
 
         fragments = self._label_fragments()
         dim_class = "class:process-status.background"
-        return [
+        inline = [
             (dim_class, " · "),
             *(
                 (
@@ -80,6 +82,19 @@ class TuiProcessStatus(object):
                 for style, text in fragments[2:]
             ),
         ]
+        if available_width is None:
+            return inline
+        base, separator, ps_action, _stop_action = self._label_parts()
+        candidates = [inline]
+        if separator:
+            candidates.extend((
+                [(dim_class, f" · {base} · {ps_action} to view")],
+                [(dim_class, f" · {base}")],
+            ))
+        for candidate in candidates:
+            if get_cwidth("".join(text for _style, text in candidate)) <= available_width:
+                return candidate
+        return []
 
     def _label_fragments(self) -> FormattedText:
         """生成状态正文，并为后台终端提示应用静态弱化样式。"""

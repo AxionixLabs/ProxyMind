@@ -25,7 +25,10 @@ from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
-from frontends.terminal.renderers.lifecycle import render_compaction_completed
+from frontends.terminal.renderers.lifecycle import (
+    render_compaction_completed,
+    render_compaction_failed,
+)
 from frontends.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
@@ -112,14 +115,16 @@ def render_compact_result(host: "TuiApplicationHost", status: "CompactLiveStatus
     result = status.result
     if result is None:
         return
-    block = (
-        render_compaction_completed(result.latency_ms)
-        if result.outcome == "completed"
-        else failure_text_block(result.message)
-    )
-    _present(host, block, view_type="tui.compact.status")
-    if result.continuation_message:
+    if not status.notice_presented:
+        block = (
+            render_compaction_completed(result.latency_ms)
+            if result.outcome == "completed" else render_compaction_failed(result.message)
+        )
+        _present(host, block, view_type="tui.compact.status")
+        status.notice_presented = True
+    if result.continuation_message and not status.continuation_presented:
         _present(host, failure_text_block(result.continuation_message))
+        status.continuation_presented = True
 
 
 async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
@@ -160,11 +165,19 @@ class CompactLiveStatus:
         self._result: CompactResult | None = None
         self._started_at: float | None = None
         self._item_id: str = ""
+        self._event: CompactEvent | None = None
+        self.notice_presented: bool = False
+        self.continuation_presented: bool = False
 
     @property
     def result(self) -> CompactResult | None:
         """返回已经结算的压缩事实及独立的后续控制结果。"""
-        return self._result
+        if self._result is not None:
+            return self._result
+        event = self._event
+        if event is None or event.status == "started":
+            return None
+        return CompactResult(outcome=event.status, message=event.message, event=event)
 
     def snapshot(self) -> CompactionActivitySnapshot:
         """返回当前前台压缩活动的状态快照。"""
@@ -174,11 +187,12 @@ class CompactLiveStatus:
         """更新压缩进行中的提示。"""
         if self._done:
             return
+        self._event = event
         if self._item_id != event.item_id or self._started_at is None:
             self._started_at = time.perf_counter()
             self._item_id = event.item_id
         self._message = event.message or "Context compacting..."
-        self._done = False
+        self._done = event.status != "started"
 
     def finish(self, result: CompactResult) -> None:
         """保留压缩终态，不用后续 Hook 的决定改写完成事实。"""
@@ -323,10 +337,16 @@ async def compact_current_conversation(
         observe("compact.animation.start")
         await host.activity.start_compact(status.snapshot)
 
+    def present_progress(event: CompactEvent) -> None:
+        """在远端终态确认后立即交接压缩记录，后续 Hook 继续占有操作屏障。"""
+        status.running(event)
+        if event.status != "started":
+            render_compact_result(host, status)
+
     result = await compactor(
         pref_config=pref_config,
         source="tui",
-        on_progress=status.running,
+        on_progress=present_progress,
     )
 
     status.finish(result)

@@ -48,6 +48,7 @@ from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.output import DummyOutput
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import TextArea
 
 from frontends.interaction.contracts import PromptContext
@@ -332,6 +333,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._rendered_output_size: Size | None = None
 
         self._bottom_pane_frame_layout: BottomPaneLayout | None = None
+        self._activity_handoff_spacing: tuple[int, int, int, int] | None = None
 
         self._transcript_only: bool = False
         self._transcript_cache_key: tuple[int, int, int] | None = None
@@ -2171,7 +2173,10 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         )
 
         activity_fragments = list(block.fragments)
-        inline_fragments = self.process_status.inline_fragments()
+        first_line = fragments_text(activity_fragments).split("\n", 1)[0]
+        inline_fragments = self.process_status.inline_fragments(
+            available_width=max(0, width - get_cwidth(first_line)),
+        )
 
         if not block.preserve_newlines:
             return clip_fragments(
@@ -3507,7 +3512,35 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             return 0
         if self._startup_gate_active:
             return 0
+        spacing = self._activity_handoff_spacing
+        if spacing is not None:
+            stable_revision, active_revision, width, height = spacing
+            if (
+                self.activity_block is None
+                and stable_revision == self.document.stable_transcript_revision
+                and active_revision == self.document.active_transcript_revision
+                and width == self.terminal_width
+            ):
+                return min(height, self.terminal_height)
+            self._activity_handoff_spacing = None
         return min(self.CONTENT_SURFACE_GAP_HEIGHT, self.terminal_height)
+
+    def activity_layout_height(self) -> int:
+        """返回活动标题到输入区底边的高度，供同帧交接保存行锚点。"""
+        return self._bottom_pane_layout().content_height
+
+    def preserve_activity_title_spacing(self, previous_height: int, block: FragmentBlock) -> None:
+        """把撤下的说明行归入正文后的间距，下一内容或活动出现时自然释放。"""
+        self._activity_handoff_spacing = None
+        width = self.terminal_width
+        completed_height = display_line_count(fragments_text(block.fragments), width=width)
+        gap_height = max(0, previous_height - self.activity_layout_height() - completed_height)
+        self._activity_handoff_spacing = (
+            self.document.stable_transcript_revision,
+            self.document.active_transcript_revision,
+            width,
+            gap_height,
+        )
 
     def _bottom_pane_layout(self) -> BottomPaneLayout:
         """返回当前帧底部状态区与交互区域的统一高度结果。"""

@@ -220,6 +220,8 @@ async def compact_conversation(
                     "summary": result.summary,
                 },
             )
+            if on_progress is not None and result.event is not None:
+                on_progress(result.event)
             if result.outcome == "completed":
                 try:
                     post_decision = await session.await_cleanup(

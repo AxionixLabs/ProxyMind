@@ -54,9 +54,9 @@ async def handle_lifecycle_event(
     """展示非核心生命周期事件中的显式内容。"""
     if isinstance(event, ContextCompactionEvent):
         view = build_context_compaction_view(event)
-        if view.status == "completed":
+        if view.status != "in_progress":
             transcript.append(
-                "context.compacted",
+                "context.compacted" if view.status == "completed" else "context.compaction.failed",
                 actor="system",
                 payload={
                     "item_id": view.item_id,
@@ -65,6 +65,8 @@ async def handle_lifecycle_event(
                     "phase": view.phase,
                     "trigger": view.trigger,
                     "reason": view.reason,
+                    "error_type": view.error_type,
+                    "retryable": view.retryable,
                     "before_items": view.before_items,
                     "after_items": view.after_items,
                     "before_chars": view.before_chars,

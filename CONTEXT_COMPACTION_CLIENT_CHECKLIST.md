@@ -194,13 +194,17 @@ P1 已推送：`7cab6ae9`。P2 的原位完成交接、失败/停止等待稳定
 
 ### P3：动画与完成态原位替换
 
-- [ ] 完成 D1–D5 设计；自动压缩与 `/compact` 完成态采用相同标题和耗时样式。
-- [ ] 复用活动 lease、`activity_handoff` 和 `screen.visual_update`；旧动画撤下与稳定单元提交必须在同一视觉事务中完成。
-- [ ] 真实 renderer 帧断言：标题首行交接坐标相同、无中间空帧、无重复标题、无完成后复活动画。
-- [ ] 覆盖瞬间完成、长时间压缩、提交阶段 await、说明行收起、多次连续压缩和后台通知同时到达。
-- [ ] 完成后继续 Thinking/正文；无重置 Turn elapsed、重复分隔线、错误释放输入屏障的问题。
-- [ ] 宽/窄窗口、中文多行草稿、后台终端 0/1/2 个时符合设计，状态变化不影响 context left 布局。
-- [ ] 移除被替代的手动 MCP 完成渲染、条目数标题和额外 `tui.gap`；更新旧行为测试与 `docs/interactive-mode.md`，不保留第二套压缩展示路径。
+- [x] 完成 D1/D2/D3/D5 与 D4 权威失败、自动中断的展示；自动压缩与 `/compact` 完成态采用相同标题和耗时样式。D4 手动停止等待的语义与恢复由 P4 收口。
+- [x] 复用活动 lease、`activity_handoff` 和 `screen.visual_update`；旧动画撤下与稳定单元提交在同一视觉事务中完成。
+- [x] 真实 renderer 帧断言：标题首行交接坐标相同、无中间空帧、无重复标题、无完成后复活动画。
+- [x] 覆盖瞬间完成、独立压缩计时、提交阶段 await、说明行收起、多次连续压缩和后台终端状态共存。
+- [x] 完成后继续 Thinking/正文；无重置 Turn elapsed、重复分隔线、错误释放输入屏障的问题。
+- [x] 宽/窄窗口、中文多行草稿、后台终端 0/1/2 个时符合设计，状态变化不影响 context left 布局。
+- [x] 移除被替代的手动 MCP 完成渲染、条目数标题和额外 `tui.gap`；更新旧行为测试与 `docs/interactive-mode.md`，不保留第二套压缩展示路径。
+
+2026-09-14 复核：压缩、活动、输入与协议定向 293 passed；新增提交前等待、缩放与连续 Item、瞬间完成和权威中断后，renderer 文件 23 passed；架构审计 138 passed（同一第三方弃用警告）；compileall、git diff --check 通过。
+手动/自动 × 50/120 列 × 后台终端 0/1/2 的 12 组 renderer 帧验证标题原位交接；120→80→50→25→120 保留中文多行草稿、光标、选区和焦点。此处使用真实 prompt_toolkit renderer 与注入事件，不代替 P6 的真实服务/ConPTY 验收。
+P2 已推送：`d298dab4`。
 
 验收入口：`tests/frontends/tui/runtime/test_tui_frame_contract.py`、`tests/frontends/tui/features/test_tui_compact.py`、输入布局与后台终端相关测试。
 

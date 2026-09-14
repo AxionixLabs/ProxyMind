@@ -204,7 +204,7 @@ async def test_manual_compaction_rejects_usage_for_other_operation(field) -> Non
 @pytest.mark.anyio
 @pytest.mark.parametrize(("error_type", "message"), [
     ("operation_failed", "Context compaction failed. Please try again."),
-    ("summary_failed", "Context compaction failed. Please try again."),
+    ("summary_failed", "Could not generate a context summary."),
     ("persist_failed", "Failed to save the compacted context. Please try again."),
     ("cas_conflict", "Conversation changed while compacting. Please try again."),
 ])

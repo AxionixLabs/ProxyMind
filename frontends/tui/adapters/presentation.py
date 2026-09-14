@@ -196,6 +196,7 @@ class TuiPresentationSink(PresentationSink):
 
     def __init__(self, output: "TuiOutputControl") -> None:
         self.output = output
+        self._compaction_terminals: set[tuple[str, str]] = set()
         self._stable_patch_call_ids: set[str] = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
 
@@ -427,6 +428,9 @@ class TuiPresentationSink(PresentationSink):
 
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
+        if isinstance(view, ContextCompactionView) and view.status != "in_progress":
+            if (view.turn_id, view.item_id) in self._compaction_terminals:
+                return
         if isinstance(view, NativeToolResultView):
             if view.name == "exec_command" and self._terminal_session_id(view):
                 return None
@@ -456,7 +460,18 @@ class TuiPresentationSink(PresentationSink):
         else:
             await self._flush_all_terminal_waits()
 
-        await self._emit_view(view)
+        if isinstance(view, ContextCompactionView) and view.status != "in_progress":
+            await self.output.prepare_active_presentation()
+            runtime = self.output.runtime
+            matching = runtime.activity.compaction_matches(view.item_id, view.presentation_epoch)
+            with self.output.runtime.activity_handoff(
+                "wait" if matching else None,
+                preserve_wait_timing=True, preserve_title_anchor=True,
+            ):
+                await self._emit_view(view)
+            self._compaction_terminals.add((view.turn_id, view.item_id))
+        else:
+            await self._emit_view(view)
 
     async def flush_terminal_waits_before_assistant_output(self) -> None:
         """在助手正文开始前提交后台终端等待记录。"""

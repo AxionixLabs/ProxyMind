@@ -230,8 +230,8 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     assert final.done is True
     assert final.message == "Context compaction failed. Please try again."
     status = next(view for view in host.views if view.type == "tui.compact.status")
-    assert "Context compaction failed. Please try again." in fragments_text(
-        status.renderable.fragments,
+    assert status.renderable.plain_text == (
+        "• Context compaction failed\n  └ Context compaction failed. Please try again."
     )
 
 
@@ -572,7 +572,7 @@ async def test_compact_failure_skips_post_hook(
     )
 
     assert result.outcome == "failed"
-    assert result.message == "Context compaction failed. Please try again."
+    assert result.message == "Could not generate a context summary."
     assert [event for event, _payload in runner.calls] == ["PreCompact"]
 
 
@@ -699,6 +699,41 @@ async def test_manual_compaction_preserves_progress_and_transcript_metadata(monk
     assert payload["presentation_epoch"] == 1
     assert payload["latency_ms"] == 86420
     writer.close.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_manual_completion_is_visible_before_post_hook_finishes(monkeypatch, tmp_path) -> None:
+    post_started = asyncio.Event()
+    release_post = asyncio.Event()
+
+    class BlockingRunner(_RecordingHookRunner):
+        async def execute(self, definition, payload):
+            if definition.event == "PostCompact":
+                post_started.set()
+                await release_post.wait()
+            return await super().execute(definition, payload)
+
+    async def completed_stream(_payload):
+        yield _compact_event("started")
+        yield _compact_event(latency_ms=86420)
+
+    host = _HookedCompactHost(tmp_path, _compact_hook_runtime(tmp_path, BlockingRunner()))
+    host.views = []
+    host.activity = SimpleNamespace(enabled=False)
+    host.frontend = SimpleNamespace(application=SimpleNamespace(emit=host.views.append))
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", completed_stream)
+    task = asyncio.create_task(conversation.compact_current_conversation(
+        host, functools.partial(_compact, host), pref_config={},
+    ))
+    try:
+        await asyncio.wait_for(post_started.wait(), 1.0)
+        assert not task.done()
+        assert [view.renderable.plain_text for view in host.views] == ["• Context compacted  · 1m26s"]
+    finally:
+        release_post.set()
+        status = await task
+    conversation.render_compact_result(host, status)
+    assert len(host.views) == 1
 
 
 @pytest.mark.anyio

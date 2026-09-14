@@ -3,6 +3,8 @@
 
 import typing
 
+from agent.application.turns.compact_result import compact_failure_message
+
 from agent.application.views import (
     ContextCompactionView,
     FailureView,
@@ -65,6 +67,8 @@ def render_context_compaction_view(
     view: ContextCompactionView,
 ) -> StyledBlock:
     """把上下文压缩完成事实转换为稳定信息块。"""
+    if view.status == "failed":
+        return render_compaction_failed(compact_failure_message(view.error_type or ""))
     return render_compaction_completed(view.latency_ms)
 
 
@@ -80,6 +84,32 @@ def render_compaction_completed(latency_ms: int | None) -> StyledBlock:
     return StyledBlock(
         plain_text=title,
         spans=tuple(spans),
+    )
+
+
+def render_compaction_interrupted() -> StyledBlock:
+    """展示压缩所属 Turn 已确认中断的事实。"""
+    title = "• Context compaction"
+    suffix = " · interrupted"
+    return StyledBlock(
+        plain_text=title + suffix,
+        spans=(
+            *render_lifecycle_display_parts(title),
+            TextSpan(suffix, semantic_text_style(TerminalSemanticRole.SECONDARY)),
+        ),
+    )
+
+
+def render_compaction_failed(message: str) -> StyledBlock:
+    """展示压缩失败及简短原因，不生成完成耗时。"""
+    title = "• Context compaction failed"
+    detail = f"\n  └ {message}"
+    return StyledBlock(
+        plain_text=title + detail,
+        spans=(
+            *render_lifecycle_display_parts(title),
+            TextSpan(detail, semantic_text_style(TerminalSemanticRole.SECONDARY)),
+        ),
     )
 
 
