@@ -329,3 +329,61 @@ async def test_windows_sidecar_file_read_denial_is_not_startup_failure(
     assert data["evidence_code"] == "windows_powershell_path_access_denied"
     assert data["stage"] == "execution"
     assert "backend_code" not in data
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool", ("shell_command", "exec_command"))
+async def test_windows_dotnet_write_denial_preserves_execution_evidence(
+    tmp_path: Path,
+    repository_root: Path,
+    tool: str,
+) -> None:
+    workspace = tmp_path / "工作区 空格"
+    protected_directory = workspace / ".git"
+    protected_directory.mkdir(parents=True)
+    protected_file = protected_directory / "受保护.txt"
+    protected_file.write_text("unchanged", encoding="utf-8")
+    escaped_target = str(protected_file).replace("'", "''")
+    command = (
+        "$ErrorActionPreference='Stop'; "
+        f"[System.IO.File]::WriteAllText('{escaped_target}', 'must-not-write')"
+    )
+    coding = create_workspace_coding(
+        root=workspace,
+        application_layout=_windows_sandbox_layout_or_skip(repository_root),
+        network_access="enabled",
+    )
+
+    try:
+        if tool == "shell_command":
+            result = await coding.shell_command(
+                command=command,
+                sandbox_mode="workspace-write",
+                timeout_sec=10,
+            )
+        else:
+            result = await coding.exec_command(
+                command=command,
+                sandbox_mode="workspace-write",
+                timeout_sec=10,
+                yield_time_ms=1000,
+            )
+            if result["data"]["status"] == "running":
+                result = await coding.write_stdin(
+                    session_id=result["data"]["session_id"],
+                    wait_ms=10000,
+                )
+    finally:
+        await coding.close()
+
+    data = result["data"]
+    assert result["ok"] is False
+    assert data["reason"] == "sandbox_denied"
+    assert data["exit_code"] != 0
+    assert "WriteAllText" in data["stderr"]
+    assert "is denied" in data["stderr"]
+    assert data["evidence_source"] == "inferred_output"
+    assert data["evidence_code"] == "windows_powershell_path_access_denied"
+    assert data["stage"] == "execution"
+    assert "backend_code" not in data
+    assert protected_file.read_text(encoding="utf-8") == "unchanged"

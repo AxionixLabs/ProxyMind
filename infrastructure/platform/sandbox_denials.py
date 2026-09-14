@@ -5,14 +5,37 @@ import re
 import typing
 from dataclasses import dataclass
 
-
-_WINDOWS_POWERSHELL_RUNTIMES = frozenset({"powershell", "pwsh"})
+_WINDOWS_POWERSHELL_RUNTIMES = frozenset({
+    "powershell",
+    "pwsh"
+})
 _WINDOWS_PATH_DENIAL = re.compile(
     r"^(?P<command>Get-Content|Set-Content|Add-Content|Remove-Item|"
     r"Move-Item|Copy-Item|New-Item):\s+Access to the path '.+' is denied\.$",
     re.IGNORECASE,
 )
-_MACOS_SHELL_RUNTIMES = frozenset({"bash", "sh", "zsh"})
+_WINDOWS_DOTNET_PATH_DENIAL = re.compile(
+    r'^(?:MethodInvocationException|ParentContainsErrorRecordException):\s+'
+    r'Exception calling "(?P<method>[A-Za-z_]\w*)" with "[0-9]+" argument\(s\):\s+'
+    r'"Access to the path \'[^\r\n]+\' is denied\."$',
+    re.IGNORECASE,
+)
+_WINDOWS_DOTNET_CALL = re.compile(
+    r"@'[ \t]*\r?\n[\s\S]*?\r?\n'@"
+    r'|@"[ \t]*\r?\n[\s\S]*?\r?\n"@'
+    r"|'(?:''|[^'])*'"
+    r'|"(?:`[\s\S]|[^"`])*"'
+    r"|<#[\s\S]*#>|#[^\r\n]*|`[\s\S]"
+    r"|\[\s*(?:System\.)?IO\.(?:File|Directory)\s*]"
+    r"\s*::\s*(?P<method>[A-Za-z_]\w*)\s*\(",
+    re.IGNORECASE,
+)
+
+_MACOS_SHELL_RUNTIMES = frozenset({
+    "bash",
+    "sh",
+    "zsh"
+})
 _MACOS_POLICY_DENIAL = re.compile(
     r"^(?P<program>[^:\s]+):\s+.+:\s+"
     r"(?P<reason>Operation not permitted|Permission denied|Read-only file system)$",
@@ -84,13 +107,21 @@ def _classify_windows_powershell(
     command: str,
     lines: tuple[str, ...],
 ) -> SandboxDenialEvidence | None:
-    """识别 PowerShell 文件系统命令产生的受控拒绝格式。"""
+    """将受控路径拒绝格式与对应的 cmdlet 或 .NET 文件调用关联。"""
     for line in lines:
         match = _WINDOWS_PATH_DENIAL.fullmatch(line)
-        if match is None:
+        if match is not None:
+            command_matches = _contains_command_token(command, match.group("command"))
+        elif dotnet_match := _WINDOWS_DOTNET_PATH_DENIAL.fullmatch(line):
+            method = dotnet_match.group("method").casefold()
+            # 字符串、注释和转义内容只消费文本，不提供静态调用证据。
+            command_matches = any(
+                (call.group("method") or "").casefold() == method
+                for call in _WINDOWS_DOTNET_CALL.finditer(command)
+            )
+        else:
             continue
-        command_name = match.group("command")
-        if not _contains_command_token(command, command_name):
+        if not command_matches:
             continue
         return SandboxDenialEvidence(
             evidence_source="inferred_output",
@@ -114,7 +145,7 @@ def _classify_macos_shell(
             and _contains_command_token(command, program)
         )
         shell_redirection = program in _MACOS_SHELL_RUNTIMES and bool(
-            re.search(r"(?:^|[^<])>(?:>|&)?|<", command)
+            re.search(r"(?:^|[^<])>[>&]?|<", command)
         )
         if not command_matches and not shell_redirection:
             continue
