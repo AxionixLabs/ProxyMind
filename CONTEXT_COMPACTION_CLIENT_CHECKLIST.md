@@ -206,6 +206,9 @@ P1 已推送：`7cab6ae9`。P2 的原位完成交接、失败/停止等待稳定
 手动/自动 × 50/120 列 × 后台终端 0/1/2 的 12 组 renderer 帧验证标题原位交接；120→80→50→25→120 保留中文多行草稿、光标、选区和焦点。此处使用真实 prompt_toolkit renderer 与注入事件，不代替 P6 的真实服务/ConPTY 验收。
 P2 已推送：`d298dab4`。
 
+P6 真机逐帧复核补充：自动 pre_turn 完成时，已有 initial Thinking 会在首个完成帧立即恢复，原布局把标题上移一行。已让接续活动消费交接空间；补齐 initial → started → completed → lifecycle 等待的真实顺序，新增 6 组用例修复前全部失败、修复后通过，帧契约合计 29 passed。活动、运行时与手动压缩回归 773 passed、1 个 10ms 退出提示时序失败，该项单独复测 1 passed。
+补充复核：TUI ConPTY 渲染、交互与颜色 92 passed、1 skipped、1 failed；失败为测试进程激活虚拟环境时丢失 rg 路径，补回该进程 PATH 后受影响 Tab 补全两项均通过。架构审计 138 passed，compileall、git diff --check 通过。
+
 验收入口：`tests/frontends/tui/runtime/test_tui_frame_contract.py`、`tests/frontends/tui/features/test_tui_compact.py`、输入布局与后台终端相关测试。
 
 ### P4：回放、恢复与收尾

@@ -1660,16 +1660,26 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def set_activity_renderable(self, block: FragmentBlock) -> None:
         """替换活动状态区域的展示内容。"""
-        self.activity_block = block
+        self._replace_activity_renderable(block)
         if not self._full_screen_overlay_active():
             self.invalidate()
 
     def clear_activity_renderable(self) -> None:
         """清空活动状态区域的展示内容。"""
         changed = self.activity_block is not None
-        self.activity_block = None
+        self._replace_activity_renderable(None)
         if changed and not self._full_screen_overlay_active():
             self.invalidate()
+
+    def _replace_activity_renderable(self, block: FragmentBlock | None) -> None:
+        """让接续活动使用交接预留空间，保持已提交标题的首帧行坐标。"""
+        previous_height = self.activity_layout_height() if self._activity_handoff_spacing is not None else None
+        self.activity_block = block
+        spacing = self._activity_handoff_spacing
+        if spacing is not None and previous_height is not None:
+            stable_revision, active_revision, width, gap_height = spacing
+            gap_height = max(0, gap_height + previous_height - self.activity_layout_height())
+            self._activity_handoff_spacing = (stable_revision, active_revision, width, gap_height)
 
     def clear_terminal_scrollback(self) -> None:
         """清除当前画布及终端滚屏缓冲区。"""
@@ -3516,8 +3526,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         if spacing is not None:
             stable_revision, active_revision, width, height = spacing
             if (
-                self.activity_block is None
-                and stable_revision == self.document.stable_transcript_revision
+                stable_revision == self.document.stable_transcript_revision
                 and active_revision == self.document.active_transcript_revision
                 and width == self.terminal_width
             ):
@@ -3530,7 +3539,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         return self._bottom_pane_layout().content_height
 
     def preserve_activity_title_spacing(self, previous_height: int, block: FragmentBlock) -> None:
-        """把撤下的说明行归入正文后的间距，下一内容或活动出现时自然释放。"""
+        """把撤下的说明行归入正文后的间距，供接续活动使用或由下一内容释放。"""
         self._activity_handoff_spacing = None
         width = self.terminal_width
         completed_height = display_line_count(fragments_text(block.fragments), width=width)

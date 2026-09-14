@@ -221,8 +221,8 @@ async def _wait_for_screen_text(runtime: TuiRuntime, expected: str) -> None:
 @pytest.mark.runtime_frame
 @pytest.mark.parametrize("columns", (50, 120))
 @pytest.mark.parametrize("terminals", (0, 1, 2))
-@pytest.mark.parametrize("manual", (False, True))
-async def test_compaction_completion_replaces_activity_in_same_renderer_row(columns, terminals, manual) -> None:
+@pytest.mark.parametrize(("manual", "continuation"), ((False, False), (False, True), (True, False)))
+async def test_compaction_completion_replaces_activity_in_same_renderer_row(columns, terminals, manual, continuation) -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
@@ -250,6 +250,8 @@ async def test_compaction_completion_replaces_activity_in_same_renderer_row(colu
                     await runtime.begin_compact_status(lambda: progress)
                 else:
                     await session.open()
+                    if continuation:
+                        await session.activity.emit(ModelWaitRequested(**_scope(), revision=1, reason="initial"))
                     await session.activity.emit(ContextCompactionChanged(
                         **_scope(), item_id="compact_1", status="started", event_seq=1, presentation_epoch=1,
                     ))
@@ -271,6 +273,8 @@ async def test_compaction_completion_replaces_activity_in_same_renderer_row(colu
                     await session.activity.emit(ContextCompactionChanged(
                         **_scope(), item_id="compact_1", status="completed", event_seq=2, presentation_epoch=1,
                     ))
+                    if continuation:
+                        await session.activity.emit(ModelWaitRequested(**_scope(), revision=2, reason="lifecycle"))
                 await _wait_for_screen_text(runtime, "Context compacted")
                 matching = [
                     [(row, text) for row, text in frame if "Context compact" in text]
