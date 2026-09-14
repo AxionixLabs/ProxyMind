@@ -9,6 +9,7 @@ from dataclasses import (
 from unittest.mock import (
     AsyncMock,
     Mock,
+    patch,
 )
 
 import pytest
@@ -135,6 +136,27 @@ async def test_resume_recovers_only_observed_manual_compaction_once(status) -> N
     await session.bind("cid_test_12345678", "sid_test_1_abcdef")
     assert resources.compaction_recovery.load.await_count == 1
     assert not session._pending_compactions
+
+
+@pytest.mark.anyio
+async def test_resume_paints_compaction_recovered_during_session_binding(tmp_path) -> None:
+    started = CompactEvent(status="started", cid="cid_test_12345678", sid="sid_test_1_abcdef", item_id="compact_1", event_seq=4)
+    entry = TranscriptEntry("2026-09-14T00:00:00Z", "context.compaction.started", started.sid, None, "system", asdict(started))
+    entries = [entry]
+    session, resources = _root_session(transcript_entries=(entry,))
+    session._history.read_transcript = Mock(side_effect=lambda _sid: tuple(entries))
+    terminal = replace(started, status="completed", event_seq=9, latency_ms=86420)
+    resources.compaction_recovery.load.return_value = (terminal,)
+    resources.transcript.append.side_effect = lambda event, **kwargs: entries.append(replace(entry, event=event, payload=kwargs["payload"]))
+    runtime = TuiRuntime()
+    host = SimpleNamespace(
+        conversation=session, frontend=SimpleNamespace(runtime=runtime), history_workspace=str(tmp_path),
+        settings=SimpleNamespace(config=ConfigSession(ConfigStore(tmp_path / "config.toml"), workspace=tmp_path, directory_override=True)),
+    )
+    with patch("frontends.tui.features.resume.preload_tui_prompt_context", AsyncMock()):
+        assert await resume_history_session(host, {"cid": started.cid, "sid": started.sid, "workspace": str(tmp_path)})
+    assert [cell.raw_text for cell in runtime.document.blocks] == ["• Context compacted  · 1m26s"]
+    assert runtime.screen.activity_block is None
 
 
 @pytest.mark.anyio

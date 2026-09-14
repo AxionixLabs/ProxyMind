@@ -170,13 +170,6 @@ async def resume_history_session(
     if not target.is_dir():
         raise ValueError(f"Working directory is unavailable: {target}")
 
-    replay_blocks = await asyncio.to_thread(
-        load_history_transcript, host, sid,
-        terminal_width=runtime.terminal_width,
-        hyperlinks=runtime.hyperlinks_enabled,
-        terminal_capabilities=runtime.terminal_capabilities,
-        record=record,
-    )
     change: WorkspaceChangePort | None = None
     if workspace_identity(target) != workspace_identity(host.history_workspace):
         resolution = await _resolve_target_config(runtime, host.settings.config, target)
@@ -196,6 +189,13 @@ async def resume_history_session(
         if change is not None:
             warnings += await host.lifecycle.await_cleanup(change.finish())
 
+    replay_blocks = await asyncio.to_thread(
+        load_history_transcript, host, sid,
+        terminal_width=runtime.terminal_width,
+        hyperlinks=runtime.hyperlinks_enabled,
+        terminal_capabilities=runtime.terminal_capabilities,
+        record=record,
+    )
     runtime.replace_transcript(replay_blocks)
     try:
         await preload_tui_prompt_context(host)

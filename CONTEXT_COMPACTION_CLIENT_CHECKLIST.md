@@ -224,6 +224,8 @@ P2 已推送：`d298dab4`。
 报告授权与分页读取已收敛到 `protocol/client/session_replay.py`；用量恢复和手动压缩恢复共用该读取路径。Session 从持久 started 证据恢复待核对 Item；读取失败或服务端尚无终态时仍为未知。若断线发生在客户端观察到 Item 身份之前，不能可靠配对，保持未知且不重新提交。
 手动本地停止等待记录为 `context.compaction.observation_stopped`；该本地事件及 `unknown` 不属于线上 Item 状态。真实终态写回时不触发 Hook。取消发生在 PostCompact 等待期间，保留此前完成记录并关闭 Transcript。P3 已推送：`cc675fe0`。
 
+P6 首轮实际恢复发现前端在 Session 对账前已读取历史快照，导致首次恢复只写回结果而未上屏。已把历史渲染移动到 Session 恢复完成之后；Session 仍在切换前读取 Transcript 校验历史。新增跨层用例覆盖恢复当次显示完成记录，恢复相关 70 passed。P4 首次推送：`51e733c7`。
+
 验收入口：恢复/历史相关测试、协议 Item reducer、现有断线恢复场景。
 
 ### P5：回归检查
