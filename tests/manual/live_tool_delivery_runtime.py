@@ -21,13 +21,31 @@ from agent.composition import open_effect_journal
 from agent.protocol import ModelStreamRequest
 from agent.ports import ProtocolCommandError
 from infrastructure.platform.output_decoder import StreamingProcessOutputDecoder
-from protocol.client.compact import build_compact_payload, stream_compact_events
-from protocol.client.tools import ToolResultRequestError, post_tool_result
-from protocol.schema.identifiers import new_cid, new_sid, short_uid
-from protocol.schema.stream_events import ContextCompactionEvent, ToolCallEvent, ToolCallsDoneEvent, TurnCompletedEvent
+from protocol.client.compact import (
+    build_compact_payload,
+    stream_compact_events,
+)
+from protocol.client.tools import (
+    ToolResultRequestError,
+    post_tool_result,
+)
+from protocol.schema.identifiers import (
+    new_cid,
+    new_sid,
+    short_uid,
+)
+from protocol.schema.stream_events import (
+    ContextCompactionEvent,
+    ToolCallEvent,
+    ToolCallsDoneEvent,
+    TurnCompletedEvent,
+)
 from protocol.transport.auth import build_service_headers
 from tests.manual.live_approval_runtime import _environment_snapshot
-from tests.manual.live_durable_turn_runtime import _consume_turn, _load_config
+from tests.manual.live_durable_turn_runtime import (
+    _consume_turn,
+    _load_config,
+)
 
 
 def parser():
