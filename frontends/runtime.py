@@ -11,6 +11,7 @@ from agent.ports import (
     ActivityRuntimePort,
     ActivitySnapshot,
     ActivityStatusKind,
+    CompactionActivitySource,
     FrontendActivityPort,
     OutputSessionFactory,
 )
@@ -71,7 +72,7 @@ class FrontendActivity(FrontendActivityPort):
         if self.enabled and self.active:
             await self._runtime.begin_external_mcp_status(snapshot)
 
-    async def start_compact(self, snapshot: ActivitySnapshot) -> None:
+    async def start_compact(self, snapshot: CompactionActivitySource) -> None:
         """开始压缩展示。"""
         if self.enabled and self.active:
             await self._runtime.begin_compact_status(snapshot)
@@ -158,7 +159,7 @@ class PassiveFrontendRuntime(ActivityRuntimePort):
 
     async def begin_compact_status(
         self,
-        snapshot: ActivitySnapshot,
+        snapshot: CompactionActivitySource,
     ) -> None:
         """忽略对话压缩状态请求。"""
         _ = snapshot

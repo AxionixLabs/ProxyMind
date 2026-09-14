@@ -37,7 +37,6 @@ class ForkHostStub(object):
         self.stopped = None
         self.activity = SimpleNamespace(
             enabled=True,
-            start_compact=self._start_compact,
         )
         self.conversation = SimpleNamespace(
             fork_source_available=True,
@@ -53,6 +52,7 @@ class ForkHostStub(object):
             reset=self._reset,
         )
         self.frontend = SimpleNamespace(
+            runtime=SimpleNamespace(active=True, begin_operation_status=self._start_operation),
             application=SimpleNamespace(
                 emit=self.views.append,
                 viewport=SimpleNamespace(width=80),
@@ -97,7 +97,7 @@ class ForkHostStub(object):
             before_turn_id,
         ))
 
-    async def _start_compact(self, snapshot):
+    async def _start_operation(self, snapshot):
         self.started.append(snapshot)
 
 

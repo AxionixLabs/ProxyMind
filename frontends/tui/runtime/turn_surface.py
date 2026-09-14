@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import time
 import typing
 from dataclasses import (
     dataclass,
@@ -16,6 +17,7 @@ from agent.ports import (
     AssistantSettled,
     AssistantTextPhase,
     AssistantVisible,
+    ContextCompactionChanged,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityEvent,
@@ -59,6 +61,7 @@ SurfaceIndicatorKind = typing.Literal[
     "thinking",
     "retrying",
     "terminal",
+    "compacting",
 ]
 HiddenWaitTiming = typing.Literal["finish", "continue", "pause"]
 
@@ -148,6 +151,7 @@ class TurnSurfaceState:
     recovery: RecoveryActivityMode = "live"
     recovery_event_seq: int = 0
     terminal_status: str = ""
+    compaction: ContextCompactionChanged | None = None
     revision: int = 0
 
 
@@ -159,6 +163,7 @@ class SurfaceProjection:
     title: str = ""
     detail: str = ""
     hidden_wait_timing: HiddenWaitTiming = "finish"
+    compaction_started_at: float | None = None
     revision: int = 0
 
     @property
@@ -176,11 +181,13 @@ class SurfaceProjection:
             self.title,
             self.detail,
             self.hidden_wait_timing,
+            self.compaction_started_at,
         ) == (
             other.indicator,
             other.title,
             other.detail,
             other.hidden_wait_timing,
+            other.compaction_started_at,
         )
 
 
@@ -266,6 +273,13 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             detail="transport",
             revision=revision,
         )
+    if state.compaction is not None and state.compaction.status == "started":
+        return SurfaceProjection(
+            "compacting",
+            title="Context compacting",
+            detail="Making room to continue.",
+            revision=revision,
+        )
     if state.content == "visible":
         return SurfaceProjection(
             "hidden",
@@ -345,6 +359,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             ApplyImmediateSurfaceProjection | None
         ) = None,
         timing: TurnSurfaceTiming = TurnSurfaceTiming(),
+        clock: typing.Callable[[], float] | None = None,
     ) -> None:
         """绑定不可变 scope、投影出口和本地时间策略。"""
         if not callable(apply_projection):
@@ -354,6 +369,8 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         self.apply_projection = apply_projection
         self.apply_immediate_projection = apply_immediate_projection
         self.timing = timing
+        self._clock = time.perf_counter if clock is None else clock
+        self._compaction_clock: tuple[str, int, float] | None = None
         self._applied: SurfaceProjection | None = None
         self._timer: asyncio.Task[None] | None = None
         self._pending_projection: SurfaceProjection | None = None
@@ -408,7 +425,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             if next_state is self.state:
                 return None
             self.state = next_state
-            projection = project_turn_surface(self.state)
+            projection = self._projection()
             if projection.visually_matches(self._pending_projection):
                 return None
             self._cancel_timer()
@@ -418,6 +435,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
             )
             if any(
                 isinstance(event, (TurnTerminal, SurfaceClosed))
+                or isinstance(event, ContextCompactionChanged)
                 or (isinstance(event, ApprovalPresentationChanged) and event.active)
                 for event in events
             ):
@@ -476,7 +494,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         if self.state is previous:
             return None
 
-        projection = project_turn_surface(self.state)
+        projection = self._projection()
         if projection.visible:
             # 恢复和传输重试继续拥有活动区，正文上屏不重置其投影或计时。
             if projection.visually_matches(self._applied):
@@ -507,7 +525,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                     ),
                 )
                 try:
-                    await self._apply(project_turn_surface(self.state))
+                    await self._apply(self._projection())
                 except BaseException as error:
                     projection_error = error
         if timer is not None:
@@ -527,7 +545,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         try:
             await asyncio.sleep(delay)
             async with self._lock:
-                current = project_turn_surface(self.state)
+                current = self._projection()
                 if self._closed or not current.visually_matches(projection):
                     return None
                 await self._apply(current)
@@ -546,7 +564,7 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
         while self._applied != candidate:
             previous = self._applied
             await self.apply_projection(candidate)
-            current = project_turn_surface(self.state)
+            current = self._projection()
             if current != candidate:
                 if (
                     current.indicator == "hidden"
@@ -566,6 +584,24 @@ class TuiTurnSurfaceCoordinator(OutputActivityPort):
                     asyncio.get_running_loop().time()
                     + max(0.0, self.timing.retry_min_visible_sec)
                 )
+
+    def _projection(self) -> SurfaceProjection:
+        """为纯投影补上当前 Item 的本地观察时钟，重放追平前不启动新时钟。"""
+        event = self.state.compaction
+        if self.state.lifecycle != "active" or event is None or event.status != "started":
+            self._compaction_clock = None
+        elif self._compaction_clock is None or self._compaction_clock[:2] != (
+            event.item_id, event.presentation_epoch,
+        ):
+            self._compaction_clock = (
+                (event.item_id, event.presentation_epoch, self._clock())
+                if self.state.recovery not in {"replaying", "gap"}
+                else None
+            )
+        projection = project_turn_surface(self.state)
+        if projection.indicator == "compacting" and self._compaction_clock is not None:
+            return replace(projection, compaction_started_at=self._compaction_clock[2])
+        return projection
 
     def _retry_remaining(self) -> float:
         """返回当前重试或恢复提示尚需保留的最短可见时间。"""
@@ -610,6 +646,21 @@ def _reduce_active_surface(
         return state
     if state.lifecycle != "active" and not isinstance(event, SurfaceClosed):
         raise RuntimeError("turn surface is not active")
+    if isinstance(event, ContextCompactionChanged):
+        if any(
+            event.presentation_epoch <= replacement.superseded_epoch
+            for replacement in state.presentation_replacements
+        ):
+            return state
+        previous = state.compaction
+        if previous is not None:
+            if event.event_seq <= previous.event_seq or event.presentation_epoch < previous.presentation_epoch:
+                return state
+            if event.item_id == previous.item_id and previous.status != "started":
+                return state
+            if event.item_id != previous.item_id and event.status != "started" and previous.status == "started":
+                return state
+        return replace(state, compaction=event)
     if isinstance(event, ModelWaitRequested):
         if state.model_wait_revision is not None:
             if event.revision < state.model_wait_revision:
@@ -695,6 +746,10 @@ def _reduce_active_surface(
             return state
         updated = replace(
             state,
+            compaction=(
+                state.compaction if state.compaction is not None
+                and state.compaction.presentation_epoch > event.superseded_epoch else None
+            ),
             presentation_replacements=(
                 *state.presentation_replacements,
                 replacement,
@@ -1017,11 +1072,13 @@ def _reduce_active_surface(
             approval_reviews=(),
             retries=(),
             terminal_status=event.status,
+            compaction=None,
         )
     if isinstance(event, SurfaceClosed):
         return replace(
             state,
             lifecycle="closed",
+            compaction=None,
             status_requested=False,
             model_wait_revision=None,
             model_wait_reason=None,

@@ -21,6 +21,7 @@ from agent.ports import (
     AssistantSettled,
     AssistantTextDelta,
     AssistantVisible,
+    ContextCompactionChanged,
     ModelWaitRequested,
     OutputSession,
     OutputSurfaceContext,
@@ -84,6 +85,89 @@ def _active_state(context: OutputSurfaceContext):
     """创建已经开始观察 Turn 的 reducer 状态。"""
     state = initial_turn_surface_state(context)
     return reduce_turn_surface(state, SurfaceTurnStarted(**_scope(context)))
+
+
+def _compaction(context, item_id="compact_1", status="started", seq=1, epoch=1):
+    return ContextCompactionChanged(
+        **_scope(context), item_id=item_id, status=status,
+        event_seq=seq, presentation_epoch=epoch,
+    )
+
+
+def test_compaction_reducer_rejects_duplicate_old_items_and_superseded_epochs() -> None:
+    context = _context()
+    state = reduce_turn_surface(_active_state(context), _compaction(context))
+    assert project_turn_surface(state).indicator == "compacting"
+    assert reduce_turn_surface(state, _compaction(context)) is state
+    state = reduce_turn_surface(state, _compaction(context, "compact_2", seq=4))
+    assert reduce_turn_surface(state, _compaction(context, status="completed", seq=3)) is state
+    assert reduce_turn_surface(state, _compaction(context, status="completed", seq=5)) is state
+    state = reduce_turn_surface(state, _compaction(context, "compact_2", "completed", 6))
+    assert reduce_turn_surface(state, _compaction(context, "compact_2", seq=7)) is state
+    state = reduce_turn_surface(state, PresentationSuperseded(
+        **_scope(context), superseded_epoch=1, presentation_epoch=2,
+    ))
+    assert reduce_turn_surface(state, _compaction(context, seq=8)) is state
+    with pytest.raises(ValueError, match="scope"):
+        reduce_turn_surface(state, _compaction(_context(surface_id="other"), seq=9))
+
+
+@pytest.mark.anyio
+async def test_compaction_observation_clock_survives_approval_and_recovery_and_resets_per_item() -> None:
+    now = [10.0]
+    projections = []
+
+    async def apply(projection):
+        projections.append(projection)
+
+    context = _context()
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply, clock=lambda: now[0],
+        timing=TurnSurfaceTiming(retry_min_visible_sec=0),
+    )
+    await coordinator.open()
+    await coordinator.emit(_compaction(context))
+    assert projections[-1].compaction_started_at == 10.0
+    now[0] = 20.0
+    await coordinator.emit(_compaction(context, seq=2))
+    assert projections[-1].compaction_started_at == 10.0
+    await coordinator.emit(ApprovalPresentationChanged(**_scope(context), active=True))
+    assert projections[-1].indicator == "hidden"
+    now[0] = 30.0
+    await coordinator.emit(ApprovalPresentationChanged(**_scope(context), active=False))
+    assert projections[-1].compaction_started_at == 10.0
+    await coordinator.emit(RecoveryChanged(**_scope(context), mode="replaying", event_seq=2))
+    now[0] = 40.0
+    await coordinator.emit(RecoveryChanged(**_scope(context), mode="caught_up", event_seq=2))
+    assert projections[-1].compaction_started_at == 10.0
+    await coordinator.emit(_compaction(context, "compact_2", seq=3))
+    assert projections[-1].compaction_started_at == 40.0
+    await coordinator.close()
+    assert not coordinator.pending_timer
+    assert projections[-1].compaction_started_at is None
+
+
+@pytest.mark.anyio
+async def test_cold_replay_only_starts_compaction_clock_after_catching_up() -> None:
+    now = [10.0]
+    projections = []
+
+    async def apply(projection):
+        projections.append(projection)
+
+    context = _context()
+    coordinator = TuiTurnSurfaceCoordinator(
+        context, apply, clock=lambda: now[0],
+        timing=TurnSurfaceTiming(retry_min_visible_sec=0),
+    )
+    await coordinator.open()
+    await coordinator.emit(RecoveryChanged(**_scope(context), mode="replaying", event_seq=0))
+    await coordinator.emit(_compaction(context))
+    assert all(projection.indicator != "compacting" for projection in projections)
+    now[0] = 60.0
+    await coordinator.emit(RecoveryChanged(**_scope(context), mode="caught_up", event_seq=1))
+    assert projections[-1].compaction_started_at == 60.0
+    await coordinator.close()
 
 
 def test_reducer_tracks_content_wait_and_terminal_idempotently() -> None:

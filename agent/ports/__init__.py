@@ -70,6 +70,8 @@ from .conversation import (
     RootConversationPort,
 )
 from .frontend import (
+    CompactionActivitySnapshot,
+    CompactionActivitySource,
     ActivityRuntimePort,
     ActivitySnapshot,
     ActivityStatusKind,
@@ -144,6 +146,7 @@ from .output import (
     AssistantSettled,
     AssistantVisible,
     BLOCK_OUTPUT,
+    ContextCompactionChanged,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityEvent,
@@ -442,6 +445,7 @@ __all__ = (
     "ContentOutput",
     "ContentSink",
     "CompactProgress",
+    "ContextCompactionChanged",
     "CompactionClientPort",
     "CompactionSessionPort",
     "ModelWaitReason",
@@ -484,6 +488,8 @@ __all__ = (
     "TurnTerminalStatus",
     "ActivityRuntimePort",
     "ActivitySnapshot",
+    "CompactionActivitySnapshot",
+    "CompactionActivitySource",
     "ActivityStatusKind",
     "AttachmentStatePort",
     "FrontendActivityPort",

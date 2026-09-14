@@ -7,6 +7,7 @@ from agent.ports import (
     AssistantBuffered,
     AssistantSettled,
     AssistantTextPhase,
+    ContextCompactionChanged,
     ModelWaitReason,
     ModelWaitRequested,
     OutputActivityEvent,
@@ -30,6 +31,7 @@ from agent.ports import (
     TurnTerminalStatus,
     TransportRecoveryPhase,
 )
+from protocol.schema.stream_events import ContextCompactionEvent
 
 
 def normalize_turn_terminal_status(status: str) -> TurnTerminalStatus:
@@ -106,6 +108,28 @@ class TurnActivityProjector:
             **self._scope(),
             revision=self._model_wait_revision,
             reason=reason,
+        ))
+
+    async def context_compaction(self, event: ContextCompactionEvent) -> None:
+        """发布当前自动压缩 Item 的活动事实，不启动本地压缩流程。"""
+        if (
+            event.cid != self.context.cid or event.sid != self.context.sid
+            or event.turn_id != self.context.turn_id
+        ):
+            raise ValueError("compaction event does not match surface scope")
+        if event.trigger != "automatic" or event.phase == "standalone":
+            return
+        if event.event_seq is None:
+            raise ValueError("automatic compaction requires event_seq")
+        await self.activity.emit(ContextCompactionChanged(
+            **self._scope(),
+            item_id=event.item_id,
+            status=(
+                "started" if event.item_status == "in_progress"
+                else "completed" if event.item_status == "completed" else "failed"
+            ),
+            event_seq=event.event_seq,
+            presentation_epoch=event.presentation_epoch,
         ))
 
     async def assistant_buffered(

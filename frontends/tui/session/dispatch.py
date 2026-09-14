@@ -1339,7 +1339,7 @@ class TuiCommandDispatcher(object):
                     self.host,
                     self.protocol_client,
                 ),
-                activity_kind="compact",
+                activity_kind="operation",
                 on_succeeded=self._finish_conversation_fork,
                 on_failed=lambda error: render_fork_failure(
                     self.host,

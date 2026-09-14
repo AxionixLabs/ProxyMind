@@ -179,11 +179,16 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 
 ### P2：活动状态与计时归属
 
-- [ ] 自动压缩事实由 `TurnActivityProjector` 发布，经 `reduce_turn_surface → TuiTurnSurfaceCoordinator` 进入唯一前景活动投影。
-- [ ] 以 scope、Item ID、代次拒绝重复和迟到事件；同一 Item 重复 started 不重置计时，新 Item 才开启新压缩计时。
-- [ ] 手动 `/compact` 沿用已有前台操作生命周期，不启动虚假 Turn 或独立于当前屏幕生命周期的后台 timer。
-- [ ] 压缩独立计时，不清零整个 Turn 的计时；审批、恢复、关闭、切换会话时释放或抑制对应活动。
-- [ ] 根据真实模式显示 Esc 操作语义；后台终端信息使用现有数据源。
+- [x] 自动压缩事实由 `TurnActivityProjector` 发布，经 `reduce_turn_surface → TuiTurnSurfaceCoordinator` 进入唯一前景活动投影。
+- [x] 以 scope、Item ID、代次拒绝重复和迟到事件；同一 Item 重复 started 不重置计时，新 Item 才开启新压缩计时。
+- [x] 手动 `/compact` 沿用已有前台操作生命周期，不启动虚假 Turn 或独立于当前屏幕生命周期的后台 timer。
+- [x] 压缩独立计时，不清零整个 Turn 的计时；审批、恢复、关闭、切换会话时释放或抑制对应活动。
+- [x] 根据真实模式显示 Esc 操作语义；后台终端信息使用现有数据源。
+
+2026-09-14 复核：活动/压缩/分支及协议展示定向 171 passed；协议 adapter、backtrack 和命令分派 133 passed。
+架构审计初次 135 passed、3 failed：两项新增具名契约需登记所有者白名单，一项事件泵超过 800 行预算；已同步契约审计并合并重复压缩分支，失败项定向复核 3 passed，未放宽行数预算。
+两行活动态共用原有动画任务和后台终端快照；新增测试确认整轮 28s 时压缩显示 8s，结束活动后整轮仍保留 28s。
+P1 已推送：`7cab6ae9`。P2 的原位完成交接、失败/停止等待稳定记录和窄屏裁剪仍分别由 P3/P4 完成。
 
 验收入口：`tests/frontends/tui/runtime/test_tui_turn_surface.py`、`tests/frontends/tui/core/test_tui_activity.py`。
 

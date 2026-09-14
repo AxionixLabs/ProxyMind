@@ -222,6 +222,7 @@ def test_application_presentation_ports_are_owned_by_agent() -> None:
     assert frontend_port_definitions == {
         "ActivityRuntimePort",
         "AttachmentStatePort",
+        "CompactionActivitySnapshot",
         "FrontendActivityPort",
         "FrontendPort",
         "TurnCompletionPresenterPort",
@@ -1344,6 +1345,7 @@ def test_presentation_output_has_no_legacy_package_or_imports() -> None:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     }
     assert output_definitions == {
+        "ContextCompactionChanged",
         "ApprovalPresentationChanged",
         "ApprovalReviewCompleted",
         "ApprovalReviewStarted",

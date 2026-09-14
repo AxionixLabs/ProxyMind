@@ -3,11 +3,15 @@
 import asyncio
 import functools
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import (
+    Mock,
+    patch,
+)
 
 import pytest
 
 from agent.adapters.protocol import compaction as compact_protocol
+from agent.application.turns.compact_result import CompactEvent
 from agent.harness.execution import compaction as compact_mode
 from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
@@ -54,6 +58,20 @@ def _compact_hooks():
             "matcher": "manual",
         }],
     }
+
+
+def test_manual_progress_clock_starts_at_remote_started_and_ignores_duplicates() -> None:
+    status = conversation.CompactLiveStatus()
+    assert status.snapshot().started_at is None
+    with patch("frontends.tui.features.conversation.time.perf_counter", return_value=12.0) as clock:
+        status.running(CompactEvent(status="started", item_id="compact_1"))
+        clock.return_value = 50.0
+        status.running(CompactEvent(status="started", item_id="compact_1"))
+        assert status.snapshot().started_at == 12.0
+        status.failed("failure")
+        status.running(CompactEvent(status="started", item_id="compact_2"))
+        assert status.snapshot().done
+        assert status.snapshot().started_at == 12.0
 
 
 class _RecordingHookRunner(object):
@@ -209,8 +227,8 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     conversation.render_compact_result(host, status)
 
     final = snapshots[0]()
-    assert final["done"] is True
-    assert final["summary"] == "Context compaction failed. Please try again."
+    assert final.done is True
+    assert final.message == "Context compaction failed. Please try again."
     status = next(view for view in host.views if view.type == "tui.compact.status")
     assert "Context compaction failed. Please try again." in fragments_text(
         status.renderable.fragments,

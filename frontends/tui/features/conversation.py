@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import time
 import typing
 
 from agent.application.turns.compact_result import (
@@ -10,6 +11,7 @@ from agent.application.turns.compact_result import (
 )
 from agent.ports import (
     CompactProgress,
+    CompactionActivitySnapshot,
     ProtocolCommandClient,
     ProtocolCommandError,
 )
@@ -156,21 +158,25 @@ class CompactLiveStatus:
         self._message: str = "Context compacting..."
         self._done: bool = False
         self._result: CompactResult | None = None
+        self._started_at: float | None = None
+        self._item_id: str = ""
 
     @property
     def result(self) -> CompactResult | None:
         """返回已经结算的压缩事实及独立的后续控制结果。"""
         return self._result
 
-    def snapshot(self) -> dict[str, typing.Any]:
+    def snapshot(self) -> CompactionActivitySnapshot:
         """返回当前前台压缩活动的状态快照。"""
-        return {
-            "summary": self._message,
-            "done": self._done,
-        }
+        return CompactionActivitySnapshot(self._started_at, self._done, self._message)
 
     def running(self, event: CompactEvent) -> None:
         """更新压缩进行中的提示。"""
+        if self._done:
+            return
+        if self._item_id != event.item_id or self._started_at is None:
+            self._started_at = time.perf_counter()
+            self._item_id = event.item_id
         self._message = event.message or "Context compacting..."
         self._done = False
 
@@ -371,9 +377,9 @@ async def fork_current_conversation(
     )
 
     try:
-        if compact_animation_enabled(host):
+        if host.activity.enabled and host.frontend.runtime.active:
             observe("conversation.fork.animation.start")
-            await host.activity.start_compact(status.snapshot)
+            await host.frontend.runtime.begin_operation_status(status.snapshot)
 
         receipt = await protocol_client.fork_session(
             cid=source["cid"],

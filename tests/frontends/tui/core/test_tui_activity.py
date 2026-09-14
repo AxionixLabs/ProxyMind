@@ -16,6 +16,8 @@ from agent.ports import (
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantTextDelta,
+    CompactionActivitySnapshot,
+    ContextCompactionChanged,
     ModelWaitRequested,
     OutputSurfaceContext,
     ResponseIdentity,
@@ -675,14 +677,15 @@ async def test_stale_activity_lease_does_not_clear_replacement() -> None:
         clear_renderable=lambda: rendered.clear(),
     )
 
-    await activity.begin_compact(lambda: {"summary": "first"})
+    await activity.begin_compact(lambda: CompactionActivitySnapshot(None, False, "first"))
     lease = activity.lease("compact")
     assert lease is not None
 
-    await activity.begin_compact(lambda: {"summary": "second"})
+    await activity.begin_compact(lambda: CompactionActivitySnapshot(0.0, False, "second"))
 
     assert not activity.release(lease)
-    assert "second" in _block_text(rendered[-1])
+    assert "Context compacting" in _block_text(rendered[-1])
+    assert "Preparing" not in _block_text(rendered[-1])
     await activity.clear()
 
 def test_tui_output_session_exposes_one_typed_activity_channel() -> None:
@@ -1210,27 +1213,50 @@ async def test_compact_activity_does_not_replace_external_mcp_status() -> None:
         "done": False,
         "items": [{"name": "docs", "state": "linking"}],
     }
-    compact = {
-        "summary": "Context compacting...",
-        "done": False,
-    }
+    compact = CompactionActivitySnapshot(0.0, False, "Context compacting")
 
     await runtime.begin_external_mcp_status(lambda: dict(external))
-    await runtime.begin_compact_status(lambda: dict(compact))
+    await runtime.begin_compact_status(lambda: compact)
 
     active = _block_text(runtime.screen.activity_block)
     assert "External MCP linking" in active
-    assert "Context compacting..." in active
+    assert "Context compacting" in active
 
     await runtime.end_activity_status("compact", settle=False)
 
     remaining = _block_text(runtime.screen.activity_block)
     assert "External MCP linking" in remaining
-    assert "Context compacting..." not in remaining
+    assert "Context compacting" not in remaining
 
     await runtime.end_activity_status("external_mcp", settle=False)
     assert not runtime.task_running
     assert not runtime.document.blocks
+
+
+@pytest.mark.anyio
+async def test_compaction_elapsed_does_not_reset_whole_turn_wait_clock() -> None:
+    runtime = TuiRuntime()
+    context = OutputSurfaceContext(
+        surface_id="surface_compact", cid="cid_test", sid="sid_test",
+        turn_id="turn_test", agent_id="root",
+    )
+    with patch("frontends.tui.core.activity.time.perf_counter", return_value=100.0) as clock:
+        session = create_tui_output_session("", context=context, runtime=runtime)
+        await runtime.activity.begin_wait()
+        await session.activity.open()
+        clock.return_value = 120.0
+        await session.activity.emit(ContextCompactionChanged(
+            surface_id=context.surface_id, turn_id=context.turn_id,
+            item_id="compact_test", event_seq=1, presentation_epoch=1, status="started",
+        ))
+        clock.return_value = 128.0
+        runtime.activity.refresh("wait")
+        assert "Context compacting (8s · esc to interrupt)" in _block_text(runtime.screen.activity_block)
+        assert "\n  └ Making room to continue." in _block_text(runtime.screen.activity_block)
+        assert runtime.activity.wait_elapsed_seconds() == 28.0
+        await session.activity.close()
+        assert runtime.activity.wait_elapsed_seconds() == 28.0
+        await runtime.activity.clear()
 
 
 @pytest.mark.anyio

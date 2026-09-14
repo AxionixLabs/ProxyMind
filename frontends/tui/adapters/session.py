@@ -78,6 +78,7 @@ async def _apply_surface_projection(
         projection.indicator,
         title=projection.title,
         detail=projection.detail,
+        compaction_started_at=projection.compaction_started_at,
     )
 
 

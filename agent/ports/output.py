@@ -31,6 +31,7 @@ __all__ = (
     "AssistantVisible",
     "BLOCK_OUTPUT",
     "ContentSink",
+    "ContextCompactionChanged",
     "ModelWaitReason",
     "ModelWaitRequested",
     "OutputControlPort",
@@ -169,6 +170,30 @@ class ModelWaitRequested(_ScopedActivityEvent):
             "continuation",
         }:
             raise ValueError("model wait reason is invalid")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ContextCompactionChanged(_ScopedActivityEvent):
+    """传递所属 Turn 的压缩 Item 活动事实，时钟与 lease 由输出会话拥有。
+
+    协议适配器只发布已校验的身份和水位；实现方不得据此创建新 Turn 或执行压缩 Hook。
+    """
+
+    item_id: str
+    status: typing.Literal["started", "completed", "failed"]
+    event_seq: int
+    presentation_epoch: int
+
+    def __post_init__(self) -> None:
+        """校验压缩活动身份与持久事件坐标。"""
+        _ScopedActivityEvent.__post_init__(self)
+        if not isinstance(self.item_id, str) or not self.item_id.strip():
+            raise ValueError("compaction item_id is required")
+        if self.status not in {"started", "completed", "failed"}:
+            raise ValueError("compaction status is invalid")
+        for value in (self.event_seq, self.presentation_epoch):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError("compaction event coordinates must be positive")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -436,6 +461,7 @@ class SurfaceClosed(_ScopedActivityEvent):
 OutputActivityEvent: typing.TypeAlias = (
     SurfaceTurnStarted
     | ModelWaitRequested
+    | ContextCompactionChanged
     | AssistantBuffered
     | AssistantVisible
     | AssistantSettled

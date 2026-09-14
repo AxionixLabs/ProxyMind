@@ -11,8 +11,10 @@ from unittest.mock import (
 import pytest
 
 from agent.application.turns.lifecycle import handle_lifecycle_event
+from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.application.views import ContextCompactionView
 from agent.domain.transcripts import TranscriptEntry
+from agent.ports import OutputSurfaceContext
 from frontends.output.jsonl import (
     JsonOutputState,
     JsonPresentationSink,
@@ -20,6 +22,7 @@ from frontends.output.jsonl import (
 from frontends.terminal.renderers.dispatch import render_presentation_view
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.presentation import TuiPresentationSink
+from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.history import _notice_block
@@ -35,6 +38,36 @@ class _RecordWriter:
 
     def flush(self) -> None:
         return None
+
+
+@pytest.mark.anyio
+async def test_automatic_compaction_reaches_only_its_bound_activity_surface() -> None:
+    runtime = TuiRuntime()
+    context = OutputSurfaceContext(
+        surface_id="surface_test", cid="cid_test", sid="sid_test",
+        turn_id="turn_test", agent_id="root",
+    )
+    session = create_tui_output_session("", context=context, runtime=runtime)
+    await session.activity.open()
+    event = parse_stream_event({
+        "type": "context.compaction.started", "proto": "mind.chat",
+        "cid": "cid_test", "sid": "sid_test", "turn_id": "turn_test",
+        "event_seq": 1, "presentation_epoch": 1, "item_id": "compaction_test",
+        "item_kind": "context_compaction", "item_status": "in_progress",
+        "phase": "pre_turn", "trigger": "automatic", "reason": "context_limit",
+    })
+    projector = TurnActivityProjector(context, session.activity)
+    try:
+        await projector.context_compaction(event)
+        assert "Context compacting (0s · esc to interrupt)" in fragments_text(
+            runtime.screen.activity_block.fragments,
+        )
+        assert session.activity.state.lifecycle == "active"
+        with pytest.raises(ValueError, match="scope"):
+            await projector.context_compaction(replace(event, sid="another_session"))
+    finally:
+        await session.activity.close()
+        await runtime.activity.clear()
 
 
 def _view(

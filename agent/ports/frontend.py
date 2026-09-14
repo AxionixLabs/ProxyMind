@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
+from dataclasses import dataclass
 
 from .output import OutputSessionFactory
 from .presentation import ApplicationSink
@@ -10,6 +11,8 @@ __all__ = (
     "ActivityRuntimePort",
     "ActivitySnapshot",
     "ActivityStatusKind",
+    "CompactionActivitySnapshot",
+    "CompactionActivitySource",
     "AttachmentStatePort",
     "FrontendActivityPort",
     "FrontendPort",
@@ -28,6 +31,21 @@ ActivityStatusKind = typing.Literal[
 ]
 
 ActivitySnapshot = typing.Callable[[], dict[str, typing.Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class CompactionActivitySnapshot:
+    """描述手动压缩的前台观察快照，由操作生命周期拥有并随活动槽释放。
+
+    started_at 是客户端单调时钟，不写入服务端协议；缺失表示尚未观察到远端开始。
+    """
+
+    started_at: float | None
+    done: bool
+    message: str
+
+
+CompactionActivitySource = typing.Callable[[], CompactionActivitySnapshot]
 
 
 class ActivityRuntimePort(typing.Protocol):
@@ -81,7 +99,7 @@ class ActivityRuntimePort(typing.Protocol):
         """显示外部 MCP 启动状态。"""
         ...
 
-    async def begin_compact_status(self, snapshot: ActivitySnapshot) -> None:
+    async def begin_compact_status(self, snapshot: CompactionActivitySource) -> None:
         """显示对话压缩状态。"""
         ...
 
@@ -133,7 +151,7 @@ class FrontendActivityPort(typing.Protocol):
         """开始外部 MCP 启动展示。"""
         ...
 
-    async def start_compact(self, snapshot: ActivitySnapshot) -> None:
+    async def start_compact(self, snapshot: CompactionActivitySource) -> None:
         """开始压缩展示。"""
         ...
 

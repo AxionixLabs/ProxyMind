@@ -24,6 +24,7 @@ from agent.application.views.context_usage import ContextUsageView
 from agent.ports.conversation import ContextUsageFeed
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import (
+    CompactionActivitySource,
     ActivityRuntimePort,
     ActivityStatusKind,
 )
@@ -2618,7 +2619,7 @@ class TuiRuntime(object):
 
     async def begin_compact_status(
         self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]]
+        snapshot: CompactionActivitySource,
     ) -> None:
         """启动对话压缩状态动画。"""
         await self.activity.begin_compact(snapshot)

@@ -86,6 +86,7 @@ from observability import (
 )
 from protocol.client.tools import ToolResultRequestError
 from protocol.schema.stream_events import (
+    ContextCompactionEvent,
     ContextUsageUpdatedEvent,
     StreamGapEvent,
     ToolApprovalRequiredEvent,
@@ -600,6 +601,10 @@ async def stream_turn(
                 event, presentation=presentation,
                 transcript=transcript,
             ):
+                if isinstance(event, ContextCompactionEvent):
+                    await activity_projector.context_compaction(event)
+                    if event.item_status == "in_progress":
+                        continue
                 await activity_projector.request_model_wait("lifecycle")
                 continue
             continue

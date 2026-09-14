@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 from prompt_toolkit.utils import get_cwidth
 
-from agent.ports import ActivityStatusKind
+from agent.ports import (
+    ActivityStatusKind,
+    CompactionActivitySource,
+)
 from frontends.terminal.color_support import TerminalColorLevel
 from frontends.terminal.mcp_status import (
     McpStatusView,
@@ -64,6 +67,7 @@ TurnSurfaceIndicator = typing.Literal[
     "thinking",
     "retrying",
     "terminal",
+    "compacting",
 ]
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
@@ -168,6 +172,7 @@ class TuiActivity(object):
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
+        self._compaction_started_at: float | None = None
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
 
@@ -204,6 +209,7 @@ class TuiActivity(object):
         *,
         title: str = "",
         detail: str = "",
+        compaction_started_at: float | None = None,
     ) -> None:
         """在同一前景槽中投影 Turn 的唯一活动提示。"""
         if indicator not in {
@@ -211,12 +217,14 @@ class TuiActivity(object):
             "thinking",
             "retrying",
             "terminal",
+            "compacting",
         }:
             raise ValueError(f"unsupported turn surface indicator: {indicator}")
         self._prepare_wait()
         self._turn_surface_indicator = indicator
         self._turn_surface_title = " ".join(str(title or "").split())
         self._turn_surface_detail = _normalize_status_detail(detail)
+        self._compaction_started_at = compaction_started_at
         slot = self._slots.get("foreground")
         if slot is None:
             await self._activate_wait_slot()
@@ -287,16 +295,18 @@ class TuiActivity(object):
 
     async def begin_compact(
         self,
-        snapshot: typing.Callable[[], dict[str, typing.Any]],
+        snapshot: CompactionActivitySource,
     ) -> None:
         """启动对话压缩状态动画。"""
         await self._set_slot(_ActivitySlot(
             key="compact",
             kind="compact",
-            render=lambda phase: _compact_activity_block(
-                snapshot() or {},
+            render=lambda phase: _compaction_progress_block(
+                started_at=snapshot().started_at,
                 phase=phase,
                 width=self.get_width(),
+                manual=True,
+                color_level=self.color_level,
             ),
         ))
 
@@ -500,6 +510,14 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
+        if self._turn_surface_indicator == "compacting":
+            return _compaction_progress_block(
+                started_at=self._compaction_started_at,
+                phase=phase,
+                width=self.get_width(),
+                manual=False,
+                color_level=self.color_level,
+            )
         if self._turn_surface_indicator in {"terminal", "reviewing"}:
             default_title = (
                 "Waiting for background terminal"
@@ -771,6 +789,7 @@ class TuiActivity(object):
         self._completed_wait_elapsed_sec = None
         self._wait_phase = 0.0
         self._turn_surface_indicator = "thinking"
+        self._compaction_started_at = None
         self._turn_surface_title = "Thinking"
         self._turn_surface_detail = ""
 
@@ -826,23 +845,29 @@ def _download_final_block(data: dict[str, typing.Any]) -> FragmentBlock | None:
     return FragmentBlock(styled_block_fragments(block))
 
 
-def _compact_activity_block(
-    data: dict[str, typing.Any],
+def _compaction_progress_block(
     *,
+    started_at: float | None,
     phase: float,
-    width: int
+    width: int,
+    manual: bool,
+    color_level: TerminalColorLevel,
 ) -> FragmentBlock:
-    """生成对话压缩活动区域使用的单行状态。"""
-    summary = str(data.get("summary") or "Context compacting...").strip()
-    summary = _truncate_display_text(summary, limit=max(12, int(width) - 3))
-
-    return _status_block(
-        summary,
-        family="wait",
-        phase=phase,
-        spinner=True,
-        sweep=False,
+    """生成压缩专属的两行状态，计时只覆盖当前 Item 的观察区间。"""
+    title = "Context compacting" if started_at is not None else "Preparing context compaction"
+    fragments = render_status_fragments(
+        title, family="wait", phase=phase, animated=True, color_level=color_level,
     )
+    action = "stop waiting" if manual else "interrupt"
+    elapsed = (
+        f"{_compact_elapsed_label(max(0.0, time.perf_counter() - started_at))} · "
+        if started_at is not None else ""
+    )
+    fragments.append((prompt_style(STATUS_MUTED), f" ({elapsed}esc to {action})"))
+    first_line = clip_fragments(fragments, width=max(1, width))
+    detail = "  └ Making room to continue." if started_at is not None else "  └ Waiting for compaction to start."
+    detail_line = clip_fragments([(prompt_style(STATUS_MUTED), detail)], width=max(1, width))
+    return FragmentBlock((*first_line, ("", "\n"), *detail_line), preserve_newlines=True)
 
 
 def _operation_activity_block(

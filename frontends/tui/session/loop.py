@@ -1009,7 +1009,7 @@ async def _handle_transcript_backtrack(
                 extras=request.extras,
             ),
         ),
-        activity_kind="compact",
+        activity_kind="operation",
         on_succeeded=lambda status: _finish_transcript_backtrack(
             host,
             runtime,
