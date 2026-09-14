@@ -195,7 +195,12 @@ async def test_jsonl_preserves_compaction_lifecycle_without_summary() -> None:
 
 
 @pytest.mark.anyio
-async def test_tui_inserts_separator_after_work_and_compaction() -> None:
+@pytest.mark.parametrize("phase", ("pre_turn", "mid_turn"))
+@pytest.mark.parametrize("prior_reply", (False, True))
+@pytest.mark.parametrize("continued", (False, True))
+async def test_tui_compaction_completion_settles_previous_work_without_separator(
+    phase: str, prior_reply: bool, continued: bool,
+) -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
@@ -207,20 +212,25 @@ async def test_tui_inserts_separator_after_work_and_compaction() -> None:
         data={"command": "echo done", "output_lines": ["done"]},
         call_id="done",
     ))
-    await presentation.emit(_view())
-    await output.append_assistant_delta("continued")
+    if prior_reply:
+        await output.append_assistant_delta("before compaction")
+        await output.prepare_external_output()
+    earlier_kinds = [item.kind for item in runtime.document.blocks]
+
+    await presentation.emit(_view(phase=phase))
+    if continued:
+        await output.append_assistant_delta("continued")
+    await output.complete_turn(duration_ms=120000)
     await output.prepare_external_output()
 
     assert [item.kind for item in runtime.document.blocks] == [
-        "operation",
+        *earlier_kinds,
         "notice",
-        "system",
-        "assistant",
+        *(["assistant"] if continued else []),
     ]
     rendered = fragments_text(runtime.document.fragments(width=40))
-    assert "Context compacted" in rendered
-    assert "─" * 40 in rendered
-    assert rendered.index("Context compacted") < rendered.index("─" * 40)
+    assert rendered.count("Context compacted") == 1
+    assert "─" not in rendered.split("Context compacted", 1)[1]
 
 
 @pytest.mark.anyio
@@ -243,12 +253,46 @@ async def test_tui_compaction_without_work_does_not_insert_separator() -> None:
 
 
 @pytest.mark.anyio
-async def test_failed_or_manual_compaction_does_not_arm_tui_boundary() -> None:
-    for view in (_view("failed"), _view(trigger="manual", phase="standalone")):
-        runtime = TuiRuntime()
-        output = TuiOutputControl("", runtime=runtime, animate=False)
-        presentation = TuiPresentationSink(output)
+@pytest.mark.parametrize("view", (_view("failed"), _view(trigger="manual", phase="standalone")))
+@pytest.mark.parametrize("prior_work", (False, True))
+async def test_failed_or_manual_compaction_preserves_existing_work_boundary(
+    view: ContextCompactionView, prior_work: bool,
+) -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
 
-        await presentation.emit(view)
+    if prior_work:
+        await presentation.emit(build_native_tool_result_view(
+            "shell_command", {"command": "echo done"}, ok=True,
+            data={"command": "echo done", "output_lines": ["done"]}, call_id="done",
+        ))
+    await presentation.emit(view)
+    await output.append_assistant_delta("continued")
+    await output.prepare_external_output()
 
-        assert output._needs_final_message_separator is False
+    assert [item.kind for item in runtime.document.blocks] == [
+        *(["operation"] if prior_work else []),
+        "notice",
+        *(["system"] if prior_work else []),
+        "assistant",
+    ]
+
+
+@pytest.mark.anyio
+async def test_new_tool_after_compaction_starts_a_new_work_boundary() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    presentation = TuiPresentationSink(output)
+
+    await presentation.emit(_view())
+    await presentation.emit(build_native_tool_result_view(
+        "shell_command", {"command": "echo next"}, ok=True,
+        data={"command": "echo next", "output_lines": ["next"]}, call_id="next",
+    ))
+    await output.append_assistant_delta("continued")
+    await output.prepare_external_output()
+
+    assert [item.kind for item in runtime.document.blocks] == [
+        "notice", "operation", "system", "assistant",
+    ]

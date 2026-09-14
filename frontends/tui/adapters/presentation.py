@@ -418,7 +418,7 @@ class TuiPresentationSink(PresentationSink):
             and view.trigger == "automatic"
             and view.phase != "standalone"
         ):
-            self.output.mark_context_compaction_boundary()
+            self.output.complete_work_segment()
 
         if isinstance(view, _WORK_COMPLETED_VIEWS) or (
             isinstance(view, GenericToolResultView)

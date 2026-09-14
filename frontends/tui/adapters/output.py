@@ -666,9 +666,9 @@ class TuiOutputControl(OutputControlPort):
         self._had_work_activity = True
         self._needs_final_message_separator = True
 
-    def mark_context_compaction_boundary(self) -> None:
-        """标记自动压缩完成后的下一段 assistant 展示边界。"""
-        self._needs_final_message_separator = True
+    def complete_work_segment(self) -> None:
+        """以已经提交的稳定记录结束工作段，不再为该段补画分隔线。"""
+        self._needs_final_message_separator = False
 
     def mark_stream_boundary(self) -> None:
         """标记下一段流式内容边界。"""
