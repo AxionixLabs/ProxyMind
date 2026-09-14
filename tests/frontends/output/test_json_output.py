@@ -18,6 +18,7 @@ from frontends.output.jsonl import (
     JsonOutputControl,
     JsonOutputState,
 )
+from frontends.output.application import JsonApplicationSink
 from agent.application.views import (
     ApprovalReviewView,
     ApprovalView,
@@ -43,6 +44,18 @@ class _RecordWriter(object):
 
     def flush(self) -> None:
         return None
+
+
+@pytest.mark.parametrize("kind", ("event", "application"))
+def test_json_output_round_trips_unicode_on_gbk_pipe(kind):
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="gbk", errors="strict")
+    payload = {"type": "test", "text": "中文\x00␀😀"}
+    if kind == "event":
+        JsonOutputState(_RecordWriter(), stream).emit(payload)
+    else:
+        JsonApplicationSink(stream)._write(payload)
+    assert json.loads(buffer.getvalue().decode("ascii")) == payload
 
 
 def _run_started_view(*, hook_warnings=()) -> RunStartedView:

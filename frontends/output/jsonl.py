@@ -181,7 +181,7 @@ class JsonOutputState:
         """写出一行 JSON 事件。"""
         line = json.dumps(
             _plain(event),
-            ensure_ascii=False,
+            ensure_ascii=True,
             separators=(",", ":"),
             allow_nan=False,
         )

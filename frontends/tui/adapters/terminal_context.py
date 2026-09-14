@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Notes: ==== Mind™ ====
+
 """隔离 prompt-toolkit 终端交接的取消语义及私有状态访问。
 
 沿用 Application 的交接队列，由每次调用负责完成自己的信号；上游在等待前驱和
@@ -90,3 +92,7 @@ async def in_terminal(
                 previous.add_done_callback(complete_after_previous)
             else:
                 complete()
+
+
+if __name__ == '__main__':
+    pass

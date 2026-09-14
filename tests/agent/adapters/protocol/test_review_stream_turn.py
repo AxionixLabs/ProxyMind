@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import (
@@ -206,8 +207,9 @@ class _McpSession:
 class _ReviewStream:
     """按 Canonical reducer 顺序交付 Review 和标准 Turn 事件。"""
 
-    def __init__(self, events) -> None:
+    def __init__(self, events, result_received: asyncio.Event) -> None:
         self._events = tuple(events)
+        self._result_received = result_received
         self._reducer = CanonicalItemReducer(
             cid=CID,
             sid=SID,
@@ -243,6 +245,8 @@ class _ReviewStream:
 
     async def _iterate(self) -> AsyncIterator:
         for event in self._events:
+            if isinstance(event, TextDeltaEvent):
+                await asyncio.wait_for(self._result_received.wait(), timeout=5)
             self.current_item = self._reducer.apply(event)
             self.last_event_seq = event.event_seq or self.last_event_seq
             yield event
@@ -476,7 +480,8 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
             "model": "review-model", "route": "responses",
         },
     })
-    stream = _ReviewStream((usage, *_events()))
+    result_received = asyncio.Event()
+    stream = _ReviewStream((usage, *_events()), result_received)
     capability = _ReviewCapability(stream)
     source = SubmittingReviewTurnStreamSource(capability, command.request)
     projector = ReviewEventProjector(
@@ -522,7 +527,7 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         ),
     )
     protocol_client = MindChatProtocolClient()
-    protocol_client.post_tool_result = AsyncMock(return_value={})
+    protocol_client.post_tool_result = AsyncMock(side_effect=lambda *_args, **_kwargs: result_received.set())
     protocol_client.get_tool_result_status = AsyncMock(return_value={})
     protocol_client.post_effect_reconciliation = AsyncMock(return_value={})
     input_events = []

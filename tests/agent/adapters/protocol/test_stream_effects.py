@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent.ports import ProtocolCommandError
+from agent.ports.persistence import ToolResultJournal
+from agent.composition import open_effect_journal
 from agent.adapters.protocol.tool_results import ToolResultDelivery
 from protocol.client.tools import ToolResultRequestError
 
@@ -17,9 +19,11 @@ def _delivery(
     reconcile_known_effect=None,
     post_reconciliation=None,
     sleep=None,
+    result_journal=None,
 ) -> ToolResultDelivery:
     """构造只暴露本次断言所需端口的交付对象。"""
     kwargs = {
+        "result_journal": result_journal or AsyncMock(spec=ToolResultJournal, load_tool_result=AsyncMock(return_value=None)),
         "reconcile_known_effect": (
             reconcile_known_effect or AsyncMock(return_value=False)
         ),
@@ -30,6 +34,92 @@ def _delivery(
     if sleep is not None:
         kwargs["sleep"] = sleep
     return ToolResultDelivery(**kwargs)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code", ("repository_database_failure", "tool_call_not_ready"))
+async def test_explicit_permanent_error_is_never_reposted(code):
+    post = AsyncMock(side_effect=ToolResultRequestError(code, "rejected", retryable=False))
+    status = AsyncMock(return_value={"tool_status": "waiting_result", "result_received": False})
+    delivery = _delivery(post_result=post, get_status=status, sleep=AsyncMock())
+    with pytest.raises(ToolResultRequestError):
+        await _deliver(delivery)
+    assert post.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_replay_does_not_confirm_a_different_authoritative_receipt(tmp_path):
+    journal = open_effect_journal(tmp_path / "effects.db")
+    post = AsyncMock()
+    await _deliver(_delivery(post_result=post, result_journal=journal))
+    resumed = _delivery(
+        post_result=AsyncMock(), result_journal=journal,
+        get_status=AsyncMock(return_value={
+            "name": "test_tool", "tool_status": "result_received",
+            "result_received": True, "request_id": "another-request",
+        }),
+    )
+    with pytest.raises(ToolResultRequestError, match="different request"):
+        await resumed.resolve_replayed_call(
+            cid="cid-test", sid="sid-test", call_id="call-test", tool_name="test_tool",
+        )
+
+
+@pytest.mark.anyio
+async def test_restart_delivers_saved_result_without_executing_tool(tmp_path):
+    journal_path = tmp_path / "effects.db"
+    first_post = AsyncMock(side_effect=ToolResultRequestError("rejected", "not accepted", retryable=False))
+    first = _delivery(post_result=first_post, result_journal=open_effect_journal(journal_path))
+    with pytest.raises(ToolResultRequestError):
+        await _deliver(first)
+    assert first_post.await_count == 1
+    resumed_post = AsyncMock()
+    resumed = _delivery(
+        post_result=resumed_post,
+        result_journal=open_effect_journal(journal_path),
+        get_status=AsyncMock(return_value={
+            "name": "test_tool", "tool_status": "waiting_result", "result_received": False,
+        }),
+    )
+    assert await resumed.resolve_replayed_call(
+        cid="cid-test", sid="sid-test", call_id="call-test", tool_name="test_tool",
+    ) == "skip"
+    assert resumed_post.await_args == first_post.await_args
+
+
+@pytest.mark.anyio
+async def test_tool_result_persistence_failure_prevents_network_delivery(tmp_path):
+    post = AsyncMock()
+    journal = AsyncMock(spec=ToolResultJournal)
+    journal.save_tool_result.side_effect = OSError("disk full")
+    delivery = _delivery(post_result=post, result_journal=journal)
+    with pytest.raises(OSError, match="disk full"):
+        await _deliver(delivery)
+    post.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_cancellation_waits_for_completed_result_to_be_saved(tmp_path):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    journal = open_effect_journal(tmp_path / "effects.db")
+
+    async def save(*args):
+        entered.set()
+        await release.wait()
+        await journal.save_tool_result(*args)
+
+    delayed = AsyncMock(spec=ToolResultJournal)
+    delayed.save_tool_result.side_effect = save
+    post = AsyncMock()
+    task = asyncio.create_task(_deliver(_delivery(post_result=post, result_journal=delayed)))
+    await entered.wait()
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    post.assert_not_awaited()
+    assert await journal.load_tool_result("cid-test", "sid-test", "call-test") is not None
 
 
 async def _deliver(
@@ -228,6 +318,7 @@ async def test_delivery_retries_unknown_ack_with_same_request_id() -> None:
             raise ToolResultRequestError(
                 "tool_result_ack_invalid",
                 "tool result acknowledgement is invalid",
+                retryable=True,
             )
 
     get_status = AsyncMock(return_value={
@@ -303,7 +394,7 @@ async def test_delivery_queries_transient_registration_status_before_retry(
     async def post_result(*_args, **kwargs) -> None:
         request_ids.append(kwargs["request_id"])
         if len(request_ids) == 1:
-            raise ToolResultRequestError(error_code, "not ready")
+            raise ToolResultRequestError(error_code, "not ready", retryable=True)
 
     get_status = AsyncMock(return_value={
         "tool_status": "waiting_result",

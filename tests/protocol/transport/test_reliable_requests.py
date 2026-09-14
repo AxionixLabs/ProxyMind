@@ -52,6 +52,21 @@ def _response(status_code: int) -> httpx.Response:
 
 
 @pytest.mark.anyio
+async def test_reliable_post_does_not_retry_explicit_permanent_server_error(monkeypatch):
+    response = httpx.Response(503, json={"details": {"retryable": False}})
+    factory = _ClientFactory([response])
+    sleep = AsyncMock()
+    monkeypatch.setattr(reliable.asyncio, "sleep", sleep)
+    actual = await reliable.post_json_reliably(
+        "https://example.test/tool-result", headers={}, payload={}, timeout=3,
+        client_factory=factory, retry_delays=(0, 0.2, 0.5),
+    )
+    assert actual is response
+    assert len(factory.calls) == 1
+    sleep.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_reliable_post_reuses_payload_across_transient_failures(
     monkeypatch,
 ) -> None:

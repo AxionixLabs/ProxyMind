@@ -82,6 +82,8 @@ def compact_failure_message(error_type: str = "", *, status_code: int = 0) -> st
         return "A tool call is still running. Try again after it finishes."
     if error_type == "summary_failed":
         return "Could not generate a context summary."
+    if error_type == "summary_timeout":
+        return "Context summary timed out. The original context was preserved."
     if error_type == "snapshot_failed":
         return "Could not read the conversation context."
     if error_type == "no_gain":

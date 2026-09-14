@@ -24,6 +24,24 @@ def _effect(
 
 
 @pytest.mark.anyio
+async def test_tool_result_journal_preserves_raw_text_and_first_payload(tmp_path):
+    path = tmp_path / "effects.db"
+    journal = open_effect_journal(path)
+    raw = {"text": "中文\x00😀"}
+    payload = {"result": {"text": "中文␀😀"}}
+    await journal.save_tool_result("cid", "sid", "call", payload, raw)
+    await journal.save_tool_result("cid", "sid", "call", payload, {"text": "projected replay"})
+    with pytest.raises(ValueError, match="conflicts"):
+        await journal.save_tool_result("cid", "sid", "call", {"different": True}, raw)
+    resumed = open_effect_journal(path)
+    assert await resumed.load_tool_result("cid", "sid", "call") == payload
+    assert await resumed.load_tool_result("cid", "other", "call") is None
+    with sqlite3.connect(path) as connection:
+        stored = connection.execute("SELECT original_result FROM local_tool_results").fetchone()[0]
+    assert json.loads(stored) == raw
+
+
+@pytest.mark.anyio
 async def test_effect_journal_reuses_committed_result(tmp_path: Path) -> None:
     journal = open_effect_journal(tmp_path / "effects.db")
     effect = _effect()

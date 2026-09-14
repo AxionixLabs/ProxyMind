@@ -92,6 +92,23 @@ def is_retryable_status(status_code: int) -> bool:
     return status_code >= 500 or status_code in RETRYABLE_STATUS_CODES
 
 
+def is_retryable_response(response: httpx.Response) -> bool:
+    """优先采用正式错误信封中的重试决定，缺失时使用 HTTP 状态。"""
+    if not response.is_error:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return is_retryable_status(response.status_code)
+    if isinstance(body, dict):
+        details = body.get("details")
+        if isinstance(details, dict):
+            retryable = details.get("retryable")
+            if isinstance(retryable, bool):
+                return retryable
+    return is_retryable_status(response.status_code)
+
+
 async def post_json_reliably(
     url: str,
     *,
@@ -128,7 +145,7 @@ async def post_json_reliably(
                 raise
             continue
 
-        if not is_retryable_status(response.status_code) or attempt == len(delays):
+        if not is_retryable_response(response) or attempt == len(delays):
             return response
 
     if last_transport_error is not None:
@@ -177,7 +194,7 @@ async def send_json_reliably(
                 raise
             continue
 
-        if not is_retryable_status(response.status_code) or attempt == len(delays):
+        if not is_retryable_response(response) or attempt == len(delays):
             return response
 
     if last_transport_error is not None:
@@ -218,7 +235,7 @@ async def get_json_reliably(
                 raise
             continue
 
-        if not is_retryable_status(response.status_code) or attempt == len(delays):
+        if not is_retryable_response(response) or attempt == len(delays):
             return response
 
     if last_transport_error is not None:

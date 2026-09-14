@@ -318,9 +318,7 @@ async def stream_turn(
         )
         active_turn_hook_events = TurnHookEvents(hook_scope)
         turn_hook_events = active_turn_hook_events
-        message = await source.prepare(
-            active_turn_hook_events, transcript, message, kwargs
-        )
+        message = await source.prepare(active_turn_hook_events, transcript, message, kwargs)
 
         async def interrupt_nested_turn(call_id: str) -> bool:
             """中断由嵌套本地工具审批取消的当前轮次。"""
@@ -332,6 +330,7 @@ async def stream_turn(
                 call_id=call_id,
             )
 
+        execution_journal = effect_journal_factory()
         client_tool_runner = ClientToolCallRunner(
             session=session,
             output_control=output_control,
@@ -341,12 +340,13 @@ async def stream_turn(
             tool_call_coordinator=tool_call_coordinator,
             tool_execution=tool_execution,
             activity=activity_projector,
-            effect_journal=effect_journal_factory(),
+            effect_journal=execution_journal,
             effect_reconciler=protocol_client.post_effect_reconciliation,
             patch_preview=turn_context.patch_preview,
             interrupt_turn=interrupt_nested_turn,
         )
         tool_result_delivery = ToolResultDelivery(
+            result_journal=execution_journal,
             reconcile_known_effect=client_tool_runner.reconcile_known_effect,
             post_result=protocol_client.post_tool_result,
             get_status=protocol_client.get_tool_result_status,

@@ -28,10 +28,16 @@ from protocol.schema.turn_lifecycle import (
     parse_turn_completed_snapshot,
     parse_turn_runtime_status,
 )
+from protocol.schema.tool_output import (
+    project_tool_output,
+    validate_persistable_json,
+)
+from protocol.schema.json_value import JsonObject
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import (
     get_json_reliably,
+    is_retryable_response,
     is_retryable_status,
     post_json_reliably,
 )
@@ -945,6 +951,7 @@ async def post_tool_result(
         request_id=request_id,
     )
 
+    validate_persistable_json(payload)
     try:
         r = await post_json_reliably(
             service_endpoints.endpoint("/tool-result"),
@@ -952,6 +959,7 @@ async def post_tool_result(
             payload=payload,
             timeout=30.0,
             client_factory=httpx.AsyncClient,
+            retry_delays=(0.0,),
         )
     except (httpx.HTTPError, OSError) as error:
         raise ToolResultRequestError(
@@ -960,11 +968,11 @@ async def post_tool_result(
             retryable=True,
         ) from error
     if r.is_error:
-        raise _tool_result_error(r)
+        raise parse_tool_result_error(r)
     return _tool_result_ack(r, request_id=payload["request_id"])
 
 
-def _tool_result_error(response: httpx.Response) -> ToolResultRequestError:
+def parse_tool_result_error(response: httpx.Response) -> ToolResultRequestError:
     """把服务端结果投递错误解析为稳定的客户端异常。"""
     try:
         body = response.json()
@@ -979,10 +987,7 @@ def _tool_result_error(response: httpx.Response) -> ToolResultRequestError:
         code,
         message,
         status_code=response.status_code,
-        retryable=(
-            details.get("retryable") is True
-            or is_retryable_status(response.status_code)
-        ),
+        retryable=is_retryable_response(response),
         details=details,
         trace_id=(body.get("trace_id") if isinstance(body, dict) else ""),
     )
@@ -1001,6 +1006,7 @@ def _tool_result_ack(
             "tool_result_ack_invalid",
             "tool result returned an invalid response",
             status_code=response.status_code,
+            retryable=True,
         ) from error
     data = body.get("data") if isinstance(body, dict) else None
     if (
@@ -1016,6 +1022,7 @@ def _tool_result_ack(
             "tool_result_ack_mismatch",
             "tool result acknowledgement does not match request",
             status_code=response.status_code,
+            retryable=True,
         )
     return dict(body)
 
@@ -1026,7 +1033,7 @@ async def get_tool_result_status(
     sid: str,
     call_id: str,
     timeout: float = 10.0,
-    retry_delays: typing.Sequence[float] = (0.0, 0.2, 0.5),
+    retry_delays: typing.Sequence[float] = (0.0,),
 ) -> dict[str, typing.Any]:
     """读取工具调用的权威持久状态，不修改服务端生命周期。"""
     normalized_cid = str(cid or "").strip()
@@ -1054,7 +1061,7 @@ async def get_tool_result_status(
             retryable=True,
         ) from error
     if response.is_error:
-        raise _tool_result_error(response)
+        raise parse_tool_result_error(response)
     try:
         body = response.json()
     except (TypeError, ValueError) as error:
@@ -1150,7 +1157,7 @@ async def renew_tool_result(
             retryable=True,
         ) from error
     if response.is_error:
-        raise _tool_result_error(response)
+        raise parse_tool_result_error(response)
     try:
         body = response.json()
     except (TypeError, ValueError) as error:
@@ -1210,6 +1217,37 @@ def build_tool_result_payload(
     contexts = _normalized_contexts(additional_context)
     payload["additional_context"] = contexts
     return dict(payload)
+
+
+def normalize_tool_result_payload(payload: JsonObject) -> JsonObject:
+    """在效果核对边界复用普通结果请求的校验和文本投影。"""
+    unknown = set(payload).difference({
+        "cid", "sid", "call_id", "name", "request_id", "ok", "result", "additional_context",
+    })
+    if unknown:
+        raise ValueError("tool result request contains unknown fields")
+    coordinates: dict[str, str] = {}
+    for field in ("cid", "sid", "call_id", "name", "request_id"):
+        value = payload.get(field)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"tool result requires {field}")
+        coordinates[field] = value
+    result = payload.get("result")
+    ok = payload.get("ok")
+    contexts = payload.get("additional_context", [])
+    if not isinstance(result, dict) or not isinstance(ok, bool) or not isinstance(contexts, list):
+        raise ValueError("tool result envelope is invalid")
+    context_texts: list[str] = []
+    for value in contexts:
+        if not isinstance(value, str):
+            raise ValueError("additional context must be text")
+        context_texts.append(value)
+    return build_tool_result_payload(
+        cid=coordinates["cid"], sid=coordinates["sid"],
+        call_id=coordinates["call_id"], name=coordinates["name"],
+        request_id=coordinates["request_id"], ok=ok, result=result,
+        additional_context=context_texts,
+    )
 
 
 async def post_tool_approval(
@@ -1460,13 +1498,14 @@ def _tool_result_for_server(
         raise TypeError("tool result attachments must be a list")
     if not isinstance(data, dict):
         raise TypeError("tool result data must be an object")
+    projected_text, projected_data = project_tool_output(name, text, data)
     return build_tool_result_envelope(
         tool=result_tool,
         ok=result_ok,
         args=args,
-        text=text,
+        text=projected_text,
         attachments=attachments,
-        data=data,
+        data=projected_data,
     )
 
 

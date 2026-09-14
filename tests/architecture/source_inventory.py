@@ -44,19 +44,23 @@ TESTS_ROOT = PROJECT_ROOT / "tests"
 
 @functools.lru_cache(maxsize=1)
 def all_python_sources() -> tuple[Path, ...]:
-    """返回仓库拥有的 Python 源码，不遍历本地环境和生成目录。"""
+    """返回仓库拥有的 Python 源码，不遍历外部参考仓库、本地环境和生成目录。"""
     sources: list[Path] = []
     for directory, directory_names, filenames in os.walk(
         PROJECT_ROOT,
         topdown=True,
     ):
+        directory_path = Path(directory)
         directory_names[:] = sorted(
             name
             for name in directory_names
             if name not in NON_REPOSITORY_DIRECTORY_NAMES
             and not name.endswith(".egg-info")
+            and not (
+                directory_path == PROJECT_ROOT
+                and name in {"codex", "codex-main"}
+            )
         )
-        directory_path = Path(directory)
         sources.extend(
             directory_path / filename
             for filename in sorted(filenames)
@@ -83,7 +87,6 @@ def production_python_sources() -> tuple[Path, ...]:
         "__pycache__",
         "backend",
         "build",
-        "codex-main",
         "schematic",
         "test",
         "tests",

@@ -30,6 +30,18 @@ from protocol.client.fork import ResubmittablePrompt
 from protocol.client.turn_control import TurnControlRequestError
 
 
+@pytest.mark.anyio
+async def test_effect_reconciliation_preserves_explicit_retryable_false(monkeypatch):
+    monkeypatch.setattr(model_adapter, "_post_effect_reconciliation", AsyncMock(side_effect=ToolResultRequestError(
+        "repository_database_failure", "rejected", status_code=503, retryable=False,
+    )))
+    with pytest.raises(ProtocolCommandError) as error:
+        await model_adapter.MindChatProtocolClient().post_effect_reconciliation(
+            effect_id="effect-test", request_id="request-test", resolution="committed",
+        )
+    assert error.value.retryable is False
+    assert error.value.code == "repository_database_failure"
+
 def _model_event(event_type: str = "turn.started") -> SimpleNamespace:
     return SimpleNamespace(
         type=event_type,

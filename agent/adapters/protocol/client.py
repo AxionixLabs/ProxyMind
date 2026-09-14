@@ -998,6 +998,13 @@ class MindChatProtocolClient:
                 error=error,
                 metadata=dict(metadata) if metadata is not None else None,
             )
+        except ToolResultRequestError as error:
+            raise ProtocolCommandError(
+                error.code,
+                str(error) or "effect reconciliation failed",
+                retryable=error.retryable,
+                details={**error.details, "status_code": error.status_code},
+            ) from error
         except (httpx.HTTPError, OSError) as error:
             raise ProtocolCommandError(
                 "effect_reconciliation_transport_error",

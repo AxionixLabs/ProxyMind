@@ -22,7 +22,6 @@ from agent.capabilities import (
 )
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
-    EffectJournal,
     InteractiveProcessCapability,
     ProtocolCommandClient,
     ReviewCapability,
@@ -31,6 +30,7 @@ from agent.ports import (
     TurnExecutorResult,
 )
 from agent.ports import EnvironmentSnapshotCapability, ModelCapability
+from agent.ports.persistence import ExecutionJournal
 from agent.ports import (
     HookRegistryFactory,
     McpRuntimeBuilder,
@@ -60,8 +60,8 @@ def open_turn_application(
     )
 
 
-def open_effect_journal(db_path: str | Path) -> EffectJournal:
-    """使用独立 SQLite 文件组合本地效果账本端口。"""
+def open_effect_journal(db_path: str | Path) -> ExecutionJournal:
+    """使用同一 SQLite 文件组合本地效果和工具结果的持久端口。"""
     return LocalEffectJournal(db_path)
 
 

@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from protocol.client import tools
+from protocol.client import effects
 from protocol.schema.tool_approval import ToolApprovalAck
 
 
@@ -76,11 +77,70 @@ def test_tool_result_error_classifies_transient_http_status() -> None:
         request=httpx.Request("POST", "https://example.test/tool-result"),
     )
 
-    error = tools._tool_result_error(response)
+    error = tools.parse_tool_result_error(response)
 
     assert error.code == "tool_result_http_error"
     assert error.status_code == 503
     assert error.retryable
+
+
+@pytest.mark.parametrize("status_code", (409, 422, 500, 503))
+@pytest.mark.parametrize("retryable", (False, True))
+def test_tool_result_error_respects_explicit_retry_decision(status_code, retryable):
+    error = tools.parse_tool_result_error(_response(status_code, {
+        "details": {"code": "repository_database_failure", "retryable": retryable},
+    }))
+    assert error.retryable is retryable
+
+
+@pytest.mark.parametrize("tool", ("shell_command", "exec_command", "write_stdin"))
+def test_command_output_projection_preserves_local_evidence_and_replay(tool):
+    raw = "中文\x00😀\r\n"
+    result = _result_envelope(tool=tool, text=raw, data={
+        "stdout": raw, "stderr": raw, "output": raw,
+        "output_lines": [{"stream": "stdout", "text": raw}],
+        "exit_code": 0,
+    })
+    options = dict(cid="cid", sid="sid", call_id="call", name=tool, ok=True)
+    payload = tools.build_tool_result_payload(**options, result=result)
+    assert result["data"]["stdout"] == raw
+    assert payload["result"]["text"] == "[Tool output: NUL represented as ␀]\n中文␀😀\r\n"
+    assert payload["result"]["data"]["stdout"] == "中文␀😀\r\n"
+    assert payload["result"]["data"]["output_lines"][0]["text"] == "中文␀😀\r\n"
+    assert payload == tools.build_tool_result_payload(**options, result=payload["result"])
+    assert tools.normalize_tool_result_payload({
+        **payload, "result": result,
+    }) == payload
+
+
+@pytest.mark.anyio
+async def test_effect_reconciliation_shares_projection_and_permanent_error_decision(monkeypatch):
+    captured = {}
+    _install_client(monkeypatch, _response(503, {
+        "details": {"code": "repository_database_failure", "retryable": False},
+    }), captured)
+    payload = tools.build_tool_result_payload(
+        cid="cid", sid="sid", call_id="call", name="shell_command", ok=True,
+        result=_result_envelope(tool="shell_command", text="中文\x00😀", data={"stdout": "中文\x00😀"}),
+    )
+    with pytest.raises(tools.ToolResultRequestError) as error:
+        await effects.post_effect_reconciliation(
+            effect_id="effect-test", request_id="reconcile-test", resolution="committed",
+            result_payload=payload,
+        )
+    assert error.value.retryable is False
+    assert captured["json"]["result_payload"] == payload
+    assert captured["json"]["result_payload"]["result"]["data"]["stdout"] == "中文␀😀"
+
+
+@pytest.mark.parametrize("data", ({"path": "bad\x00path"}, {"nested": ["\ud800"]}, {"bad\x00key": 1}))
+@pytest.mark.anyio
+async def test_tool_output_does_not_rewrite_structured_data(data):
+    with pytest.raises(ValueError, match="unsupported text character"):
+        await tools.post_tool_result(
+            cid="cid", sid="sid", call_id="call", name="shell_command", ok=True,
+            result=_result_envelope(tool="shell_command", data=data),
+        )
 
 
 def _install_snapshot_client(monkeypatch, response, captured) -> None:

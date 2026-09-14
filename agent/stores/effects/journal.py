@@ -13,6 +13,11 @@ from agent.ports import (
     EffectJournalDecision,
     EffectJournalPersistenceError,
 )
+from agent.protocol.json_value import (
+    ThawedJsonValue,
+    freeze_json,
+    thaw_object,
+)
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS local_effects (
@@ -25,17 +30,89 @@ CREATE TABLE IF NOT EXISTS local_effects (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS local_tool_results (
+    cid TEXT NOT NULL,
+    sid TEXT NOT NULL,
+    call_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    original_result TEXT NOT NULL,
+    PRIMARY KEY (cid, sid, call_id)
+);
 """
 
-EFFECT_STORE_SCHEMA_VERSION: typing.Final = 1
+EFFECT_STORE_SCHEMA_VERSION: typing.Final = 2
 
 
 class LocalEffectJournal:
-    """按 effect_id 与 fingerprint 持久记录本地副作用结果。"""
+    """持久记录本地效果证据和工具结果，两个身份空间分别原子去重。"""
 
     def __init__(self, db_path: str | Path) -> None:
-        """绑定独立的本地效果账本文件。"""
+        """绑定本地效果和工具结果共用的执行账本文件。"""
         self.db_path = Path(db_path).expanduser()
+
+    async def save_tool_result(
+        self,
+        cid: str,
+        sid: str,
+        call_id: str,
+        payload: dict[str, ThawedJsonValue],
+        original_result: dict[str, ThawedJsonValue],
+    ) -> None:
+        """在首次投递前保存冻结结果，跨进程重试保持相同载荷。"""
+        encoded = json.dumps(
+            payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        original = json.dumps(
+            original_result, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        await asyncio.to_thread(self._save_tool_result, cid, sid, call_id, encoded, original)
+
+    def _save_tool_result(
+        self, cid: str, sid: str, call_id: str, encoded: str, original: str,
+    ) -> None:
+        """以唯一调用键原子保存结果并拒绝内容冲突。"""
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute(
+                    "INSERT OR IGNORE INTO local_tool_results "
+                    "(cid, sid, call_id, payload, original_result) VALUES (?, ?, ?, ?, ?)",
+                    (cid, sid, call_id, encoded, original),
+                )
+                row = connection.execute(
+                    "SELECT payload FROM local_tool_results WHERE cid = ? AND sid = ? AND call_id = ?",
+                    (cid, sid, call_id),
+                ).fetchone()
+                if row is None or row["payload"] != encoded:
+                    raise ValueError("local tool result conflicts with persisted execution evidence")
+        finally:
+            connection.close()
+
+    async def load_tool_result(
+        self, cid: str, sid: str, call_id: str,
+    ) -> dict[str, ThawedJsonValue] | None:
+        """读取历史调用的确定交付结果。"""
+        return await asyncio.to_thread(self._load_tool_result, cid, sid, call_id)
+
+    def _load_tool_result(self, cid: str, sid: str, call_id: str) -> dict[str, ThawedJsonValue] | None:
+        """在短连接中读取结果，解码后的完整契约由调用边界校验。"""
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT payload FROM local_tool_results WHERE cid = ? AND sid = ? AND call_id = ?",
+                (cid, sid, call_id),
+            ).fetchone()
+        finally:
+            connection.close()
+        if row is None:
+            return None
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict):
+            raise ValueError("persisted tool result must be an object")
+        return thaw_object(
+            freeze_json(payload, field_name="persisted tool result"),
+            field_name="persisted tool result",
+        )
 
     async def inspect(self, effect: EffectIntent) -> EffectJournalDecision:
         """不取得执行权地读取已提交结果或核对要求。"""
@@ -97,7 +174,7 @@ class LocalEffectJournal:
         if current_version > EFFECT_STORE_SCHEMA_VERSION:
             connection.close()
             raise RuntimeError("effect store schema is newer than this client")
-        connection.execute(_SCHEMA_SQL)
+        connection.executescript(_SCHEMA_SQL)
         if current_version < EFFECT_STORE_SCHEMA_VERSION:
             connection.execute(
                 f"PRAGMA user_version={EFFECT_STORE_SCHEMA_VERSION}"

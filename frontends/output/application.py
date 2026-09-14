@@ -153,7 +153,7 @@ class ConsoleApplicationSink(ApplicationSink):
         if view.type == "json" and isinstance(view.renderable, dict):
             _write(stream, json.dumps(
                 view.renderable,
-                ensure_ascii=False,
+                ensure_ascii=True,
                 separators=(",", ":"),
                 default=str,
             ) + "\n")
@@ -187,7 +187,7 @@ class JsonApplicationSink(ApplicationSink):
         """写出单个入口级 JSONL 事件。"""
         line = json.dumps(
             payload,
-            ensure_ascii=False,
+            ensure_ascii=True,
             separators=(",", ":"),
             default=str,
         )

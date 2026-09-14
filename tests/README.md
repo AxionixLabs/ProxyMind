@@ -97,16 +97,20 @@ python -m pytest tests/integration/test_sandbox_console.py --import-mode=importl
 
 ## 本地分层验证
 
+工具结果恢复的人工联调入口为 `python -m tests.manual.live_tool_delivery_runtime`，读取当前
+客户端配置并连接真实服务与模型，使用临时目录验证特殊字符、独立进程补交、回执丢失、
+幂等提交、自动和手动压缩以及后续输入；只在显式授权连接真实服务时运行。
+
 仓库不配置自动化测试 CI。维护者按改动风险在本地执行以下层级，责任目录与执行属性保持正交：
 
-| 层级         | 选择                                                   | 执行时机               | 职责                         |
-|--------------|--------------------------------------------------------|------------------------|------------------------------|
-| 定向验证     | 受影响的测试文件或责任目录                             | 每次相关修改           | 最短反馈并定位责任所有者     |
-| 快速全量     | `-m "not pty_acceptance"`                              | 阶段收口和发布前       | 排除真实终端的客户端回归     |
-| Runtime P0   | `-m runtime_p0`                                        | Runtime 相关修改和发布前 | 核心风险独立复核             |
-| 平台验收     | 对应平台的 `infrastructure/platform` 与 `pty_acceptance` | 平台边界修改和发布前   | 平台 adapter 和真实终端      |
-| 完整回归     | 完整测试树                                             | 测试架构阶段和发布收口 | 全面回归并复核最慢测试       |
-| 静态收口     | 架构审计、compileall、差异检查                         | 测试架构阶段和发布收口 | 验证目录、依赖和源码完整性   |
+| 层级       | 选择                                                     | 执行时机                 | 职责                       |
+|------------|----------------------------------------------------------|--------------------------|----------------------------|
+| 定向验证   | 受影响的测试文件或责任目录                               | 每次相关修改             | 最短反馈并定位责任所有者   |
+| 快速全量   | `-m "not pty_acceptance"`                                | 阶段收口和发布前         | 排除真实终端的客户端回归   |
+| Runtime P0 | `-m runtime_p0`                                          | Runtime 相关修改和发布前 | 核心风险独立复核           |
+| 平台验收   | 对应平台的 `infrastructure/platform` 与 `pty_acceptance` | 平台边界修改和发布前     | 平台 adapter 和真实终端    |
+| 完整回归   | 完整测试树                                               | 测试架构阶段和发布收口   | 全面回归并复核最慢测试     |
+| 静态收口   | 架构审计、compileall、差异检查                           | 测试架构阶段和发布收口   | 验证目录、依赖和源码完整性 |
 
 `runtime_p0` 与快速全量有意重叠，因为前者是可单独要求的风险集合。平台验收必须在对应系统上
 手动执行并记录结果，其他平台的 skip 不能替代该结论。源码仓不包含 macOS sandbox 可执行产物；
@@ -118,17 +122,17 @@ python -m pytest tests/integration/test_sandbox_console.py --import-mode=importl
 以下 node id 是各风险的最小稳定证据，可直接传给 `python -m pytest <node-id> -q`。扩展证据只在
 跨层故障或真实终端能提供快速测试无法证明的事实时保留；没有独立价值的风险不机械增加 PTY 用例。
 
-| 风险                        | 快速证据                                                                                                                          | 扩展证据                                                                                                                      |
-|-----------------------------|-----------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
-| Session、Run、Turn 身份隔离 | `tests/agent/application/turns/test_execution_context.py::test_root_agent_and_turn_context_share_session_identity`                | `tests/integration/test_turn_fault_injection.py::test_fake_sse_duplicate_gap_and_late_event_feed_same_oracle`                 |
-| 幂等键和请求身份            | `tests/agent/adapters/protocol/test_stream_effects.py::test_delivery_retries_unknown_ack_with_same_request_id`                   | `tests/integration/test_turn_fault_injection.py::test_committed_steer_response_loss_reconciles_without_resubmit`              |
-| 权威终态和输入门            | `tests/agent/application/turns/test_stream_turn_outcome.py::test_outcome_marks_stream_without_terminal_as_incomplete`             | `tests/integration/test_turn_fault_injection.py::test_production_interrupt_matrix_preserves_gate_and_input_ownership`         |
-| 工具副作用恰好一次          | `tests/agent/stores/effects/test_durable_local_effects.py::test_effect_journal_never_replays_uncertain_manual_effect`             | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_tool_approval_effect_and_shell_states_converge_in_place`      |
-| 审批裁决归属和过期          | `tests/agent/domain/approvals/test_approval_domain_contract.py::test_amendment_must_match_the_action_fingerprint`                 | `tests/frontends/tui/acceptance/test_pty_tui_interaction.py::test_approval_key_matrix_is_modal_and_exactly_once`              |
-| replay、gap 和旧 epoch      | `tests/agent/application/turns/test_run_result_lifecycle.py::test_provider_retry_ignores_late_old_item_events`                    | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_stream_retry_keeps_attempt_order_and_exactly_once_final_text` |
-| 资源关闭                    | `tests/agent/harness/execution/test_execution_resources.py::test_execution_resources_close_owned_runtime_resources`               | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_terminal_modes_restore_after_render_failure`                  |
-| TUI frame 原子性            | `tests/frontends/tui/runtime/test_tui_frame_contract.py::test_typed_event_trace_satisfies_frame_contract`                         | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_dynamic_layout_regions_do_not_overlap`                        |
-| 严格 wire 契约              | `tests/protocol/schema/test_stream_event_protocol.py::test_stream_event_rejects_removed_fields`                                   | `tests/protocol/client/test_tool_requests.py::test_tool_result_rejects_noncanonical_envelopes`                                |
+| 风险                        | 快速证据                                                                                                              | 扩展证据                                                                                                                      |
+|-----------------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| Session、Run、Turn 身份隔离 | `tests/agent/application/turns/test_execution_context.py::test_root_agent_and_turn_context_share_session_identity`    | `tests/integration/test_turn_fault_injection.py::test_fake_sse_duplicate_gap_and_late_event_feed_same_oracle`                 |
+| 幂等键和请求身份            | `tests/agent/adapters/protocol/test_stream_effects.py::test_delivery_retries_unknown_ack_with_same_request_id`        | `tests/integration/test_turn_fault_injection.py::test_committed_steer_response_loss_reconciles_without_resubmit`              |
+| 权威终态和输入门            | `tests/agent/application/turns/test_stream_turn_outcome.py::test_outcome_marks_stream_without_terminal_as_incomplete` | `tests/integration/test_turn_fault_injection.py::test_production_interrupt_matrix_preserves_gate_and_input_ownership`         |
+| 工具副作用恰好一次          | `tests/agent/stores/effects/test_durable_local_effects.py::test_effect_journal_never_replays_uncertain_manual_effect` | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_tool_approval_effect_and_shell_states_converge_in_place`      |
+| 审批裁决归属和过期          | `tests/agent/domain/approvals/test_approval_domain_contract.py::test_amendment_must_match_the_action_fingerprint`     | `tests/frontends/tui/acceptance/test_pty_tui_interaction.py::test_approval_key_matrix_is_modal_and_exactly_once`              |
+| replay、gap 和旧 epoch      | `tests/agent/application/turns/test_run_result_lifecycle.py::test_provider_retry_ignores_late_old_item_events`        | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_stream_retry_keeps_attempt_order_and_exactly_once_final_text` |
+| 资源关闭                    | `tests/agent/harness/execution/test_execution_resources.py::test_execution_resources_close_owned_runtime_resources`   | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_terminal_modes_restore_after_render_failure`                  |
+| TUI frame 原子性            | `tests/frontends/tui/runtime/test_tui_frame_contract.py::test_typed_event_trace_satisfies_frame_contract`             | `tests/frontends/tui/acceptance/test_pty_tui_rendering.py::test_dynamic_layout_regions_do_not_overlap`                        |
+| 严格 wire 契约              | `tests/protocol/schema/test_stream_event_protocol.py::test_stream_event_rejects_removed_fields`                       | `tests/protocol/client/test_tool_requests.py::test_tool_result_rejects_noncanonical_envelopes`                                |
 
 ## 覆盖率与变异评估
 

@@ -29,7 +29,6 @@ def test_retired_packages_have_no_production_imports() -> None:
     """已退役的历史包不能从生产代码重新进入导入图。"""
     ignored_roots = {
         "backend",
-        "codex-main",
         "schematic",
         "tests",
         "venv",

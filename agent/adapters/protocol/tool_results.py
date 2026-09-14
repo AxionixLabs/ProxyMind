@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import httpx
 
 from agent.ports import ProtocolCommandError
+from agent.ports.persistence import ToolResultJournal
 from protocol.client.tools import (
     ToolResultEnvelope,
     ToolResultRequestError,
@@ -24,15 +25,11 @@ ToolReplayAction = typing.Literal[
     "skip",
 ]
 
-_RETRYABLE_DELIVERY_CODES = frozenset({
+_QUERYABLE_CODES = frozenset({
     "tool_call_missing",
     "tool_call_not_ready",
     "tool_result_ack_invalid",
     "tool_result_ack_mismatch",
-})
-
-_QUERYABLE_CODES = frozenset({
-    *_RETRYABLE_DELIVERY_CODES,
     "tool_result_reconciliation_required",
 })
 
@@ -114,6 +111,7 @@ class ToolResultDelivery:
         post_result: _AsyncCall,
         get_status: _AsyncCall,
         post_reconciliation: _AsyncCall,
+        result_journal: ToolResultJournal,
         sleep: typing.Callable[[float], typing.Awaitable[typing.Any]] = (
             asyncio.sleep
         ),
@@ -123,6 +121,7 @@ class ToolResultDelivery:
         self._post_result = post_result
         self._get_status = get_status
         self._post_reconciliation = post_reconciliation
+        self._result_journal = result_journal
         self._sleep = sleep
         self._lock = asyncio.Lock()
         self._futures: dict[
@@ -133,14 +132,6 @@ class ToolResultDelivery:
             tuple[str, str, str],
             dict[str, typing.Any],
         ] = {}
-
-    @staticmethod
-    def _can_retry_delivery(first_error: _CommandError) -> bool:
-        """返回首次交付错误是否允许使用原请求再次提交。"""
-        return (
-            first_error.retryable
-            or first_error.code in _RETRYABLE_DELIVERY_CODES
-        )
 
     async def resolve_replayed_call(
         self,
@@ -181,12 +172,44 @@ class ToolResultDelivery:
                 retryable=True,
                 details={"call_id": call_id},
             )
-        if result_received or tool_status in {
+        if result_received:
+            saved = await self._result_journal.load_tool_result(cid, sid, call_id)
+            if saved is not None and saved.get("request_id") != status.get("request_id"):
+                raise ToolResultRequestError(
+                    "tool_result_request_conflict",
+                    "authoritative result belongs to a different request",
+                    details=status,
+                )
+            return "skip"
+        if tool_status in {
             "result_received",
             "execution_timed_out",
             "cancelled",
             "turn_closed",
         }:
+            return "skip"
+
+        saved = await self._result_journal.load_tool_result(cid, sid, call_id)
+        if saved is not None:
+            result = saved.get("result")
+            contexts = saved.get("additional_context")
+            request_id = saved.get("request_id")
+            ok = saved.get("ok")
+            if (
+                saved.get("cid") != cid or saved.get("sid") != sid
+                or saved.get("call_id") != call_id or saved.get("name") != tool_name
+                or not isinstance(result, dict) or not isinstance(ok, bool)
+                or not isinstance(contexts, list) or not isinstance(request_id, str)
+            ):
+                raise ValueError("persisted tool result identity or envelope is invalid")
+            context_texts: list[str] = []
+            for context in contexts:
+                if not isinstance(context, str):
+                    raise ValueError("persisted tool context must be text")
+                context_texts.append(context)
+            await self.deliver(
+                cid, sid, call_id, tool_name, ok, result, context_texts, request_id,
+            )
             return "skip"
 
         if status.get("reconciliation_required") is True:
@@ -282,6 +305,15 @@ class ToolResultDelivery:
             return
 
         try:
+            persistence = asyncio.create_task(self._result_journal.save_tool_result(
+                frozen.cid, frozen.sid, frozen.call_id, frozen.payload,
+                copy.deepcopy(dict(tool_result)),
+            ))
+            try:
+                await asyncio.shield(persistence)
+            except asyncio.CancelledError:
+                await persistence
+                raise
             await self._deliver_frozen(frozen)
         except asyncio.CancelledError:
             if not future.done():
@@ -338,19 +370,15 @@ class ToolResultDelivery:
                 )
             except (ToolResultRequestError, ProtocolCommandError) as status_error:
                 last_error = status_error
-                if self._can_retry_delivery(first_error):
+                if not status_error.retryable:
+                    raise
+                if first_error.retryable:
                     try:
                         await self._post(frozen)
                         return
                     except (ToolResultRequestError, ProtocolCommandError) as retry_error:
                         last_error = retry_error
-                        if not (
-                            retry_error.retryable
-                            or retry_error.code in {
-                                "tool_call_missing",
-                                "tool_call_not_ready",
-                            }
-                        ):
+                        if not retry_error.retryable:
                             raise
                 continue
 
@@ -387,17 +415,14 @@ class ToolResultDelivery:
                     "tool call is no longer waiting for a result",
                     details=status,
                 )
-            if not self._can_retry_delivery(first_error):
+            if not first_error.retryable:
                 raise first_error
             try:
                 await self._post(frozen)
                 return
             except (ToolResultRequestError, ProtocolCommandError) as retry_error:
                 last_error = retry_error
-                if not (
-                    retry_error.retryable
-                    or retry_error.code in _RETRYABLE_DELIVERY_CODES
-                ):
+                if not retry_error.retryable:
                     raise
         raise last_error
 

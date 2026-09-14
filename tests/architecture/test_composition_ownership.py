@@ -198,7 +198,7 @@ def test_legacy_application_uses_application_or_owned_state_entry() -> None:
 def test_product_logging_enters_observability_boundary() -> None:
     """禁止业务包重新拥有标准 logging logger。"""
     violations: list[str] = []
-    excluded_parts = {"tests", "venv", "codex-main", "backend", "observability"}
+    excluded_parts = {"tests", "venv", "backend", "observability"}
 
     for path in _all_python_sources():
         relative_parts = set(path.relative_to(PROJECT_ROOT).parts)

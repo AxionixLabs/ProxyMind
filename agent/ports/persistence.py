@@ -323,9 +323,30 @@ class EffectJournal(typing.Protocol):
         ...
 
 
+class ToolResultJournal(typing.Protocol):
+    """持有本地已完成工具的冻结交付证据；实现方必须原子去重且跨进程保留。"""
+
+    async def save_tool_result(
+        self, cid: str, sid: str, call_id: str, payload: dict[str, ThawedJsonValue],
+        original_result: dict[str, ThawedJsonValue],
+    ) -> None:
+        """在首次发送前保存不可替换结果，相同调用的不同结果必须报冲突。"""
+        ...
+
+    async def load_tool_result(
+        self, cid: str, sid: str, call_id: str,
+    ) -> dict[str, ThawedJsonValue] | None:
+        """读取确定执行结果；缺失不表示工具尚未执行。"""
+        ...
+
+
+class ExecutionJournal(EffectJournal, ToolResultJournal, typing.Protocol):
+    """组合本地执行证据的两个窄端口，由进程组合根提供同一持久资源。"""
+
+
 EffectJournalFactory: typing.TypeAlias = Callable[
     [],
-    EffectJournal,
+    ExecutionJournal,
 ]
 
 

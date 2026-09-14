@@ -5,6 +5,14 @@ import typing
 
 import httpx
 
+from protocol.client.tools import (
+    normalize_tool_result_payload,
+    parse_tool_result_error,
+)
+from protocol.schema.tool_output import (
+    project_tool_output_text,
+    validate_persistable_json,
+)
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.reliable import post_json_reliably
@@ -25,18 +33,21 @@ async def post_effect_reconciliation(
         "effect_id": str(effect_id or "").strip(),
         "request_id": str(request_id or "").strip(),
         "resolution": resolution,
-        "result_payload": dict(result_payload or {}),
-        "error": str(error or ""),
+        "result_payload": normalize_tool_result_payload(result_payload) if result_payload else {},
+        "error": project_tool_output_text(str(error or "")),
         "metadata": dict(metadata or {}),
     }
+    validate_persistable_json(payload)
     response = await post_json_reliably(
         service_endpoints.endpoint("/effect/reconcile"),
         headers=build_service_headers(),
         payload=payload,
         timeout=timeout,
         client_factory=httpx.AsyncClient,
+        retry_delays=(0.0,),
     )
-    response.raise_for_status()
+    if response.is_error:
+        raise parse_tool_result_error(response)
     body = response.json()
     if (
         not isinstance(body, dict)
