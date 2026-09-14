@@ -34,6 +34,8 @@ def test_config_workspace_commit_keeps_launch_directory(tmp_path: Path) -> None:
     target = tmp_path / "target"
     launch.mkdir()
     target.mkdir()
+    (launch / ".git").mkdir()
+    (target / ".git").mkdir()
     session = ConfigSession(
         ConfigStore(tmp_path / "config.toml"), workspace=launch, directory_override=True,
     )

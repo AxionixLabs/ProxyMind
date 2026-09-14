@@ -230,10 +230,13 @@ P6 首轮实际恢复发现前端在 Session 对账前已读取历史快照，�
 
 ### P5：回归检查
 
-- [ ] 激活仓库虚拟环境后，先运行以上受影响模块的定向 pytest。
-- [ ] 若新增活动契约或改变依赖边界，再执行 `python -m pytest tests/test_package_architecture.py tests/architecture -q`。
-- [ ] 执行 `python -m compileall agent protocol frontends infrastructure observability metadata` 和 `git diff --check`。
-- [ ] 保留既有 context left 默认可见性、模型切换/恢复、右侧留白和稳定性测试通过。
+- [x] 激活仓库虚拟环境后，先运行以上受影响模块的定向 pytest。
+- [x] 新增活动契约与恢复边界后执行架构审计，138 passed。
+- [x] 执行 compileall 和 `git diff --check`。
+- [x] 保留既有 context left 默认可见性、模型切换/恢复、右侧留白和稳定性测试通过。
+
+2026-09-14 全量复核：首次非 PTY 5072 passed、4 failed、15 skipped、162 deselected。三个文件搜索失败源于虚拟环境激活后 PATH 丢失 rg；临时目录位于已有用户主目录 Git 仓库内，也污染了项目根识别。恢复本次测试进程的 rg 路径，并在相关测试中显式建立临时 Git 根后，两个受影响文件 34 passed。
+第二次非 PTY 5075 passed、1 failed、15 skipped、162 deselected；唯一失败是本轮本地验收 driver 缺少源码头，已补齐且该审计单项复核 1 passed。第二次运行期间新增的恢复当次绘制修复另以恢复相关 70 passed 复核。未调整测试断言来隐藏生产行为错误，未修改用户主目录的 Git 状态。P4 补充修复已推送：`0f8b3047`。
 
 ### P6：客户端真机验收矩阵
 

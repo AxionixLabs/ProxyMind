@@ -474,6 +474,7 @@ async def test_at_filesystem_search_filters_and_inserts_paths(
     tmp_path: Path,
 ) -> None:
     """验证 `@` 文件候选的类型、匹配高亮和插入文本。"""
+    (tmp_path / ".git").mkdir()
     (tmp_path / "AGENTS.md").write_text("content", encoding="utf-8")
     (tmp_path / "app").mkdir()
 
@@ -615,6 +616,7 @@ def test_at_file_search_does_not_scan_on_input_thread(
 
 def test_at_file_search_rejects_stale_query_results(tmp_path: Path) -> None:
     """验证快速改写查询后旧快照不会覆盖最新结果。"""
+    (tmp_path / ".git").mkdir()
     (tmp_path / "alpha-target.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "beta-target.txt").write_text("beta", encoding="utf-8")
 
