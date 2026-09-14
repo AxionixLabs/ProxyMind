@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
-from prompt_toolkit.application import in_terminal
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe
 from prompt_toolkit.input.base import Input
@@ -102,6 +101,7 @@ from .task_state import TuiTaskState
 from .terminal_input import clear_pending_input
 from .view import ViewIdentity
 from .viewport import TuiTranscriptViewport
+from ..adapters.terminal_context import in_terminal
 from ..prompting.commands import (
     resolve_tui_command,
     slash_command_notice_message,
@@ -2414,12 +2414,13 @@ class TuiRuntime(object):
             await self._exit_application(erase=not preserve_transcript)
         finally:
             # Application 退出会写终端收尾序列，标题清理必须拥有最后写入权。
-            self.terminal_progress.close()
-
-        self.screen.directory_trust.close()
-        self.screen.set_startup_gate(False)
-        self._directory_trust_preserved_startup_gate = False
-        self._terminal_stderr_guard.close()
+            try:
+                self.terminal_progress.close()
+                self.screen.directory_trust.close()
+                self.screen.set_startup_gate(False)
+                self._directory_trust_preserved_startup_gate = False
+            finally:
+                self._terminal_stderr_guard.close()
 
     async def view_resume_picker(
         self,

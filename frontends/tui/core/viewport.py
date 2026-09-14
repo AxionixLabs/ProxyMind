@@ -7,10 +7,7 @@ import typing
 from dataclasses import dataclass
 from functools import partial
 
-from prompt_toolkit.application import (
-    Application,
-    in_terminal,
-)
+from prompt_toolkit.application import Application
 from prompt_toolkit.layout.containers import WindowRenderInfo
 
 from infrastructure.config.schema import DEFAULT_SCROLLBACK_REFLOW_LINE_LIMIT
@@ -18,6 +15,7 @@ from .document import TuiDocument
 from .hyperlinks import decorate_scrollback_hyperlinks
 from .models import FormattedText
 from .styles import ASSISTANT_PREFIX_CLASS
+from ..adapters.terminal_context import in_terminal
 from ..rendering.fragments import (
     display_line_count,
     fragment_continuation_widths,

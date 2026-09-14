@@ -11,7 +11,6 @@ import sys
 import typing
 from dataclasses import dataclass
 
-from prompt_toolkit.application import in_terminal
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.input.vt100_parser import Vt100Parser
 from prompt_toolkit.key_binding import KeyPress
@@ -24,6 +23,7 @@ from prompt_toolkit.output.vt100 import Vt100_Output
 from frontends.terminal.identity import TerminalIdentity
 from frontends.terminal.identity import TerminalKind
 from frontends.tui.contracts.keyboard import enhanced_key_token
+from .terminal_context import in_terminal
 
 _MAX_CSI_SEQUENCE_LENGTH: typing.Final[int] = 96
 

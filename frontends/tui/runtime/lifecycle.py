@@ -2,13 +2,18 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-import contextlib
 import typing
 
+from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import create_app_session
+from prompt_toolkit.input.base import Input
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from observability import observe
 from .terminal_stderr import TerminalStderrGuard
+
+_APPLICATION_EXIT_TIMEOUT_SEC: typing.Final[float] = 2.0
+_APPLICATION_CANCEL_TIMEOUT_SEC: typing.Final[float] = 1.0
 
 
 class ApplicationLifecycle(object):
@@ -16,9 +21,9 @@ class ApplicationLifecycle(object):
 
     def __init__(
         self,
-        application: typing.Any,
+        application: Application[None],
         *,
-        clear_pending_input: typing.Callable[[typing.Any], None],
+        clear_pending_input: typing.Callable[[Input], None],
         finish_input: typing.Callable[[], None],
         reset_synchronized_output: typing.Callable[[], None],
     ) -> None:
@@ -90,23 +95,52 @@ class ApplicationLifecycle(object):
         return self._error if self._error is not None else EOFError()
 
     async def stop(self, *, erase: bool) -> None:
-        """停止 Application 任务并恢复终端同步输出状态。"""
+        """限时等待退出及取消回收，并恢复终端同步输出状态。"""
         task = self._task
         if task is None:
             return None
 
+        self.mark_closing()
         application = self.application
         application.erase_when_done = erase
 
-        if not application.is_done:
-            with contextlib.suppress(Exception):
+        try:
+            if application.is_running and not application.is_done:
                 application.exit(result=None)
 
-        await asyncio.gather(task, return_exceptions=True)
-        self._reset_synchronized_output()
-
-        self._task = None
-        application.erase_when_done = False
+            _, pending = await asyncio.wait(
+                (task,), timeout=_APPLICATION_EXIT_TIMEOUT_SEC,
+            )
+            if pending:
+                observe(
+                    "tui.application.stop.timeout",
+                    level="WARNING",
+                    phase="exit",
+                    timeout_sec=_APPLICATION_EXIT_TIMEOUT_SEC,
+                )
+        finally:
+            try:
+                if not task.done():
+                    task.cancel()
+                    # wait_for 会继续等待忽略取消的协程，不能用作回收期限。
+                    _, pending = await asyncio.wait(
+                        (task,), timeout=_APPLICATION_CANCEL_TIMEOUT_SEC,
+                    )
+                    if pending:
+                        observe(
+                            "tui.application.stop.timeout",
+                            level="ERROR",
+                            phase="cancel",
+                            timeout_sec=_APPLICATION_CANCEL_TIMEOUT_SEC,
+                        )
+                        raise TimeoutError(
+                            "TUI application did not stop after cancellation"
+                        )
+            finally:
+                if task.done():
+                    self._task = None
+                application.erase_when_done = False
+                self._reset_synchronized_output()
 
     async def _run_application(self) -> None:
         """运行输入 Application 并安装临时事件循环错误处理器。"""
@@ -138,10 +172,10 @@ class ApplicationLifecycle(object):
 
     def _task_done(self, task: asyncio.Task[None]) -> None:
         """记录任务终止状态并唤醒等待方。"""
+        task_error = None if task.cancelled() else task.exception()
         if self._closing:
             return None
 
-        task_error = None if task.cancelled() else task.exception()
         if self._error is None:
             self._error = task_error if task_error is not None else EOFError()
 
