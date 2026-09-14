@@ -4,8 +4,12 @@
 import asyncio
 import typing
 
-from agent.application.turns.compact_result import CompactResult
+from agent.application.turns.compact_result import (
+    CompactEvent,
+    CompactResult,
+)
 from agent.ports import (
+    CompactProgress,
     ProtocolCommandClient,
     ProtocolCommandError,
 )
@@ -19,6 +23,7 @@ from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
+from frontends.terminal.renderers.lifecycle import render_compaction_completed
 from frontends.tui.adapters.clipboard import (
     ClipboardError,
     copy_text_to_clipboard
@@ -68,7 +73,7 @@ class ConversationCompactor(typing.Protocol):
         *,
         pref_config: dict[str, typing.Any],
         source: str,
-        on_progress: typing.Callable[[str], None] | None = None,
+        on_progress: CompactProgress | None = None,
     ) -> CompactResult:
         """执行一次会话压缩并返回稳定结果。"""
         ...
@@ -102,18 +107,17 @@ def _present(
 
 def render_compact_result(host: "TuiApplicationHost", status: "CompactLiveStatus") -> None:
     """展示上下文压缩的最终状态。"""
-    view = external_mcp_status_view(status.snapshot(), detail_limit=0)
-
-    block = render_mcp_status_block(
-        view,
-        terminal_width=host.frontend.application.viewport.width,
+    result = status.result
+    if result is None:
+        return
+    block = (
+        render_compaction_completed(result.latency_ms)
+        if result.outcome == "completed"
+        else failure_text_block(result.message)
     )
-
-    if not block.plain_text:
-        return None
-
     _present(host, block, view_type="tui.compact.status")
-    _present(host, view_type="tui.gap")
+    if result.continuation_message:
+        _present(host, failure_text_block(result.continuation_message))
 
 
 async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
@@ -145,45 +149,43 @@ async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
     return selected is True
 
 
-class CompactLiveStatus(object):
+class CompactLiveStatus:
     """记录上下文压缩的流式阶段状态。"""
 
     def __init__(self) -> None:
         self._message: str = "Context compacting..."
-        self._state: str = "linking"
         self._done: bool = False
+        self._result: CompactResult | None = None
+
+    @property
+    def result(self) -> CompactResult | None:
+        """返回已经结算的压缩事实及独立的后续控制结果。"""
+        return self._result
 
     def snapshot(self) -> dict[str, typing.Any]:
-        """返回可复用外部 MCP 动画渲染的状态快照。"""
+        """返回当前前台压缩活动的状态快照。"""
         return {
             "summary": self._message,
             "done": self._done,
-            "detail_limit": 0,
-            "items": [
-                {
-                    "name": "Compact",
-                    "state": self._state,
-                }
-            ],
         }
 
-    def running(self, message: str) -> None:
+    def running(self, event: CompactEvent) -> None:
         """更新压缩进行中的提示。"""
-        self._message = message or "Context compacting..."
-        self._state = "linking"
+        self._message = event.message or "Context compacting..."
         self._done = False
 
-    def completed(self, message: str, detail: str) -> None:
-        """更新压缩完成提示。"""
-        self._message = f"{message or 'Context compacted.'}{detail}"
-        self._state = "ready"
+    def finish(self, result: CompactResult) -> None:
+        """保留压缩终态，不用后续 Hook 的决定改写完成事实。"""
+        self._result = result
+        self._message = result.message
         self._done = True
 
     def failed(self, message: str) -> None:
         """更新压缩失败提示。"""
-        self._message = message or "Context compaction failed. Please try again."
-        self._state = "failed"
-        self._done = True
+        self.finish(CompactResult(
+            outcome="failed",
+            message=message or "Context compaction failed. Please try again.",
+        ))
 
 
 class ForkLiveStatus(object):
@@ -321,10 +323,7 @@ async def compact_current_conversation(
         on_progress=status.running,
     )
 
-    if result.ok:
-        status.completed(result.message, compact_result_detail(result))
-    else:
-        status.failed(result.message)
+    status.finish(result)
 
     return status
 
@@ -623,16 +622,6 @@ def render_compact_interrupted(host: "TuiApplicationHost") -> None:
         view_type="tui.compact.interrupted",
     )
     _present(host, view_type="tui.gap")
-
-
-def compact_result_detail(result: CompactResult) -> str:
-    """返回压缩完成事件的简短统计。"""
-    before_items = result.before_items
-    after_items = result.after_items
-
-    if isinstance(before_items, int) and isinstance(after_items, int):
-        return f" · {before_items} -> {after_items} items"
-    return ""
 
 
 def _positive_int(value: typing.Any) -> int:

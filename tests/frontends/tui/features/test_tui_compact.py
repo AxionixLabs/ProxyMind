@@ -12,6 +12,7 @@ from agent.harness.execution import compaction as compact_mode
 from agent.harness.hooks.runtime import HookRuntime
 from agent.harness.hooks.scope import HookExecutionScope
 from frontends.tui.features import conversation
+from frontends.tui.core.render import fragments_text
 from infrastructure.hooks.discovery import resolve_hook_definitions
 from infrastructure.platform.hook_command import HookCommandOutput
 from agent.domain.policies import preset_permissions
@@ -19,22 +20,23 @@ from protocol.schema.stream_events import parse_compact_event
 from protocol.schema.stream_events import parse_stream_event
 
 
-def _compact_event(status="completed", *, before_items=None, after_items=None):
+def _compact_event(status="completed", *, before_items=None, after_items=None, latency_ms=None):
     payload = {
         "proto": "mind.chat",
         "type": f"context.compaction.{status}",
         "cid": "cid",
         "sid": "sid",
-        "turn_id": "compact-turn-1",
+        "turn_id": "",
         "item_id": "compaction-1",
         "item_kind": "context_compaction",
-        "item_status": status,
+        "item_status": "in_progress" if status == "started" else status,
         "phase": "standalone",
         "trigger": "manual",
         "reason": "summary_failed" if status == "failed" else "user_requested",
         "presentation_epoch": 1,
         "before_items": before_items,
         "after_items": after_items,
+        "latency_ms": latency_ms,
     }
     if status == "failed":
         payload.update(error_type="summary_failed", retryable=True)
@@ -209,10 +211,9 @@ async def test_compact_empty_stream_finishes_failed_activity_status(monkeypatch)
     final = snapshots[0]()
     assert final["done"] is True
     assert final["summary"] == "Context compaction failed. Please try again."
-    assert final["detail_limit"] == 0
     status = next(view for view in host.views if view.type == "tui.compact.status")
-    assert status.renderable.plain_text == (
-        "■ Context compaction failed. Please try again."
+    assert "Context compaction failed. Please try again." in fragments_text(
+        status.renderable.fragments,
     )
 
 
@@ -232,7 +233,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
                     "usage_source": "estimate", "model": "test-model", "route": "responses",
                 },
             })
-            yield _compact_event(before_items=18, after_items=6)
+            yield _compact_event(before_items=18, after_items=6, latency_ms=86420)
         finally:
             closed.append(True)
 
@@ -278,7 +279,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
     status = next(view for view in host.views if view.type == "tui.compact.status")
     assert status.renderable.plain_text == (
-        "■ Context compacted. · 18 -> 6 items"
+        "• Context compacted  · 1m26s"
     )
 
 
@@ -632,8 +633,9 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
     assert not result.ok
     assert not result.continue_execution
     assert result.summary == "Context compacted."
-    assert result.message == (
-        "Context compacted. Post-compact continuation blocked: "
+    assert result.message == "Context compacted."
+    assert result.continuation_message == (
+        "Post-compact continuation blocked: "
         "review compacted state"
     )
     assert queued == []
@@ -642,6 +644,43 @@ async def test_post_compact_hook_controls_next_turn(monkeypatch, tmp_path) -> No
         "PostCompact",
     ]
     assert runner.calls[1][1]["trigger"] == "manual"
+    host.views = []
+    host.frontend = SimpleNamespace(application=SimpleNamespace(emit=host.views.append))
+    status = conversation.CompactLiveStatus()
+    status.finish(result)
+    conversation.render_compact_result(host, status)
+    assert host.views[0].renderable.plain_text == "• Context compacted"
+    assert result.continuation_message in fragments_text(host.views[1].renderable.fragments)
+    assert len(host.views) == 2
+
+
+@pytest.mark.anyio
+async def test_manual_compaction_preserves_progress_and_transcript_metadata(monkeypatch, tmp_path) -> None:
+    async def stream(_payload):
+        yield _compact_event("started")
+        yield _compact_event(before_items=20, after_items=5, latency_ms=86420)
+
+    host = _HookedCompactHost(tmp_path, _compact_hook_runtime(tmp_path, _RecordingHookRunner()))
+    writer = Mock()
+    host.transcripts = SimpleNamespace(
+        path_for_session=lambda _sid: "session.jsonl", writer=Mock(return_value=writer),
+    )
+    progress = []
+    monkeypatch.setattr(compact_protocol, "stream_compact_events", stream)
+    result = await _compact(host, pref_config={}, source="test", on_progress=progress.append)
+    assert progress[0].status == "started"
+    assert progress[0].item_id == result.event.item_id == "compaction-1"
+    assert result.before_items == 20
+    assert result.after_items == 5
+    assert result.latency_ms == 86420
+    payload = writer.append.call_args.kwargs["payload"]
+    assert payload["cid"] == "cid"
+    assert payload["sid"] == "sid"
+    assert payload["turn_id"] == ""
+    assert payload["item_id"] == "compaction-1"
+    assert payload["presentation_epoch"] == 1
+    assert payload["latency_ms"] == 86420
+    writer.close.assert_called_once()
 
 
 @pytest.mark.anyio
@@ -729,8 +768,9 @@ async def test_compact_session_start_can_block_continuation(
     assert result.outcome == "completed"
     assert not result.ok
     assert not result.continue_execution
-    assert result.message == (
-        "Context compacted. Compact session start blocked: "
+    assert result.message == "Context compacted."
+    assert result.continuation_message == (
+        "Compact session start blocked: "
         "review compacted state"
     )
 

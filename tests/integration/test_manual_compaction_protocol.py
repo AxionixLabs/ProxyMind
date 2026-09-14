@@ -112,7 +112,7 @@ async def _collect():
 async def test_manual_compaction_consumes_current_server_sse_and_closes_at_terminal() -> None:
     with _compact_http([
         _event("started", event_seq=10),
-        _event("completed", event_seq=11, before_items=18, after_items=6),
+        _event("completed", event_seq=11, before_items=18, after_items=6, latency_ms=86420),
         {"type": "must-not-consume-after-terminal"},
     ]) as exchange:
         async with contextlib.aclosing(ProtocolCompactionClient().stream(
@@ -129,7 +129,13 @@ async def test_manual_compaction_consumes_current_server_sse_and_closes_at_termi
     assert events[-1].message == "Context compacted."
     assert events[-1].before_items == 18
     assert events[-1].after_items == 6
-    assert events[-1].summary == ""
+    assert events[-1].latency_ms == 86420
+    assert events[-1].cid == "cid-1"
+    assert events[-1].sid == "sid-1"
+    assert events[-1].turn_id == ""
+    assert events[-1].item_id == events[0].item_id == "compaction-1"
+    assert events[-1].event_seq == 11
+    assert events[-1].presentation_epoch == 1
     assert len(exchange.requests) == 1
     request = exchange.requests[0]
     assert request.method == "POST"
@@ -216,6 +222,10 @@ async def test_manual_compaction_maps_server_failure_without_event_sequence(
 
     assert [event.status for event in events] == ["failed"]
     assert events[0].message == message
+    assert events[0].error_type == error_type
+    assert events[0].retryable is True
+    assert events[0].event_seq is None
+    assert events[0].latency_ms is None
     assert len(exchange.requests) == 1
     assert exchange.response.is_closed
     assert exchange.client.is_closed
@@ -293,6 +303,10 @@ async def test_manual_compaction_corrupt_json_is_not_skipped_before_success() ->
     _event("completed", sid="another-session"),
     _event("completed", item_status="in_progress"),
     _event("completed", before_items=-1),
+    _event("completed", latency_ms=-1),
+    _event("completed", latency_ms=True),
+    _event("completed", latency_ms="1000"),
+    _event("completed", latency_ms=1.5),
     _event("completed", phase="mid_turn", trigger="automatic"),
     _event("completed", summary="removed field"),
     _event("failed", retryable="true"),

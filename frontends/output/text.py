@@ -45,6 +45,7 @@ from agent.ports import (
 )
 from frontends.terminal.renderers.approval import render_approval_view
 from frontends.terminal.renderers.approval_review import render_approval_review_view
+from frontends.terminal.renderers.lifecycle import render_compaction_completed
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text,
@@ -492,7 +493,7 @@ class TextPresentationSink(PresentationSink):
             return None
         if isinstance(view, ContextCompactionView):
             if view.status == "completed":
-                self.state.process("Context compacted\n")
+                self.state.process(f"{render_compaction_completed(view.latency_ms).plain_text}\n")
             return None
         if isinstance(view, LifecycleView):
             self.state.process(f"{view.text}\n")

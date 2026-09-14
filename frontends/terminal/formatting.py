@@ -46,6 +46,19 @@ def format_elapsed(elapsed_sec: float) -> str:
     return f"{years}y {months}mo {days}d"
 
 
+def format_compaction_duration(latency_ms: int | None) -> str:
+    """按服务端毫秒值生成整秒压缩耗时，缺失值不伪造计时。"""
+    if latency_ms is None:
+        return ""
+    minutes, seconds = divmod(latency_ms // 1000, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{seconds:02d}s"
+    if minutes:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
+
+
 def format_duration_ms(duration_ms: int) -> str:
     """把毫秒耗时格式化为紧凑标签。"""
     elapsed_ms = max(0, int(duration_ms))

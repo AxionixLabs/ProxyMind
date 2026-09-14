@@ -30,6 +30,7 @@ from frontends.terminal.renderers.dispatch import (
     render_presentation_transcript_view,
     render_presentation_view
 )
+from frontends.terminal.renderers.lifecycle import render_compaction_completed
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
@@ -370,12 +371,23 @@ def _render_replay_blocks(
 
 def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
     """把压缩和轮次终态转换为简短提示块。"""
-    if entry.event.startswith("context."):
-        fallback = (
-            "Context compacted"
-            if entry.event == "context.compacted"
-            else "Context compaction failed"
+    if entry.event == "context.compacted":
+        value = entry.payload.get("latency_ms")
+        latency_ms = (
+            value if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            else None
         )
+        completed = render_compaction_completed(latency_ms)
+        block = styled_fragment_block(completed)
+        return TranscriptBlock(
+            display_block=block,
+            transcript_block=block,
+            kind="notice",
+            source=entry,
+            raw_text=completed.plain_text,
+        )
+    if entry.event.startswith("context."):
+        fallback = "Context compaction failed"
         text = str(entry.payload.get("summary") or fallback).strip()
     else:
         fallback = (
@@ -389,7 +401,7 @@ def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
 
     block = (
         text_block(text, MUTED_STYLE)
-        if entry.event in {"context.compacted", "turn.interrupted"}
+        if entry.event == "turn.interrupted"
         else failure_text_block(text)
     )
     return TranscriptBlock(

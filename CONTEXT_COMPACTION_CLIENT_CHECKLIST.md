@@ -1,7 +1,8 @@
 # 上下文压缩：客户端设计稿与分阶段验收清单
 
 本清单用于客户端压缩动画的分阶段开发与验收，包含服务端契约、交互设计及真机验收要求。
-客户端每阶段必须分别完成实现、定向测试和规定的真机验收才能勾选，源码复核或测试替身通过不能代替真机通过。
+P1–P4 的实现项在代码复核和定向测试通过后勾选，P5 记录客户端回归，P6 单独记录真实部署服务与终端验收；源码复核或测试替身通过不能代替 P6 真机通过。
+每个阶段复核通过后单独提交、推送代码，并在本清单记录实际验证结果；不得提前勾选尚未执行的门禁。
 原有 context left 的显示条件、右侧留白和稳定布局继续按 [上下文用量客户端契约](docs/context-usage-protocol.md) 执行。
 
 ## 依据与职责
@@ -12,6 +13,15 @@
 - [Codex ChatWidget](https://github.com/openai/codex/blob/main/codex-rs/tui/src/chatwidget.rs) 区分可原位更新的活动单元与已提交历史；[replay.rs](https://github.com/openai/codex/blob/main/codex-rs/tui/src/chatwidget/replay.rs) 恢复压缩完成记录。
 - 2026-09-12 已核对 GitHub 主分支；上述代码可作为交互机制参考，未在当前主分支找到本需求完整的 `Context compacting / Making room to continue.` 文案。以下文案是本需求的目标设计，不宣称逐字复制该分支。
 - AppServer 拥有压缩执行、replacement 提交、结果和耗时；客户端拥有动画相位、布局、输入提示及视觉交接。后台终端数量来自现有终端注册表，不能固定显示示例中的 2。
+- 本地参考：[StatusIndicatorWidget](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/status_indicator_widget.rs)、[ChatWidget](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/chatwidget.rs)、[Replay](D:/PycharmProjects/ProxyMind/codex-main/codex-rs/tui/src/chatwidget/replay.rs)。真机验证时记录双方实际 revision，GitHub main 链接只作为导航。
+
+## 实施基线（2026-09-14）
+
+- 自动路径已经保留 `ContextCompactionEvent → ContextCompactionView → Transcript` 的身份与 `latency_ms`；Canonical Item 和 Transcript replay 已有去重基础。
+- 手动路径已有 `TuiForegroundTasks` 屏障、compact 活动 lease 和 `activity_handoff`，但 `CompactEvent/CompactResult` 及字符串进度回调丢失结构化身份、耗时和失败分类。
+- 自动压缩尚无专用活动事实；手动仍复用单行动画与 MCP 完成状态。稳定记录不展示耗时，历史 renderer 也未读取耗时。
+- 必须修复：PostCompact/SessionStart Hook 阻止 continuation 时，TUI 按 `result.ok` 错误显示压缩失败；取消手动观察时，Harness 把本地取消记录成压缩 interrupted/failed。
+- 现有压缩、Item reducer、历史相关定向测试共 168 项通过，仅证明旧行为基线；“failed 不显示”、条目数完成文案和手动 interrupted 等旧断言随新语义替换。
 
 ## 服务端基础与字段
 
@@ -37,10 +47,16 @@ context.compaction.completed     同一 item_id，completed，latency_ms
 | `latency_ms`                         | 完成事件的非负整数毫秒；客户端完成态与历史使用服务端发送的此值             |
 | `before_items`、`after_items` 等统计 | 继续保留结构化数据，不将条目数挤入完成态主标题                             |
 
+手动操作是 Session 级事实，`turn_id=""`，用 `cid + sid + item_id` 配对；自动操作额外限定所属 Turn。
+手动端点在登记前失败时允许没有 `event_seq`，只能生成本地失败提示，不能虚构持久事件水位。
+实时成功完成使用正式 `latency_ms`；旧记录缺失该值时仅保留未知。未知、零毫秒和字段非法必须分别测试。
+
 `latency_ms` 使用服务端单调时钟，从压缩流程开始计时，覆盖摘要生成、replacement CAS 提交及用量发布，到开始提交完成事件之前结束；不包含完成通知的后续传输、客户端绘制及客户端 PostCompact Hook。
 进行态由客户端单调时钟刷新，不能使用整轮 Turn 的耗时，也不能重置整轮 Turn 的计时。
 已有历史事件未提供耗时时保持未知，只显示完成文案；不显示伪造的 `0s`，不通过日志或当前时间倒推。
 该字段已在既有协议统计字段中声明，客户端按正式契约读取。
+同进程重连保留已观察 Item 的单调计时；冷恢复只见历史 started 时，从恢复观察开始计时，不倒推离线耗时。
+进行态表示客户端观察时长，完成态统一替换为服务端权威值。审批表面可抑制压缩动画，但压缩仍由服务端执行时不扣除这段观察时间。
 
 中断边界必须准确：
 
@@ -50,12 +66,13 @@ context.compaction.completed     同一 item_id，completed，latency_ms
 ## 设计稿
 
 以下使用等宽字符示意。项目现有中性状态样式负责圆点与标题动画，说明、耗时及快捷键使用次级颜色。
+每个状态行只有开头使用粗点 `•`（U+2022）；其余分隔点全部使用小点 `·`（U+00B7），不把耗时分隔点加粗。
 不闪烁整行，不反复追加新的进度行；动画只更新当前活动区域。
 
 ### D1：自动压缩进行态，宽窗口
 
 ```text
-• Context compacting (1m 38s • esc to interrupt) · 2 background terminals running · /ps to view · /stop to close
+• Context compacting (1m 38s · esc to interrupt) · 2 background terminals running · /ps to view · /stop to close
   └ Making room to continue.
 
 › 后续消息草稿
@@ -70,7 +87,7 @@ context.compaction.completed     同一 item_id，completed，latency_ms
 ### D2：手动压缩进行态
 
 ```text
-• Context compacting (8s • esc to stop waiting)
+• Context compacting (8s · esc to stop waiting)
   └ Making room to continue.
 
 ›
@@ -83,14 +100,14 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 
 ```text
 交接前的行 R：
-• Context compacting (1m 26s • esc to interrupt)
+• Context compacting (1m 26s · esc to interrupt)
   └ Making room to continue.
 
 交接后的同一行 R：
-• Context compacted  • 1m26s
+• Context compacted  · 1m26s
 ```
 
-- 文案是 `• Context compacted  • 1m26s`，不追加句号、条目数或重复的 completed 通知。
+- 文案是 `• Context compacted  · 1m26s`，不追加句号、条目数或重复的 completed 通知。
 - 正式完成耗时由 `latency_ms` 向下取整为秒：`0s`、`59s`、`1m00s`、`1m26s`、`1h00m00s`。
 - 不因客户端进度计时与服务端耗时不同而修改服务端结果。
 - 同一视觉事务提交稳定完成单元、替换活动槽并撤下说明文字；交接帧保留标题的行锚点，将原说明行纳入完成记录之后的正常间隔，不通过额外空通知或永久空块占位。标题不能先清空、移位后再重建。
@@ -120,7 +137,7 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 ### D5：窄窗口与尺寸变化
 
 ```text
-• Context compacting (8s • esc to interrupt)
+• Context compacting (8s · esc to interrupt)
   └ Making room to continue.
 ```
 
@@ -135,6 +152,7 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 ### P0：确认服务端契约
 
 服务端契约、配套实现及本阶段验收已完成，客户端开发从 P1 开始。
+本节沿用已有验收结论；P6 重新记录本轮客户端/服务端版本、会话和 Item 坐标，不以 P0 代替客户端视觉验收。
 
 - [x] 核对自动/手动压缩的 started、completed、failed、稳定 Item 身份及用量先于 completed 的顺序。
 - [x] 确认服务端实际发送 `latency_ms`，完成日志使用同一取值。
@@ -149,10 +167,13 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 
 ### P1：客户端类型与耗时传递
 
-- [ ] 复用 `protocol/schema/stream_events.py` 中已有 `ContextCompactionEvent.latency_ms`，验证整数、非负、可空边界。
-- [ ] 自动路径通过 `build_context_compaction_view` 保留耗时和身份；手动路径补齐 `CompactEvent → CompactResult → Transcript` 的耗时传递，不能在适配器中丢弃。
-- [ ] 完成态共用一个耗时格式化实现，覆盖 0、999、1000、59999、60000、86420、3600000 毫秒及未知值。
-- [ ] 测试失败无伪完成、旧历史无伪计时、Hook 后续阻止不改写已完成事实。
+- [x] 复用 `protocol/schema/stream_events.py` 中已有 `ContextCompactionEvent.latency_ms`，验证整数、非负、可空边界。
+- [x] 复核已有自动路径的身份与耗时透传；手动路径补齐 `CompactEvent → CompactResult → Transcript` 的身份、耗时、错误分类传递，进度回调消费具名事件。
+- [x] 完成态共用一个耗时格式化实现，覆盖 0、999、1000、59999、60000、86420、3600000 毫秒及未知值。
+- [x] 测试失败无伪完成、旧历史无伪计时；按压缩 outcome 展示完成事实，将 Hook continuation 阻止作为独立后续提示。
+
+2026-09-14 复核：压缩/协议/历史定向 181 passed；终端 renderer 与文本/JSON 输出 344 passed、2 skipped；架构审计 138 passed（第三方 Nuitka 一项 DeprecationWarning）；compileall、git diff --check 通过。
+完成态已统一为共享 renderer，手动 MCP 完成路径、条目数标题及额外 gap 已移除；两行活动态与原位交接仍由 P2/P3 验收。
 
 验收入口：`tests/integration/test_manual_compaction_protocol.py`、`tests/integration/test_context_compaction_presentation.py`、相关协议解析测试。
 
@@ -174,6 +195,7 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 - [ ] 覆盖瞬间完成、长时间压缩、提交阶段 await、说明行收起、多次连续压缩和后台通知同时到达。
 - [ ] 完成后继续 Thinking/正文；无重置 Turn elapsed、重复分隔线、错误释放输入屏障的问题。
 - [ ] 宽/窄窗口、中文多行草稿、后台终端 0/1/2 个时符合设计，状态变化不影响 context left 布局。
+- [ ] 移除被替代的手动 MCP 完成渲染、条目数标题和额外 `tui.gap`；更新旧行为测试与 `docs/interactive-mode.md`，不保留第二套压缩展示路径。
 
 验收入口：`tests/frontends/tui/runtime/test_tui_frame_contract.py`、`tests/frontends/tui/features/test_tui_compact.py`、输入布局与后台终端相关测试。
 
@@ -184,6 +206,10 @@ PreCompact Hook 尚未放行或服务端尚未确认开始时，可沿用独立�
 - [ ] 断开重连、取消、失败、Turn 终态、退出及切换会话均释放 timer 和 lease。
 - [ ] 迟到旧 completed 不覆盖当前新 Item；重复 completed 不增加第二条完成记录。
 - [ ] 手动停止等待后再恢复会话，能读取服务端真实最终状态，不将本地停止等待持久化为远端已取消。
+
+恢复实现必须在 Session 所有者保存已观察的手动 Item 身份及水位，经既有报告授权与 `/mind-replay` 分页读取该 Session 的压缩事实；不新建压缩/取消端点，不重提 `/compact`，不推进聊天确认游标。
+复用 Transcript 的 Item 去重，把匹配的远端 completed/failed 回写本地记录；读取设置总超时并随会话关闭取消，仍未终态时保留未知。
+现有 `recover_context_usage` 只恢复用量，不能作为压缩结果恢复已完成的证据。取消发生在远端完成之后时保留完成事实，PostCompact 也不得在回放中重复执行。
 
 验收入口：恢复/历史相关测试、协议 Item reducer、现有断线恢复场景。
 

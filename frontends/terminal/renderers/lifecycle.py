@@ -9,9 +9,17 @@ from agent.application.views import (
     LifecycleView,
     RunIncompleteView,
 )
-from agent.ports.presentation import StyledBlock
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+)
+from frontends.terminal.formatting import format_compaction_duration
 from frontends.terminal.renderers.failure import render_failure_block
 from frontends.terminal.renderers.lifecycle_parts import render_lifecycle_display_parts
+from frontends.terminal.semantic_styles import (
+    TerminalSemanticRole,
+    semantic_text_style,
+)
 
 
 def render_failure_view(
@@ -57,11 +65,21 @@ def render_context_compaction_view(
     view: ContextCompactionView,
 ) -> StyledBlock:
     """把上下文压缩完成事实转换为稳定信息块。"""
-    _ = view
+    return render_compaction_completed(view.latency_ms)
+
+
+def render_compaction_completed(latency_ms: int | None) -> StyledBlock:
+    """为自动、手动与历史压缩生成一致的稳定完成块。"""
     title = "• Context compacted"
+    spans = render_lifecycle_display_parts(title)
+    duration = format_compaction_duration(latency_ms)
+    if duration:
+        suffix = f"  · {duration}"
+        title += suffix
+        spans.append(TextSpan(suffix, semantic_text_style(TerminalSemanticRole.SECONDARY)))
     return StyledBlock(
         plain_text=title,
-        spans=tuple(render_lifecycle_display_parts(title)),
+        spans=tuple(spans),
     )
 
 

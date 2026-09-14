@@ -283,7 +283,7 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     assert blocks[2].source is entries[3]
     assert blocks[2].raw_text == "**Done**"
     assert blocks[3].source is entries[4]
-    assert blocks[3].raw_text == "Context compacted · 20 -> 4 items"
+    assert blocks[3].raw_text == "• Context compacted"
     assert "pwd" in "".join(
         text for _style, text in blocks[1].transcript_block.fragments
     )
@@ -302,7 +302,7 @@ def test_history_transcript_replays_messages_and_tool_result() -> None:
     assert "Done" in "".join(
         text for _style, text in blocks[2].display_block.fragments
     )
-    assert "20 -> 4" in "".join(
+    assert "• Context compacted" == "".join(
         text for _style, text in blocks[3].display_block.fragments
     )
 

@@ -2,6 +2,7 @@
 
 import io
 import json
+from dataclasses import replace
 from unittest.mock import (
     AsyncMock,
     Mock,
@@ -11,6 +12,7 @@ import pytest
 
 from agent.application.turns.lifecycle import handle_lifecycle_event
 from agent.application.views import ContextCompactionView
+from agent.domain.transcripts import TranscriptEntry
 from frontends.output.jsonl import (
     JsonOutputState,
     JsonPresentationSink,
@@ -20,6 +22,7 @@ from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.presentation import TuiPresentationSink
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.features.history import _notice_block
 from protocol.schema.stream_events import parse_stream_event
 from agent.application.views.builders.tools import build_native_tool_result_view
 
@@ -78,6 +81,7 @@ async def test_compaction_event_uses_shared_lifecycle_projection() -> None:
         "before_items": 18,
         "after_items": 7,
         "replacement_version": 4,
+        "latency_ms": 86420,
     })
 
     assert await handle_lifecycle_event(
@@ -91,11 +95,40 @@ async def test_compaction_event_uses_shared_lifecycle_projection() -> None:
     assert projected.item_id == "compaction_test"
     assert projected.status == "completed"
     assert projected.replacement_version == 4
+    assert projected.latency_ms == 86420
     transcript.append.assert_called_once()
     transcript_payload = transcript.append.call_args.kwargs["payload"]
     assert transcript_payload["item_id"] == "compaction_test"
     assert transcript_payload["event_seq"] == 3
+    assert transcript_payload["latency_ms"] == 86420
     assert "summary" not in transcript_payload
+
+
+@pytest.mark.parametrize(("latency_ms", "suffix"), [
+    (None, ""), (0, "0s"), (999, "0s"), (1000, "1s"),
+    (59999, "59s"), (60000, "1m00s"), (86420, "1m26s"),
+    (3600000, "1h00m00s"),
+])
+def test_compaction_completion_matches_history_and_preserves_dot_styles(latency_ms, suffix) -> None:
+    block = render_presentation_view(replace(_view(), latency_ms=latency_ms))[0]
+    expected = "• Context compacted" + (f"  · {suffix}" if suffix else "")
+    assert block.plain_text == expected
+    assert block.spans[0].text == "•"
+    assert block.spans[0].style.bold
+    if suffix:
+        assert block.spans[-1].text == f"  · {suffix}"
+        assert not block.spans[-1].style.bold
+        assert block.spans[-1].style.dim
+    history = _notice_block(TranscriptEntry(
+        timestamp="2026-09-14T00:00:00Z",
+        event="context.compacted",
+        session_id="sid_test",
+        turn_id="turn_test",
+        actor="system",
+        payload={"latency_ms": latency_ms},
+    ))
+    assert history.raw_text == expected
+    assert fragments_text(history.display_block.fragments) == expected
 
 
 def test_only_completed_compaction_renders_permanent_notice() -> None:

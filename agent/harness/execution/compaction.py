@@ -4,7 +4,10 @@
 import asyncio
 import contextlib
 import typing
-from dataclasses import replace
+from dataclasses import (
+    asdict,
+    replace,
+)
 
 from agent.application.hooks.context import HookExecutionContext
 from agent.application.turns.compact_result import CompactResult
@@ -103,7 +106,7 @@ async def compact_conversation(
                     continue
                 if event.status == "started":
                     if on_progress is not None:
-                        on_progress(event.message)
+                        on_progress(event)
                     observe("compact.remote.started")
                     continue
 
@@ -114,7 +117,9 @@ async def compact_conversation(
                             event.message
                             or "Context compaction failed. Please try again."
                         ),
-                        summary=event.summary or event.message,
+                        event=event,
+                        summary=event.message,
+                        result_source="server" if event.item_id else "fallback",
                         transcript_path=transcript_path,
                         trigger=trigger,
                         trigger_source=trigger_source,
@@ -130,11 +135,9 @@ async def compact_conversation(
                     result = CompactResult(
                         outcome="completed",
                         message=event.message or "Context compacted.",
-                        before_items=event.before_items,
-                        after_items=event.after_items,
+                        event=event,
                         summary=(
-                            event.summary
-                            or event.message
+                            event.message
                             or "Context compacted."
                         ),
                         transcript_path=transcript_path,
@@ -209,6 +212,7 @@ async def compact_conversation(
                 ),
                 actor="system",
                 payload={
+                    **(asdict(result.event) if result.event is not None else {}),
                     "outcome": result.outcome,
                     "trigger": trigger,
                     "before_items": result.before_items,
@@ -260,15 +264,15 @@ def _apply_post_compact_decision(
     decision: "HookDecision"
 ) -> CompactResult:
     """把压缩后 Hook 的控制结果应用到稳定返回值。"""
-    message = result.message
+    message = result.continuation_message
 
     if not decision.allowed:
         reason = decision.reason or "continuation denied by hook"
-        message = f"{message} Post-compact continuation blocked: {reason}"
+        message = f"Post-compact continuation blocked: {reason}"
 
     return replace(
         result,
-        message=message,
+        continuation_message=message,
         continue_execution=result.continue_execution and decision.allowed,
     )
 
@@ -300,7 +304,7 @@ async def _run_compact_session_start(
     reason = decision.reason or "continuation denied by hook"
     return replace(
         result,
-        message=f"{result.message} Compact session start blocked: {reason}",
+        continuation_message=f"Compact session start blocked: {reason}",
         continue_execution=False,
     )
 

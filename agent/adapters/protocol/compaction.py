@@ -42,21 +42,39 @@ class ProtocolCompactionClient:
                     if isinstance(event, ContextUsageUpdatedEvent):
                         yield context_usage_record(event)
                         continue
-                    if event.item_status == "in_progress":
-                        yield CompactEvent(status="started", message="Context compacting...")
-                    elif event.item_status == "completed":
-                        yield CompactEvent(
-                            status="completed",
-                            message="Context compacted.",
-                            before_items=event.before_items,
-                            after_items=event.after_items,
-                        )
-                        return
-                    else:
-                        yield CompactEvent(
-                            status="failed",
-                            message=_compact_failure_message(event.error_type or ""),
-                        )
+                    status: typing.Literal["started", "completed", "failed"] = (
+                        "started" if event.item_status == "in_progress"
+                        else "completed" if event.item_status == "completed"
+                        else "failed"
+                    )
+                    yield CompactEvent(
+                        status=status,
+                        message=(
+                            "Context compacting..." if status == "started"
+                            else "Context compacted." if status == "completed"
+                            else _compact_failure_message(event.error_type or "")
+                        ),
+                        cid=event.cid,
+                        sid=event.sid,
+                        turn_id=event.turn_id,
+                        item_id=event.item_id,
+                        event_seq=event.event_seq,
+                        presentation_epoch=event.presentation_epoch,
+                        phase=event.phase,
+                        trigger=event.trigger,
+                        reason=event.reason,
+                        error_type=event.error_type,
+                        retryable=event.retryable,
+                        before_items=event.before_items,
+                        after_items=event.after_items,
+                        before_chars=event.before_chars,
+                        after_chars=event.after_chars,
+                        dropped_items=event.dropped_items,
+                        reduction_ratio=event.reduction_ratio,
+                        latency_ms=event.latency_ms,
+                        replacement_version=event.replacement_version,
+                    )
+                    if status != "started":
                         return
         except httpx.HTTPStatusError as error:
             yield CompactEvent(

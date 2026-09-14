@@ -24,7 +24,7 @@ __all__ = (
 )
 
 
-CompactProgress: typing.TypeAlias = typing.Callable[[str], None]
+CompactProgress: typing.TypeAlias = typing.Callable[["CompactEvent"], None]
 CleanupValue = typing.TypeVar("CleanupValue")
 
 
