@@ -4,11 +4,11 @@
 import asyncio
 import contextlib
 import functools
-import os
 import typing
 
 import anyio
 import httpx
+import tomlkit
 
 from collections.abc import (
     Callable,
@@ -54,6 +54,7 @@ from infrastructure.mcp.settings import (
     request_timeout_sec,
     startup_timeout_sec,
 )
+from infrastructure.mcp.stdio_diagnostics import capture_stdio_stderr
 from infrastructure.mcp.transport import (
     ObservedMcpReadStream,
     build_server_params,
@@ -201,13 +202,14 @@ class ExternalMcpGroup:
         session_params: ClientSessionParameters,
         disconnected: asyncio.Event,
         session_stack: contextlib.AsyncExitStack,
+        *,
+        config_key: str,
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
         """在 owner 提供的栈内建立会话，半初始化失败也由同一 owner 负责清理。"""
         if isinstance(server_params, StdioServerParameters):
             session_stack.enter_context(route_stdio_client_logs())
-            stderr_sink = session_stack.enter_context(open(
-                os.devnull, mode="w", encoding=server_params.encoding,
-                errors=server_params.encoding_error_handler,
+            stderr_sink = await session_stack.enter_async_context(capture_stdio_stderr(
+                config_key, server_params.encoding,
             ))
             read, write = await session_stack.enter_async_context(stdio_client(server_params, errlog=stderr_sink))
         elif isinstance(server_params, SseServerParameters):
@@ -645,6 +647,7 @@ class ExternalMcpGroup:
                 ),
                 disconnected,
                 session_stack,
+                config_key=config_key,
             )
             alias_info = mcp_types.Implementation(
                 name=alias,
@@ -847,6 +850,16 @@ async def _connect_external_server(
         if isinstance(exc, asyncio.TimeoutError):
             limit = preflight_limit if phase == "preflight" else start_limit
             detail = f"{phase} timed out after {limit:g}s"
+            if phase == "startup":
+                example = tomlkit.dumps({
+                    "mcp_servers": {key: {"startup_timeout_sec": max(60.0, start_limit * 2)}},
+                }).strip()
+                detail += (
+                    "; increase startup_timeout_sec in config.toml, for example:\n"
+                    f"{example}"
+                )
+            else:
+                detail += "; check the server command, working directory or network address"
         else:
             detail = external_status_detail_from_exception(exc)
 

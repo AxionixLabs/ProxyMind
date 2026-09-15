@@ -5,14 +5,19 @@ import contextlib
 import logging
 import sys
 import time
+import tomllib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+)
 
 import anyio
 import pytest
 from mcp import types as mcp_types
 
 from infrastructure.mcp import external_group as mcp_group
+from infrastructure.mcp import stdio_diagnostics
 from infrastructure.mcp import transport as mcp_transport
 from infrastructure.mcp.external_group import ExternalMcpGroup
 from infrastructure.mcp.external_status import ExternalMcpStatus
@@ -45,7 +50,7 @@ def _stdio_servers(count: int) -> list[dict]:
 
 
 def _stub_connection_transport(monkeypatch):
-    async def establish(_params, _session_params, _disconnected, stack):
+    async def establish(_params, _session_params, _disconnected, stack, *, config_key):
         session = SimpleNamespace(
             get_server_capabilities=lambda: mcp_types.ServerCapabilities(tools=mcp_types.ToolsCapability()),
             list_tools=AsyncMock(return_value=mcp_types.ListToolsResult(tools=[
@@ -73,7 +78,7 @@ async def test_external_mcp_close_hides_only_sdk_termination_warning(
         async def aclose(self) -> None:
             emit_close_logs()
 
-    async def establish(_params, _session_params, _disconnected, _stack):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -235,10 +240,13 @@ async def test_stdio_preflight_does_not_block_event_loop(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("config_key", ["server-0", "npm:@scope/package.name", 'quoted"name'])
 async def test_external_mcp_timeout_starts_after_concurrency_slot_is_acquired(
     monkeypatch,
+    config_key,
 ) -> None:
-    servers = _servers(2, startup_timeout_sec=0.02)
+    servers = _servers(2, startup_timeout_sec=0.1)
+    servers[0]["config_key"] = config_key
     status = ExternalMcpStatus(servers)
     connect_owned = _stub_connection_transport(monkeypatch)
 
@@ -247,7 +255,7 @@ async def test_external_mcp_timeout_starts_after_concurrency_slot_is_acquired(
 
     async def connect(_group, server) -> tuple[str, int, int]:
         if server["name"] == "server-0":
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.3)
         return await connect_owned(_group, server)
 
     monkeypatch.setattr(mcp_group, "EXTERNAL_MCP_CONNECT_CONCURRENCY", 1)
@@ -261,8 +269,28 @@ async def test_external_mcp_timeout_starts_after_concurrency_slot_is_acquired(
     first, second = status.snapshot()["items"]
     assert connected == 1
     assert first["state"] == "failed"
-    assert first["detail"] == "startup timed out after 0.02s"
+    prefix, separator, example = first["detail"].partition("for example:\n")
+    assert prefix == (
+        "startup timed out after 0.1s; increase startup_timeout_sec in config.toml, "
+    )
+    assert separator
+    assert tomllib.loads(example) == {"mcp_servers": {config_key: {"startup_timeout_sec": 60.0}}}
     assert second["state"] == "ready"
+
+
+@pytest.mark.anyio
+async def test_preflight_timeout_points_to_the_connection_target(monkeypatch) -> None:
+    async def preflight(_server) -> None:
+        raise TimeoutError
+
+    monkeypatch.setattr(mcp_group, "preflight_server", preflight)
+    group = ExternalMcpGroup()
+    assert await group.start(_servers(1, startup_timeout_sec=120)) == 0
+    snapshot, = group.service_snapshots
+    assert snapshot.connection_error == (
+        "preflight timed out after 2s; check the server command, working directory or network address"
+    )
+    await group.close()
 
 
 @pytest.mark.anyio
@@ -275,7 +303,7 @@ async def test_external_mcp_failed_preparation_closes_private_resources(
         async def aclose(self) -> None:
             state["closed"] += 1
 
-    async def establish(_params, _session_params, _disconnected, _stack):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -333,7 +361,7 @@ async def test_external_mcp_owner_closes_resources_in_entering_task(
             state["closed_task"] = asyncio.current_task()
             await self.stack.aclose()
 
-    async def establish(_params, _session_params, _disconnected, _stack):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -400,7 +428,7 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
     async def preflight(_server) -> None:
         return None
 
-    async def establish(_params, _session_params, _disconnected, _stack):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -458,7 +486,7 @@ async def test_external_mcp_close_retains_owner_when_cleanup_cannot_be_confirmed
                 close_cancelled.set()
                 raise
 
-    async def establish(_params, _session_params, _disconnected, _stack):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -534,7 +562,10 @@ async def test_external_mcp_failed_stdio_does_not_leak_child_output(
     tmp_path,
     capfd,
     caplog,
+    monkeypatch,
 ) -> None:
+    observe = Mock()
+    monkeypatch.setattr(stdio_diagnostics, "observe", observe)
     server_script = tmp_path / "failed_mcp_stdio_fixture.py"
     server_script.write_text(
         "import sys\n"
@@ -571,6 +602,10 @@ async def test_external_mcp_failed_stdio_does_not_leak_child_output(
     ]
     assert connected == 0
     assert status.snapshot()["items"][0]["state"] == "failed"
+    observe.assert_called_once_with(
+        "external_mcp.stdio.stderr", level="INFO", server="failed-stdio",
+        detail="MCP_STDERR_MARKER", truncated=False,
+    )
 
 
 @pytest.mark.anyio

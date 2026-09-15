@@ -79,7 +79,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "enabled": True,
             "required": False,
             "transport": "sse",
-            "startup_timeout_sec": 10.0,
+            "startup_timeout_sec": 30.0,
             "timeout_sec": 60.0,
             "tool_filter": {},
             "default_tools_approval_mode": "auto",

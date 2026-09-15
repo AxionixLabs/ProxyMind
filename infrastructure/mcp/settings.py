@@ -10,7 +10,7 @@ from agent.ports.mcp_runtime import McpTransport
 from .values import slugify_mcp_name
 
 DEFAULT_MCP_TRANSPORT = "streamable_http"
-DEFAULT_MCP_START_TIMEOUT_SEC = 10.0
+DEFAULT_MCP_START_TIMEOUT_SEC = 30.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
 MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})

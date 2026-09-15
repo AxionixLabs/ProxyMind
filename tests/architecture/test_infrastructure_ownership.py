@@ -636,6 +636,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "nested_tool_results.py",
         "registry.py",
         "settings.py",
+        "stdio_diagnostics.py",
         "tool_catalog.py",
         "tool_execution.py",
         "tool_invocation.py",

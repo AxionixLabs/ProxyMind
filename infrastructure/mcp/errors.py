@@ -11,9 +11,14 @@ from urllib.parse import (
 _EXTERNAL_URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 _SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
 _BEARER_PATTERN = re.compile(r"\bBearer\s+[^\s,;]+", re.IGNORECASE)
+
+_ANSI_ESCAPE_PATTERN = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b][^\x07\x1b]*(?:\x07|\x1b\\)"
+)
+
 _CREDENTIAL_PATTERN = re.compile(
-    r"\b(authorization|access[_-]?token|api[_-]?key|token|secret|password)"
-    r"(\s*[:=]\s*)([^\s,;&]+)",
+    r'''(["']?\b(?:authorization|access[_-]?token|api[_-]?key|token|secret|password)\b["']?)'''
+    r'''(\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;&]+)''',
     re.IGNORECASE,
 )
 
@@ -36,16 +41,17 @@ def exception_type_name(exc: BaseException) -> str:
 def summarize_exception(exc: BaseException) -> str:
     """从异常组中挑一个经过脱敏的展示和日志摘要。"""
     for item in flatten_exceptions(exc):
-        text = _redact_external_error_text(str(item).strip())
+        text = redact_external_text(str(item).strip())
         if text:
             return f"{type(item).__name__}: {text}"
 
     return type(exc).__name__
 
 
-def _redact_external_error_text(value: str) -> str:
-    """隐藏外部传输异常中可能出现的 URL 和凭据值。"""
-    text = _EXTERNAL_URL_PATTERN.sub(_redact_external_url_match, str(value))
+def redact_external_text(value: str) -> str:
+    """在外部传输异常和 stderr 诊断边界隐藏 URL 和凭据值。"""
+    text = _ANSI_ESCAPE_PATTERN.sub("", value)
+    text = _EXTERNAL_URL_PATTERN.sub(_redact_external_url_match, text)
     text = _BEARER_PATTERN.sub("Bearer <redacted>", text)
     return _CREDENTIAL_PATTERN.sub(
         lambda match: f"{match.group(1)}{match.group(2)}<redacted>",
