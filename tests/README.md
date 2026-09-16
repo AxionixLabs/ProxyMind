@@ -42,6 +42,9 @@
 - `fixtures/`：无行为的正式协议、配置和展示输入；
 - `frontends/tui/rendering/frame_scenarios.py`：TUI frame 输入构造、同步等待与可见事实读取；
 - `architecture/source_inventory.py`：架构审计专用的源码清单和进程内 AST 缓存。
+- `infrastructure/mcp/oauth_fixture.py`：进程内 OAuth/MCP HTTP 服务，用于固定依赖的注册、
+  回调、认证恢复和刷新契约测试；不连接真实账号。`test_oauth_sdk_*.py` 同时记录 SDK
+  能力与接入限制，依赖升级时必须复核；测试中重现的 SDK 限制不是生产行为要求。
 
 公共 helper 只在至少三个测试模块共享稳定概念，或重复已经造成契约不一致时提取。fake 只实现
 它声明的端口，不能复制生产状态机来计算期望结果。禁止新增 `support/`、`utils/`、`common/`
