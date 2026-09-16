@@ -5,19 +5,26 @@ import multiprocessing
 import sqlite3
 
 import anyio
+import httpx
 import pytest
 from contextlib import closing
 from multiprocessing.connection import Connection
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 from agent.domain.mcp_oauth import (
     McpOAuthClientInfo,
+    McpOAuthBinding,
+    McpOAuthError,
     McpOAuthCredentialSnapshot,
     McpOAuthStorageError,
     McpOAuthTarget,
     McpOAuthToken,
+    McpRegisteredClient,
 )
+from infrastructure.mcp.oauth_adapter import McpOAuthRefreshAdapter
 from infrastructure.mcp.oauth_credentials import SystemMcpCredentialStore
+from infrastructure.mcp.oauth_runtime import McpOAuthRuntimeAuth
 
 
 class ProcessTestVault:
@@ -93,6 +100,38 @@ async def worker_main(root: Path, key: str, command: str, pipe: Connection) -> N
     elif command == "delete":
         result = await store.delete(target)
         pipe.send((result.removed, result.generation))
+    elif command in ("runtime_refresh", "abort_refresh"):
+        async def handle(request: httpx.Request) -> httpx.Response:
+            """用跨进程服务端计数验证 refresh token 只被消费一次。"""
+            if str(request.url) == "https://issuer.example/token":
+                form = dict(parse_qsl(request.content.decode("ascii")))
+                assert form["refresh_token"] == "process-refresh"
+                assert form["resource"] == target.server_url and form["client_id"] == "native"
+                with closing(sqlite3.connect(root / "server.db")) as connection, connection:
+                    connection.execute("INSERT INTO refreshes VALUES (1)")
+                if command == "abort_refresh":
+                    pipe.send("consumed")
+                    assert await anyio.to_thread.run_sync(pipe.poll, 10)
+                    pipe.recv()
+                return httpx.Response(200, json={
+                    "access_token": "rotated-access", "refresh_token": "rotated-refresh",
+                    "token_type": "Bearer", "expires_in": 3600, "scope": "read",
+                })
+            assert request.headers["Authorization"] == "Bearer rotated-access"
+            return httpx.Response(200)
+
+        binding = McpOAuthBinding(target, McpRegisteredClient("native"))
+        auth = McpOAuthRuntimeAuth(binding, store, failed=lambda error: None, clock=lambda: 1950,
+            refresher=McpOAuthRefreshAdapter(client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handle)), clock=lambda: 1950))
+        pipe.send("ready")
+        assert await anyio.to_thread.run_sync(pipe.poll, 10)
+        pipe.recv()
+        try:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handle), auth=auth) as client:
+                assert (await client.get(target.server_url)).status_code == 200
+            pipe.send("authorized")
+        except McpOAuthError as error:
+            pipe.send(error.code)
 
 
 def worker(root: Path, key: str, command: str, pipe: Connection) -> None:
@@ -168,3 +207,58 @@ def test_owner_process_exit_releases_lock(tmp_path: Path) -> None:
             process.join(5)
         process.close()
         pipe.close()
+
+
+async def seed_expired_runtime(root: Path) -> None:
+    store = process_store(root)
+    target = McpOAuthTarget("sentry", "https://service.example/mcp")
+    snapshot = process_snapshot(target)
+    assert snapshot.token is not None
+    async with store.transaction(target) as transaction:
+        await transaction.save(dataclasses.replace(snapshot, token=dataclasses.replace(snapshot.token, expires_at=1900)))
+    with closing(sqlite3.connect(root / "server.db")) as connection, connection:
+        connection.execute("CREATE TABLE refreshes (consumed INTEGER)")
+
+
+def test_runtime_refresh_is_consumed_once_across_processes(tmp_path: Path) -> None:
+    anyio.run(seed_expired_runtime, tmp_path)
+    workers = [start_worker(tmp_path, "sentry", "runtime_refresh") for _ in range(2)]
+    try:
+        for _, pipe in workers:
+            assert pipe.poll(10) and pipe.recv() == "ready"
+        for _, pipe in workers:
+            pipe.send("go")
+        for _, pipe in workers:
+            assert pipe.poll(10) and pipe.recv() == "authorized"
+    finally:
+        for process, pipe in workers:
+            finish_worker(process, pipe)
+    with closing(sqlite3.connect(tmp_path / "server.db")) as connection:
+        assert connection.execute("SELECT count(*) FROM refreshes").fetchone()[0] == 1
+
+
+def test_crash_after_remote_refresh_requires_login_in_next_process(tmp_path: Path) -> None:
+    anyio.run(seed_expired_runtime, tmp_path)
+    process, pipe = start_worker(tmp_path, "sentry", "abort_refresh")
+    try:
+        assert pipe.poll(10) and pipe.recv() == "ready"
+        pipe.send("go")
+        assert pipe.poll(10) and pipe.recv() == "consumed"
+        process.terminate()
+        process.join(5)
+        assert not process.is_alive()
+    finally:
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+        process.close()
+        pipe.close()
+    process, pipe = start_worker(tmp_path, "sentry", "runtime_refresh")
+    try:
+        assert pipe.poll(10) and pipe.recv() == "ready"
+        pipe.send("go")
+        assert pipe.poll(10) and pipe.recv() == "refresh_uncertain"
+    finally:
+        finish_worker(process, pipe)
+    with closing(sqlite3.connect(tmp_path / "server.db")) as connection:
+        assert connection.execute("SELECT count(*) FROM refreshes").fetchone()[0] == 1

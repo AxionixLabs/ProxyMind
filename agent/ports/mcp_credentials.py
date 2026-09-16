@@ -45,8 +45,8 @@ class McpCredentialStore(typing.Protocol):
         """取得有期限的跨进程独占范围，进入时恢复并清理未提交记录。"""
         ...
 
-    async def read(self, target: McpOAuthTarget) -> McpOAuthCredentialRecord:
-        """在短事务内恢复最新凭据；不可用和损坏分别报告。"""
+    async def read(self, target: McpOAuthTarget, *, require_available: bool = True) -> McpOAuthCredentialRecord:
+        """恢复最新凭据；匿名运行时可不探测空记录的系统库，已有机密仍须严格读取。"""
         ...
 
     async def delete(self, target: McpOAuthTarget) -> McpOAuthLogoutResult:

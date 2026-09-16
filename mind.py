@@ -64,6 +64,7 @@ from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.paths import resolve_application_layout
 from infrastructure.config.preferences import Preferences
 from infrastructure.config.runtime_paths import (
+    application_config_path,
     effect_journal_db_path,
     state_home,
 )
@@ -300,7 +301,9 @@ def create_mcp_oauth_service(config_root: Path) -> McpOAuthService:
 
 def create_mcp_runtime(context: McpRuntimeContext) -> McpRuntime:
     """在进程组合根创建绑定显式依赖的 MCP 运行时。"""
-    return ExternalMcpRuntime(context)
+    return ExternalMcpRuntime(context, credential_store=SystemMcpCredentialStore(
+        config_root=application_config_path().parent, state_root=state_home(),
+    ))
 
 
 def create_tool_runtime(sources: ToolRuntimeSources) -> ToolRuntimePort:

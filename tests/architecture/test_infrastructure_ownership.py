@@ -637,6 +637,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "oauth_adapter.py",
         "oauth_callback.py",
         "oauth_credentials.py",
+        "oauth_runtime.py",
         "registry.py",
         "settings.py",
         "stdio_diagnostics.py",

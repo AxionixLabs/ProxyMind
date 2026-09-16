@@ -155,13 +155,14 @@ class _CredentialIndex:
                 with connection:
                     connection.execute("DELETE FROM revisions WHERE revision=?", (item.revision,))
 
-    def read(self) -> McpOAuthCredentialRecord:
+    def read(self, *, require_available: bool = True) -> McpOAuthCredentialRecord:
         """校验全部片段与绑定，返回绝对有效期，绝不重置过期时间。"""
         self.cleanup()
         with closing(sqlite3.connect(self.path)) as connection:
             state = self._state(connection)
             if state.revision is None:
-                self.vault.read(f"{const.APP_NAME}.mcp.oauth.v1.{self.address}.availability")
+                if require_available:
+                    self.vault.read(f"{const.APP_NAME}.mcp.oauth.v1.{self.address}.availability")
                 return McpOAuthCredentialRecord(state.generation, None)
             revision = next(
                 item for item in self._revisions(connection)
@@ -383,10 +384,10 @@ class SystemMcpCredentialStore:
             finally:
                 transaction.active = False
 
-    async def read(self, target: McpOAuthTarget) -> McpOAuthCredentialRecord:
+    async def read(self, target: McpOAuthTarget, *, require_available: bool = True) -> McpOAuthCredentialRecord:
         """恢复最新持久记录，不将损坏或后端故障当作未登录。"""
-        async with self.transaction(target) as transaction:
-            return transaction.record
+        async with self._locked_index(target) as index:
+            return await _run_io(lambda: index.read(require_available=require_available))
 
     async def delete(self, target: McpOAuthTarget) -> McpOAuthLogoutResult:
         """无需解码机密即可退出，允许清除载荷已损坏的凭据。"""
@@ -402,6 +403,8 @@ class SystemMcpCredentialStore:
         snapshot = record.snapshot
         if snapshot is None:
             return McpOAuthCredentialView(target, "missing")
+        if snapshot.recovery is not None:
+            return McpOAuthCredentialView(target, snapshot.recovery)
         token = snapshot.token
         if token is None:
             return McpOAuthCredentialView(target, "registered")

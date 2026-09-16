@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.ports import McpRuntimeContext
+from agent.ports.mcp_credentials import McpCredentialStore
 from agent.ports.mcp_runtime import (
     McpControlRequest,
     McpControlResult,
@@ -37,9 +38,10 @@ from observability import observe
 class ExternalMcpRuntime:
     """管理应用生命周期内的外部 MCP 连接和状态。"""
 
-    def __init__(self, context: McpRuntimeContext) -> None:
+    def __init__(self, context: McpRuntimeContext, *, credential_store: McpCredentialStore | None = None) -> None:
         """绑定冻结的配置与生命周期回调。"""
         self._context = context
+        self._credential_store = credential_store
         self._group: typing.Optional[ExternalMcpGroup] = None
         self._runtime_id = str(uuid4())
         self._workspace = context.config.workspace.resolve()
@@ -272,7 +274,7 @@ class ExternalMcpRuntime:
                 return McpServiceOutcome(key, "unchanged", snapshot)
             group = self._group
             if group is None:
-                group = ExternalMcpGroup(can_publish=self._is_active)
+                group = ExternalMcpGroup(can_publish=self._is_active, credential_store=self._credential_store)
                 self._group = group
             try:
                 if server is not None and request.action in ("start", "force", "restart"):
@@ -403,7 +405,7 @@ class ExternalMcpRuntime:
 
             group = self._group
             if group is None:
-                group = ExternalMcpGroup(can_publish=self._is_active)
+                group = ExternalMcpGroup(can_publish=self._is_active, credential_store=self._credential_store)
                 self._group = group
             await group.start(servers, status=status)
 

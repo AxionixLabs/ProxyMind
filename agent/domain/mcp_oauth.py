@@ -104,8 +104,10 @@ class McpOAuthToken:
     granted_scopes: tuple[str, ...] | None = field(repr=False)
 
     def __post_init__(self) -> None:
-        """拒绝空令牌与非有限时间，不为未知有效期制造截止时间。"""
-        if not self.access_token or self.refresh_token == "":
+        """拒绝不能放入 Bearer 头的令牌与非有限时间，不为未知有效期制造截止时间。"""
+        if not self.access_token or self.refresh_token == "" or any(
+            ord(char) <= 32 or ord(char) >= 127 for char in self.access_token
+        ):
             raise ValueError("Invalid MCP OAuth token")
         if self.expires_at is not None and not math.isfinite(self.expires_at):
             raise ValueError("Invalid MCP OAuth expiration")
@@ -131,11 +133,16 @@ class McpOAuthCredentialSnapshot:
     client: McpOAuthClientInfo = field(repr=False)
     generation: int
     token: McpOAuthToken | None = field(repr=False)
+    recovery: typing.Literal["refresh_uncertain", "reauthorization_required"] | None = None
 
     def __post_init__(self) -> None:
         """校验恢复记录的基本结构；远端元数据绑定由认证适配器负责。"""
         if isinstance(self.generation, bool) or self.generation < 0:
             raise ValueError("Invalid MCP OAuth generation")
+        if self.recovery not in (None, "refresh_uncertain", "reauthorization_required") or (
+            self.recovery is not None and self.token is not None
+        ):
+            raise ValueError("Invalid MCP OAuth recovery state")
         for url in (self.issuer, self.resource, self.token_endpoint):
             normalize_oauth_url(url)
 
@@ -162,6 +169,7 @@ class McpOAuthCredentialView:
     target: McpOAuthTarget
     state: typing.Literal[
         "not_applicable", "missing", "registered", "stored", "expired", "unavailable",
+        "refresh_uncertain", "reauthorization_required",
     ]
     expires_at: float | None = None
     error: McpOAuthStorageErrorCode | None = None
@@ -180,6 +188,7 @@ McpOAuthErrorCode = typing.Literal[
     "unsupported_transport", "configuration_conflict", "invalid_response",
     "registration_failed", "authorization_denied", "timeout", "network_error",
     "reauthorization_required", "callback_unavailable", "oauth_unavailable",
+    "login_required", "insufficient_scope", "refresh_uncertain",
 ]
 
 
@@ -199,6 +208,9 @@ class McpOAuthError(RuntimeError):
             "reauthorization_required": "MCP OAuth authorization must be repeated.",
             "callback_unavailable": "The local OAuth callback port could not be opened.",
             "oauth_unavailable": "The MCP server does not provide the required OAuth capabilities.",
+            "login_required": "MCP OAuth login is required.",
+            "insufficient_scope": "MCP OAuth permissions are insufficient; log in with the required scopes.",
+            "refresh_uncertain": "MCP OAuth refresh could not be confirmed; log in again before retrying.",
         }
         self.code = code
         super().__init__(messages[code])
@@ -250,6 +262,14 @@ class McpRegisteredClient:
 
 
 McpOAuthClientRegistration = McpDynamicClient | McpMetadataClient | McpRegisteredClient
+
+
+@dataclass(frozen=True, slots=True)
+class McpOAuthBinding:
+    """冻结运行时允许消费的服务与客户端身份，不承载交互登录资源。"""
+
+    target: McpOAuthTarget
+    registration: McpOAuthClientRegistration
 
 
 @dataclass(frozen=True, slots=True)

@@ -86,6 +86,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "tool_approval_modes": {},
             "url": "https://docs.example.test/sse",
             "headers": {"X-Client": "proxy"},
+            "oauth_binding": None,
             "sse_read_timeout_sec": 60.0,
             "terminate_on_close": True,
         },

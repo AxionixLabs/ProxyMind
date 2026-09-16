@@ -126,7 +126,7 @@ def external_http_client(
 ) -> httpx.AsyncClient:
     """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
     kwargs: dict[str, typing.Any] = {
-        "follow_redirects": True,
+        "follow_redirects": auth is None,
         "timeout": timeout or httpx.Timeout(
             DEFAULT_MCP_REQ_TIMEOUT_SEC,
             read=DEFAULT_MCP_SSE_TIMEOUT_SEC,

@@ -250,6 +250,15 @@ def test_status_preserves_empty_tool_notice_with_ready_connection():
     assert "    • Tools: (none)" in text
 
 
+def test_status_shows_typed_authorization_failure_without_changing_connection_semantics():
+    host, views = _host([_service("oauth", state="failed", transport="streamable_http", authorization_error="login_required", connection_error="MCP OAuth login is required.")])
+    mcp.render_mcp_status(host)
+    text = "".join(value for _, value in views[0].renderable.fragments)
+    assert "Connection: failed" in text and "Authorization: login_required" in text
+    assert "MCP OAuth login is required." in text
+    host.execution.external_mcp.control.assert_not_awaited()
+
+
 def test_status_rejects_stale_identity_and_unknown_target():
     host, views = _host([_service("other")])
     for command in (_request(host), replace(_request(host), runtime_id="old")):

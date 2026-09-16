@@ -106,10 +106,10 @@ SDK 公开的 `PKCEParameters`、`OAuthClientMetadata`、`OAuthClientInformation
 | `McpOAuthTarget` | `config_key: str` 保留原始键；`server_url: str` 使用冻结的规范化完整 URL；保留端口、路径和查询语义，拒绝 userinfo/fragment |
 | `McpOAuthLoginRequest` | target、客户端注册策略、`scopes: tuple[str, ...] \| None`、`callback_port: int \| None`、`timeout_sec: float`；None 表示发现 scopes，空元组表示显式不发送 scope |
 | `McpOAuthClientRegistration` | 判别联合：dynamic；metadata（HTTPS metadata_url）；registered（client_id 与已注册的固定 loopback 端口）。首版只接入原生公共客户端的 token auth method `none` |
-| `McpOAuthCredentialSnapshot` | target、`issuer: str`、`resource: str`、验证过的 `token_endpoint: str`、客户端注册信息、`generation: int`，以及可空的 token 记录；无 token 的注册信息只表示 registered |
+| `McpOAuthCredentialSnapshot` | target、issuer、resource、验证过的 token_endpoint、客户端注册信息、generation 及可空 token；无 token 且无 recovery 为 registered；recovery 为 refresh_uncertain / reauthorization_required 时禁止消费旧令牌 |
 | token 记录 | `access_token: str`、`refresh_token: str \| None`、`expires_at: float \| None`（UTC Unix 秒）、`granted_scopes: tuple[str, ...] \| None`；无 scopes 返回值时按请求范围确定有效授权范围；缺少 expires_in 时不虚构有效期 |
-| `McpOAuthCredentialView` | target、状态及可空的 expires_at；状态为 not_applicable / missing / registered / stored / expired / unavailable；不包含机密，不表示刚刚验证了远端账户 |
-| `McpOAuthLoginResult` | 保存完成后的 credential view；保存失败不构造成功结果 |
+| `McpOAuthCredentialView` | target、状态及可空的 expires_at；状态为 not_applicable / missing / registered / stored / expired / unavailable / refresh_uncertain / reauthorization_required；不包含机密，不表示刚刚验证了远端账户 |
+| `McpOAuthLoginResult` | 保存完成后的 target 和 expires_at；保存失败不构造成功结果 |
 | `McpOAuthLogoutResult` | target、`removed: bool` 和最新 generation；清除令牌后保留必要的无机密版本标记，防止迟到事务复活旧登录 |
 | `McpOAuthError` | 具名错误码与安全提示；错误码区分 unsupported_transport、configuration_conflict、invalid_response、registration_failed、authorization_denied、timeout、network_error、reauthorization_required、storage_unavailable；不携带原始响应体或完整回调 URL |
 
@@ -125,7 +125,7 @@ CLI 成功（包括重复 logout）返回 0；上述用例失败经现有 `AppEr
 
 ### 阶段一结论：认证选择与最小配置
 
-以下为后续配置契约，本阶段尚未开放。当前 schema 仍拒绝这些未实现字段。
+以下配置契约由阶段三实现；运行时使用已批准凭据，配置与 CLI 的 scopes 选择只发生在显式登录时。
 
 | `mcp_servers.<name>.oauth` 字段 | 约束与默认值 |
 | --- | --- |
@@ -239,28 +239,43 @@ HTTPX 可控服务验证远端协议，回调使用真实 loopback TCP；平台�
 
 ## 阶段四：接入运行时认证与自动刷新
 
-- [ ] 在 `infrastructure/mcp/external_group.py`、`transport.py` 的既有连接创建路径注入
+- [x] 在 `infrastructure/mcp/external_group.py`、`transport.py` 的既有连接创建路径注入
   OAuth 认证，复用现有资源栈与逐服务 owner，避免重复连接或第二套工具目录。
-- [ ] 普通启动从凭据库恢复认证；缺少凭据或需重新授权时返回类型化结果并提示登录。
+- [x] 普通启动从凭据库恢复认证；缺少凭据或需重新授权时返回类型化结果并提示登录。
   非交互入口不得等待浏览器，也不得在后台自动启动交互登录。
-- [ ] 实现运行中及进程重启后的过期刷新，刷新后的凭据及时持久化；认证服务器发现及
+- [x] 实现运行中及进程重启后的过期刷新，刷新后的凭据及时持久化；认证服务器发现及
   token endpoint 使用经过验证的身份，不将机密随重定向发送到其他来源。
-- [ ] 同一凭据执行“加锁、重读、判断有效期、刷新、保存”的完整事务；已有其他进程
+- [x] 同一凭据执行“加锁、重读、判断有效期、刷新、保存”的完整事务；已有其他进程
   更新时采用最新结果，避免重复消费轮换中的 refresh token。
-- [ ] 刷新已经可能产生远端效果后，调用方取消不得丢弃已取得的新凭据。锁等待、网络
+- [x] 刷新已经可能产生远端效果后，调用方取消不得丢弃已取得的新凭据。锁等待、网络
   等待和关闭均有边界；无法确定刷新结果时明确报告恢复状态，不无限重试。
-- [ ] 活动连接在请求或重连边界检查凭据版本，识别外部登录替换和退出登录；旧连接
+- [x] 活动连接在请求或重连边界检查凭据版本，识别外部登录替换和退出登录；旧连接
   不得把旧凭据写回。退出后已有远端请求按既有生命周期收束。
-- [ ] 401、刷新失败和 scopes 不足收敛为重新登录或明确失败；认证重试不得擅自重放
+- [x] 401、刷新失败和 scopes 不足收敛为重新登录或明确失败；认证重试不得擅自重放
   可能已经产生副作用的工具调用。
-- [ ] TUI 通过现有快照显示需登录/认证失败等事实；认证成功后仍执行既有 MCP 工具审批。
-- [ ] 验证根 Turn、子代理、Hook、Subscription 等消费者共用认证后的工具来源；保持
+- [x] TUI 通过现有快照显示需登录/认证失败等事实；认证成功后仍执行既有 MCP 工具审批。
+- [x] 验证根 Turn、子代理、Hook、Subscription 等消费者共用认证后的工具来源；保持
   使用引用、busy、stop/restart、工作区切换和最终关闭的既有约束。
-- [ ] 覆盖首次连接、重启恢复、刷新轮换、并发刷新、退出与刷新竞争、网络失败、断线
+- [x] 覆盖首次连接、重启恢复、刷新轮换、并发刷新、退出与刷新竞争、网络失败、断线
   重连和取消；回归匿名 HTTP、Bearer/Header、stdio、SSE 及工具审批。
 
 完成条件：登录后的生产运行时可发现并调用工具，冷启动与刷新可恢复，认证错误和取消
 能收束到确定状态；多进程不会互相覆盖新凭据或复活已退出的登录。
+
+`infrastructure/mcp/oauth_runtime.py` 在请求边界使用统一存储并注入原 HTTP 客户端。
+`McpOAuthRefreshAdapter` 只消费登录时已验证的 token endpoint、resource 和客户端身份；
+不重新猜测端点，不跟随重定向，不打开浏览器。刷新前提交无令牌的 recovery 标记，成功后
+提交轮换结果并清除标记；交换总期限为 5 秒，存储锁沿用阶段二的有界等待。
+不可确认的消费持久投影为 `refresh_uncertain`，明确的拒绝投影为
+`reauthorization_required`，直到显式登录替换记录。旧响应失效凭据时必须匹配 generation。
+连接 owner 在认证失败时撤下目录，`McpServiceSnapshot.authorization_error` 只携带安全代码；
+SDK 退出时再次报告认证错误不等于资源清理失败，等待中的工具调用随 owner 终结而结束。
+
+证据入口为 `tests/infrastructure/mcp/test_oauth_runtime.py`、
+`test_oauth_refresh_adapter.py`、`test_oauth_credential_processes.py` 及
+`tests/integration/test_mcp_oauth_runtime.py`；覆盖 CLI 登录到生产 SDK 工具调用、冷恢复、
+并发轮换、消费后进程崩溃、取消提交、退出竞争、旧 401 与无重放失败。
+真实服务与系统浏览器验收仍保留在阶段六。
 
 ## 阶段五：回归、文档与发布收口
 

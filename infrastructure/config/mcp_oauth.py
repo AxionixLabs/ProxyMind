@@ -18,6 +18,7 @@ from agent.domain.mcp_oauth import (
     McpDynamicClient,
     McpMetadataClient,
     McpOAuthClientRegistration,
+    McpOAuthBinding,
     McpOAuthError,
     McpOAuthLoginRequest,
     McpOAuthTarget,
@@ -122,6 +123,12 @@ class McpOAuthServerSettings(BaseModel):
         if self.command or not self.url or urlsplit(self.url).path.lower().rstrip("/").endswith("/sse"):
             raise McpOAuthError("unsupported_transport")
         return McpOAuthTarget(name, normalize_oauth_url(self.url))
+
+    def runtime_binding(self, name: str) -> McpOAuthBinding | None:
+        """为非交互连接冻结认证选择，显式认证和非 HTTP 服务不查 OAuth 凭据。"""
+        if not self.applicable:
+            return None
+        return McpOAuthBinding(self.target(name), self.oauth.registration())
 
     def login_request(
         self, name: str, *, scopes: tuple[str, ...] | None, timeout_sec: float | None,

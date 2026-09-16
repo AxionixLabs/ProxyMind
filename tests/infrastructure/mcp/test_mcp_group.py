@@ -50,7 +50,7 @@ def _stdio_servers(count: int) -> list[dict]:
 
 
 def _stub_connection_transport(monkeypatch):
-    async def establish(_params, _session_params, _disconnected, stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, stack, *, config_key, auth):
         session = SimpleNamespace(
             get_server_capabilities=lambda: mcp_types.ServerCapabilities(tools=mcp_types.ToolsCapability()),
             list_tools=AsyncMock(return_value=mcp_types.ListToolsResult(tools=[
@@ -78,7 +78,7 @@ async def test_external_mcp_close_hides_only_sdk_termination_warning(
         async def aclose(self) -> None:
             emit_close_logs()
 
-    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key, auth):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -303,7 +303,7 @@ async def test_external_mcp_failed_preparation_closes_private_resources(
         async def aclose(self) -> None:
             state["closed"] += 1
 
-    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key, auth):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 
@@ -361,7 +361,7 @@ async def test_external_mcp_owner_closes_resources_in_entering_task(
             state["closed_task"] = asyncio.current_task()
             await self.stack.aclose()
 
-    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key, auth):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -428,7 +428,7 @@ async def test_external_mcp_timeout_closes_resources_in_owner_task(
     async def preflight(_server) -> None:
         return None
 
-    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key, auth):
         stack = contextlib.AsyncExitStack()
         await stack.enter_async_context(anyio.create_task_group())
         state["entered_task"] = asyncio.current_task()
@@ -486,7 +486,7 @@ async def test_external_mcp_close_retains_owner_when_cleanup_cannot_be_confirmed
                 close_cancelled.set()
                 raise
 
-    async def establish(_params, _session_params, _disconnected, _stack, *, config_key):
+    async def establish(_params, _session_params, _disconnected, _stack, *, config_key, auth):
         server_info = SimpleNamespace(version="1", websiteUrl=None, icons=None)
         return server_info, object(), SessionStack()
 

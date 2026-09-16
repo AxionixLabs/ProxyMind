@@ -39,6 +39,11 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 
+from agent.domain.mcp_oauth import (
+    McpOAuthError,
+    McpOAuthStorageError,
+)
+from agent.ports.mcp_credentials import McpCredentialStore
 from agent.ports.mcp_runtime import McpServiceSnapshot
 from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.errors import AppError
@@ -47,6 +52,7 @@ from infrastructure.mcp.external_status import (
     external_status_detail_from_exception,
     should_reraise_external,
 )
+from infrastructure.mcp.errors import flatten_exceptions
 from infrastructure.mcp.settings import (
     NormalizedMcpServer,
     is_mcp_tool_allowed,
@@ -55,6 +61,7 @@ from infrastructure.mcp.settings import (
     startup_timeout_sec,
 )
 from infrastructure.mcp.stdio_diagnostics import capture_stdio_stderr
+from infrastructure.mcp.oauth_runtime import McpOAuthRuntimeAuth
 from infrastructure.mcp.transport import (
     ObservedMcpReadStream,
     build_server_params,
@@ -66,6 +73,7 @@ from infrastructure.mcp.values import (
     tool_name_hook,
 )
 from observability import observe
+from metadata import const
 from observability.third_party import (
     route_session_termination_warnings,
     route_stdio_client_logs,
@@ -103,7 +111,10 @@ class _ExternalMcpConnection:
 class ExternalMcpGroup:
     """管理一组外部 MCP 会话，并把多个服务的工具合并成统一入口。"""
 
-    def __init__(self, *, can_publish: Callable[[], bool] | None = None) -> None:
+    def __init__(
+        self, *, can_publish: Callable[[], bool] | None = None,
+        credential_store: McpCredentialStore | None = None,
+    ) -> None:
         """初始化外部 MCP 工具索引和连接所有者集合。"""
         self.tools: dict[str, mcp_types.Tool] = {}
         self.server_stats: dict[str, dict[str, typing.Any]] = {}
@@ -115,6 +126,7 @@ class ExternalMcpGroup:
         self._service_states: dict[str, McpServiceSnapshot] = {}
         self._staged_keys: set[str] = set()
         self._can_publish = can_publish
+        self._credential_store = credential_store
 
     @property
     def started(self) -> bool:
@@ -163,7 +175,30 @@ class ExternalMcpGroup:
         self._withdraw(key)
         snapshot = self._service_states.get(key)
         if snapshot is not None:
+            if snapshot.authorization_error is not None and snapshot.connection_error:
+                detail = snapshot.connection_error
             self._service_states[key] = replace(snapshot, state="failed", connection_error=detail)
+
+    def _runtime_auth(self, server: NormalizedMcpServer, disconnected: asyncio.Event) -> McpOAuthRuntimeAuth | None:
+        """为适用连接创建非交互认证；安全错误在所属连接快照中归约。"""
+        binding = server.get("oauth_binding")
+        store = self._credential_store
+        if binding is None or store is None:
+            return None
+
+        def failed(error: McpOAuthError | McpOAuthStorageError) -> None:
+            """撤下认证失败的目录并通知连接 owner 收束，不影响其他服务。"""
+            key = binding.target.config_key
+            detail = str(error)
+            if isinstance(error, McpOAuthError):
+                detail += f" Run {const.APP_NAME} mcp login <name>, then restart this MCP service."
+            self._mark_failed(key, detail)
+            snapshot = self._service_states.get(key)
+            if snapshot is not None:
+                self._service_states[key] = replace(snapshot, authorization_error=error.code)
+            disconnected.set()
+
+        return McpOAuthRuntimeAuth(binding, store, failed=failed)
 
     async def start_service(
         self, server: NormalizedMcpServer, status: ExternalMcpStatus | None = None,
@@ -204,6 +239,7 @@ class ExternalMcpGroup:
         session_stack: contextlib.AsyncExitStack,
         *,
         config_key: str,
+        auth: httpx.Auth | None,
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
         """在 owner 提供的栈内建立会话，半初始化失败也由同一 owner 负责清理。"""
         if isinstance(server_params, StdioServerParameters):
@@ -223,6 +259,7 @@ class ExternalMcpGroup:
             httpx_client = external_http_client(
                 disconnected=disconnected, headers=server_params.headers,
                 timeout=httpx.Timeout(server_params.timeout.total_seconds(), read=server_params.sse_read_timeout.total_seconds()),
+                auth=auth,
             )
             await session_stack.enter_async_context(httpx_client)
             client = streamable_http_client(
@@ -319,15 +356,22 @@ class ExternalMcpGroup:
 
         session = self._tool_to_session[name]
         session_tool_name = self.tools[name].name
+        connection = next((item for item in self._connections if item.ready.done() and not item.ready.cancelled()
+                           and item.ready.exception() is None and item.ready.result().session is session), None)
+        call = asyncio.create_task(session.call_tool(
+            session_tool_name, arguments if args is None else args,
+            read_timeout_seconds=read_timeout_seconds, progress_callback=progress_callback, meta=meta,
+        ))
 
         try:
-            return await session.call_tool(
-                session_tool_name,
-                arguments if args is None else args,
-                read_timeout_seconds=read_timeout_seconds,
-                progress_callback=progress_callback,
-                meta=meta,
-            )
+            if connection is not None:
+                await asyncio.wait({call, connection.task}, return_when=asyncio.FIRST_COMPLETED)
+                if not call.done():
+                    snapshot = self._service_states[connection.config_key]
+                    raise McpError(mcp_types.ErrorData(
+                        code=mcp_types.CONNECTION_CLOSED, message=snapshot.connection_error or "MCP connection closed",
+                    ))
+            return await call
         except (anyio.EndOfStream, anyio.BrokenResourceError, anyio.ClosedResourceError, httpx.TransportError, McpError) as error:
             if not isinstance(error, McpError) or error.error.code == mcp_types.CONNECTION_CLOSED:
                 for connection in tuple(self._connections):
@@ -336,6 +380,11 @@ class ExternalMcpGroup:
                         self._mark_failed(connection.config_key, external_status_detail_from_exception(error))
                         connection.stop_event.set()
             raise
+        finally:
+            if not call.done():
+                call.cancel()
+            with anyio.CancelScope(shield=True):
+                await asyncio.gather(call, return_exceptions=True)
 
     async def call_hook_tool(
         self,
@@ -648,6 +697,7 @@ class ExternalMcpGroup:
                 disconnected,
                 session_stack,
                 config_key=config_key,
+                auth=self._runtime_auth(server, disconnected),
             )
             alias_info = mcp_types.Implementation(
                 name=alias,
@@ -704,7 +754,11 @@ class ExternalMcpGroup:
                     await session_stack.aclose()
             except BaseException as error:
                 if connection is not None:
-                    connection.cleanup_error = external_status_detail_from_exception(error)
+                    # SDK 子任务的认证错误在任务组退出时重新抛出；资源栈仍已完成全部回收。
+                    if all(isinstance(item, (McpOAuthError, McpOAuthStorageError)) for item in flatten_exceptions(error)):
+                        connection.cleaned = True
+                    else:
+                        connection.cleanup_error = external_status_detail_from_exception(error)
                 self._mark_failed(config_key, external_status_detail_from_exception(error))
                 raise
             else:

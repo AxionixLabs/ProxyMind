@@ -111,6 +111,55 @@ def _scopes(value: str | None) -> tuple[str, ...] | None:
     return None if value is None else normalize_oauth_scopes(tuple(value.split(" ")) if value else ())
 
 
+class McpOAuthRefreshAdapter:
+    """只向已验证并持久绑定的 token endpoint 刷新，不注册客户端或打开浏览器。"""
+
+    def __init__(
+        self, *, client_factory: typing.Callable[[], httpx.AsyncClient] | None = None,
+        clock: typing.Callable[[], float] = time.time,
+    ) -> None:
+        """注入单次刷新所拥有的 HTTP 客户端与绝对时间来源。"""
+        self._client_factory = client_factory
+        self._clock = clock
+
+    async def refresh(self, snapshot: McpOAuthCredentialSnapshot) -> McpOAuthToken:
+        """交换一次 refresh token，返回待提交的新令牌；不重试不确定请求。"""
+        previous = snapshot.token
+        if previous is None or previous.refresh_token is None:
+            raise McpOAuthError("reauthorization_required")
+        endpoint = _endpoint(snapshot.token_endpoint, snapshot.target.server_url)
+        client = self._client_factory() if self._client_factory is not None else httpx.AsyncClient(timeout=5, trust_env=False)
+        try:
+            async with client:
+                received_at = self._clock()
+                status, document = await _json_document(client, "POST", endpoint, data={
+                    "grant_type": "refresh_token", "refresh_token": previous.refresh_token,
+                    "client_id": snapshot.client.client_id, "resource": snapshot.resource,
+                })
+                if status in (400, 401, 403):
+                    raise McpOAuthError("reauthorization_required")
+                if status != 200 or document is None:
+                    raise McpOAuthError("refresh_uncertain")
+                if "token_type" not in document:
+                    raise McpOAuthError("invalid_response")
+                token = OAuthToken.model_validate(document, strict=True)
+                if token.expires_in is not None and token.expires_in <= 0:
+                    raise McpOAuthError("reauthorization_required")
+                scopes = _scopes(token.scope) if token.scope is not None else previous.granted_scopes
+                if previous.granted_scopes is not None and set(scopes or ()) != set(previous.granted_scopes):
+                    raise McpOAuthError("insufficient_scope")
+                return McpOAuthToken(
+                    token.access_token,
+                    token.refresh_token if token.refresh_token is not None else previous.refresh_token,
+                    received_at + token.expires_in if token.expires_in is not None else None,
+                    scopes,
+                )
+        except httpx.RequestError:
+            raise McpOAuthError("refresh_uncertain") from None
+        except (ValueError, ValidationError):
+            raise McpOAuthError("invalid_response") from None
+
+
 class McpOAuthAdapter:
     """组合公开 SDK 原语与 HTTPX 完成显式登录；不接入默认 provider 的交互重试。"""
 

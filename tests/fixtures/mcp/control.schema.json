@@ -56,7 +56,7 @@
     "McpConnectionState": {"enum": ["stopped", "starting", "ready", "stopping", "failed"]},
     "McpServiceSnapshot": {
       "type": "object", "additionalProperties": false,
-      "required": ["config_key", "tool_prefix", "config_enabled", "state", "transport", "tools", "discovered", "filtered", "connection_error"],
+      "required": ["config_key", "tool_prefix", "config_enabled", "state", "transport", "tools", "discovered", "filtered", "connection_error", "authorization_error"],
       "properties": {
         "config_key": {"type": "string", "pattern": "\\S"},
         "tool_prefix": {"type": "string", "pattern": "^mcp__.+__$"},
@@ -66,7 +66,8 @@
         "tools": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "discovered": {"type": "integer", "minimum": 0},
         "filtered": {"type": "integer", "minimum": 0},
-        "connection_error": {"type": ["string", "null"]}
+        "connection_error": {"type": ["string", "null"]},
+        "authorization_error": {"enum": [null, "unsupported_transport", "configuration_conflict", "invalid_response", "registration_failed", "authorization_denied", "timeout", "network_error", "reauthorization_required", "callback_unavailable", "oauth_unavailable", "login_required", "insufficient_scope", "refresh_uncertain", "storage_unavailable", "storage_corrupt", "credential_conflict", "storage_busy"]}
       },
       "allOf": [
         {

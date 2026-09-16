@@ -5,8 +5,11 @@ import math
 import os
 import typing
 from fnmatch import fnmatchcase
+from urllib.parse import urlsplit
 
+from agent.domain.mcp_oauth import McpOAuthBinding
 from agent.ports.mcp_runtime import McpTransport
+from infrastructure.config.mcp_oauth import McpOAuthServerSettings
 from .values import slugify_mcp_name
 
 DEFAULT_MCP_TRANSPORT = "streamable_http"
@@ -39,6 +42,7 @@ class NormalizedMcpServer(typing.TypedDict, total=False):
     headers: dict[str, str]
     sse_read_timeout_sec: float
     terminate_on_close: bool
+    oauth_binding: McpOAuthBinding | None
 
 
 class McpConfigError(ValueError):
@@ -148,12 +152,15 @@ def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
     )
 
 
-def normalize_mcp_servers(raw: typing.Any) -> list[NormalizedMcpServer]:
+def normalize_mcp_servers(
+    raw: typing.Any, *, environment: typing.Mapping[str, str] | None = None,
+) -> list[NormalizedMcpServer]:
     """把有效配置中的 MCP 服务表规范化为内部服务列表。"""
     if not isinstance(raw, dict):
         return []
 
     normalized: list[NormalizedMcpServer] = []
+    source = os.environ if environment is None else environment
     seen_names: set[str] = set()
 
     for index, (key, item) in enumerate(raw.items(), start=1):
@@ -172,7 +179,7 @@ def normalize_mcp_servers(raw: typing.Any) -> list[NormalizedMcpServer]:
         transport: McpTransport = (
             "stdio"
             if command
-            else "sse" if url.lower().rstrip("/").endswith("/sse")
+            else "sse" if urlsplit(url).path.lower().rstrip("/").endswith("/sse")
             else DEFAULT_MCP_TRANSPORT
         )
         if transport == "stdio":
@@ -233,18 +240,19 @@ def normalize_mcp_servers(raw: typing.Any) -> list[NormalizedMcpServer]:
         for header, environment_name in string_map(
             item.get("env_http_headers")
         ).items():
-            environment_value = os.environ.get(environment_name)
+            environment_value = source.get(environment_name)
             if environment_value is not None:
                 headers[header] = environment_value
 
         bearer_name = str(item.get("bearer_token_env_var") or "").strip()
-        bearer_token = os.environ.get(bearer_name) if bearer_name else None
+        bearer_token = source.get(bearer_name) if bearer_name else None
         if bearer_token:
             headers["Authorization"] = f"Bearer {bearer_token}"
 
         normalized.append({
             **base,
             "url": url,
+            "oauth_binding": McpOAuthServerSettings.model_validate(item).runtime_binding(name),
             "headers": headers,
             "sse_read_timeout_sec": timeout_sec,
             "terminate_on_close": True,

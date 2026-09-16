@@ -29,7 +29,7 @@ def snapshot(**updates: JsonValue) -> dict[str, JsonValue]:
     return {
         "config_key": "A", "tool_prefix": "mcp__a__", "config_enabled": True,
         "state": "ready", "transport": "stdio", "tools": [], "discovered": 0,
-        "filtered": 0, "connection_error": None, **updates,
+        "filtered": 0, "connection_error": None, "authorization_error": None, **updates,
     }
 
 
@@ -97,6 +97,7 @@ def test_ac07_empty_tools_do_not_replace_configuration_or_connection_state(contr
     {"state": "stopped", "tools": ["mcp__a__ping"]},
     {"discovered": -1}, {"filtered": True},
     {"tools": ["mcp__a__ping", "mcp__a__ping"]},
+    {"authorization_error": "raw server error with secret"},
 ])
 def test_ac07_invalid_or_unavailable_tool_snapshot_is_rejected(contract, updates) -> None:
     assert not validates(contract, "McpServiceSnapshot", snapshot(**updates))

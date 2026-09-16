@@ -66,6 +66,13 @@ OAuth CLI 的完整用例由 `integration/test_mcp_oauth_cli.py` 和
 共享 `oauth_browser.py` 模拟浏览器重定向；`fakes/mcp_credentials.py` 提供可注入失败的
 系统凭据库替身。浏览器启动的平台分支使用 mock；这些自动测试不代表真实账号验收。
 
+运行时 OAuth 由 `infrastructure/mcp/test_oauth_runtime.py`、
+`integration/test_mcp_oauth_runtime.py` 组合真实存储、生产连接 owner、SDK 会话和可控
+HTTP 边界验证。`oauth_runtime_fixture.py` 维护服务端令牌轮换及工具调用事实；跨进程
+刷新与消费后崩溃在 `test_oauth_credential_processes.py` 中使用独立 spawn 进程验证。
+测试覆盖取消后的轮换提交、退出竞争、旧 401 的版本保护及无重放失败；真实账户验收
+单独执行，不能以可控服务结果替代。
+
 ## 结构守护
 
 `test_package_architecture.py` 保留全仓入口与基础依赖方向，`architecture/` 承载 Agent、基础设施、

@@ -268,10 +268,12 @@ class OAuthService:
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "oauth-fixture", "version": "1"},
             }
-        else:
-            assert message.method == "tools/list"
+        elif message.method == "tools/list":
             result = {"tools": [{
                 "name": "read_fixture", "description": "Read fixture data",
                 "inputSchema": {"type": "object", "properties": {}},
             }]}
+        else:
+            assert message.method == "tools/call"
+            result = {"content": [{"type": "text", "text": "fixture result"}]}
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": message.id, "result": result})

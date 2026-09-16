@@ -305,6 +305,8 @@ def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | N
         ]
         if service.filtered:
             fields.append(("Filtered", str(service.filtered), MUTED_STYLE))
+        if service.authorization_error:
+            fields.append(("Authorization", service.authorization_error, FAILURE_STYLE))
         if service.connection_error:
             fields.append(("Connection error", service.connection_error, FAILURE_STYLE))
         for label, value, style in fields:
