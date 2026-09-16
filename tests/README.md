@@ -45,6 +45,9 @@
 - `infrastructure/mcp/oauth_fixture.py`：进程内 OAuth/MCP HTTP 服务，用于固定依赖的注册、
   回调、认证恢复和刷新契约测试；不连接真实账号。`test_oauth_sdk_*.py` 同时记录 SDK
   能力与接入限制，依赖升级时必须复核；测试中重现的 SDK 限制不是生产行为要求。
+- `infrastructure/mcp/test_oauth_credentials.py` 与 `test_oauth_credential_processes.py`：
+  凭据持久化、版本冲突、跨进程互斥、取消及故障恢复；自动化测试只注入内存或测试专用
+  共享后端。`infrastructure/platform/test_credential_vault.py` 验证系统后端边界和错误脱敏。
 
 公共 helper 只在至少三个测试模块共享稳定概念，或重复已经造成契约不一致时提取。fake 只实现
 它声明的端口，不能复制生产状态机来计算期望结果。禁止新增 `support/`、`utils/`、`common/`
@@ -89,6 +92,10 @@ python -m pytest tests/test_package_architecture.py tests/architecture -q
 真实 PTY 或 ConPTY 使用 `-m pty_acceptance`，故障注入使用 `-m runtime_fault`，逻辑帧使用
 `-m runtime_frame`，固定 seed 的状态长序列使用 `-m runtime_stateful`。平台测试必须在对应平台
 执行，缺少平台不能视为该门禁通过。
+
+`python -m tests.manual.mcp_credential_storage` 在当前机器的系统凭据库中使用临时命名空间
+和合成令牌，验证独立进程恢复、大记录分片、绝对过期时间与删除；执行后清理本次记录。
+此项只验收本地存储，不连接真实 OAuth 账户，也不代替浏览器登录和工具调用验收。
 
 Sandbox 父终端隔离验收使用以下命令；`importlib` 模式避免 `tests/pty` 遮蔽 POSIX 标准库
 `pty`。测试包含恢复终端继承的对照场景，必须能访问当前平台的控制终端，不能在禁止访问

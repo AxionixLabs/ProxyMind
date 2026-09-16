@@ -634,6 +634,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "local_tool_factory.py",
         "local_tool_registry.py",
         "nested_tool_results.py",
+        "oauth_credentials.py",
         "registry.py",
         "settings.py",
         "stdio_diagnostics.py",
@@ -692,6 +693,28 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
     assert not legacy_imports, "legacy MCP infrastructure imports remain:\n" + (
         "\n".join(legacy_imports)
     )
+
+
+def test_mcp_oauth_contracts_do_not_depend_on_storage_or_sdk() -> None:
+    """凭据值和端口保持纯契约，系统后端不能反向取得 MCP 生命周期。"""
+    boundaries = {
+        "agent/domain/mcp_oauth.py": {"infrastructure", "frontends", "keyring", "mcp", "pydantic"},
+        "agent/ports/mcp_credentials.py": {"infrastructure", "frontends", "keyring", "mcp"},
+        "infrastructure/platform/credential_vault.py": {"infrastructure.mcp", "agent.harness"},
+    }
+    violations: list[str] = []
+    for filename, forbidden in boundaries.items():
+        tree = _parsed_source(PROJECT_ROOT / filename)
+        for node in ast.walk(tree):
+            modules: tuple[str, ...] = ()
+            if isinstance(node, ast.Import):
+                modules = tuple(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0:
+                modules = (node.module or "",)
+            for module in modules:
+                if any(module == name or module.startswith(f"{name}.") for name in forbidden):
+                    violations.append(f"{filename}:{node.lineno} -> {module}")
+    assert not violations, "MCP OAuth ownership violations:\n" + "\n".join(violations)
 
 
 def test_local_tool_contracts_have_single_ownership_boundary() -> None:

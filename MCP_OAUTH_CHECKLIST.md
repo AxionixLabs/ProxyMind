@@ -158,21 +158,52 @@ logout 只清除本地 OAuth 凭据，不修改用户的 Bearer/Header 配置，
 
 ## 阶段二：实现凭据存储与恢复
 
-- [ ] 建立具名凭据模型，覆盖原始配置键、规范化服务 URL、授权服务器身份、客户端信息、
+- [x] 建立具名凭据模型，覆盖原始配置键、规范化服务 URL、授权服务器身份、客户端信息、
   scopes、令牌、绝对过期时间和更新版本。不同端口、路径、服务或客户端身份不得混用凭据。
-- [ ] 默认使用系统凭据库保存机密，明确后端不可用时的失败行为；如提供文件后端，必须
-  显式选择并落实访问限制，不在运行中静默切换到另一份凭据。
-- [ ] 非敏感状态、索引和协调资源遵循 `MIND_HOME` / `MIND_STATE_HOME` 的既有职责，
+- [x] 使用系统凭据库保存机密，明确后端不可用时的失败行为；首版不提供文件后端，
+  不在运行中静默切换到另一份凭据。
+- [x] 非敏感状态、索引和协调资源遵循 `MIND_HOME` / `MIND_STATE_HOME` 的既有职责，
   路径由上层解析后注入，不硬编码用户目录或复用 Codex 凭据文件。
-- [ ] 实现读取、保存和删除；用原子更新或等价事务保证凭据一致，并发写入不得损坏其他
+- [x] 实现读取、保存和删除；用原子更新或等价事务保证凭据一致，并发写入不得损坏其他
   服务记录。令牌与注册信息若分步保存，显式区分“已注册”和“已登录”。
-- [ ] 从绝对过期时间恢复剩余有效期，不因进程重启延长令牌有效期。
-- [ ] 建立同一凭据的跨进程协调与版本检查，为刷新、重新登录和退出登录使用统一规则。
-- [ ] 覆盖无记录、存储不可用、记录损坏、写入失败、身份隔离、过期恢复、并发更新及删除。
-- [ ] 验证 Token、client secret、授权码不进入日志、异常展示、模型上下文或 `mcp get/list`。
+- [x] 从绝对过期时间恢复剩余有效期，不因进程重启延长令牌有效期。
+- [x] 建立同一凭据的跨进程协调与版本检查，为刷新、重新登录和退出登录使用统一规则。
+- [x] 覆盖无记录、存储不可用、记录损坏、写入失败、身份隔离、过期恢复、并发更新及删除。
+- [x] 验证 Token、client secret、授权码不进入日志、异常展示、模型上下文或 `mcp get/list`。
 
 完成条件：独立进程能够恢复同一凭据，损坏或不可用状态可诊断，失败写入不会产生虚假的
 登录成功结果；后续阶段共用这一个凭据权威。
+
+### 阶段二存储契约
+
+- `agent/domain/mcp_oauth.py` 落地 target、公共客户端信息、token、snapshot、record、view
+  和 logout result；注册策略请求仍在阶段三落地。`record` 在无凭据时保留 generation。
+  `McpOAuthStorageError` 固定区分 storage_unavailable、storage_corrupt、storage_busy 和
+  credential_conflict，不附带底层异常文本；后续用例将其纳入既有退出码 1 的错误边界。
+- `SystemMcpCredentialStore` 实现 `agent.ports.mcp_credentials`，接收上层解析的 config_root
+  和 state_root。原始键与完整 URL 隔离逐目标记录，当前记录明确绑定 issuer、resource
+  和 client_id；消费令牌前使用 `require_binding` 验证身份。重新登录替换当前身份也必须
+  使用当前 generation；锁覆盖整个目标，退出不会遗漏旧客户端身份的待清理记录。
+- 固定 `keyring==25.7.0`，只显式选择 Windows Credential Manager、macOS Keychain 或
+  Linux Secret Service。无文件后端和 keyring 插件发现；系统后端缺失、锁定、拒绝访问或
+  保存失败均报告不可用。状态索引不含 URL、客户端信息、Token 或授权码。
+- 系统记录按独立新标识写入，载荷编码为每片最多 1,000 个 ASCII 字符，最多 256 片；
+  读取校验完整摘要、格式、目标和版本。这避免 Windows 单条记录容量限制及后端覆盖时
+  的副本行为，也不依赖各平台覆盖操作具有相同原子性。超过容量明确失败。
+- `MIND_STATE_HOME/mcp/oauth/` 保存版本/清理索引及逐目标 SQLite 锁。先登记待清理项、
+  写入系统机密，再原子切换活动指针；切换前失败恢复旧记录，切换后清理失败恢复新记录。
+  未完成清理时不报告保存或退出成功；下次访问重试清理。墓碑阻止迟到结果复活旧登录。
+- 绝对有效期跨进程保持不变，缺少 expires_at 时仍为未知；registered 不等于 stored。
+  快照和 Token 的 repr 隐藏机密，展示只接收 view；客户端 secret、授权码等未声明字段
+  在读取边界被拒绝。CLI 展示与运行时认证接入分别由阶段三、四消费此契约。
+
+验证入口为 `tests/agent/domain/test_mcp_oauth.py`、
+`tests/infrastructure/mcp/test_oauth_credentials.py`、
+`test_oauth_credential_processes.py`、`tests/infrastructure/platform/test_credential_vault.py`。
+进程测试注入测试专用共享后端，不触碰用户凭据；
+`python -m tests.manual.mcp_credential_storage` 使用临时命名空间和合成大令牌，验证真实系统
+凭据库的独立进程写入、恢复、绝对过期时间和删除，并清理本次记录。当前 Windows 已通过
+该项实测；macOS/Linux、真实 Sentry 浏览器登录与工具调用仍按阶段六验收，不提前勾选。
 
 ## 阶段三：实现 CLI 浏览器登录与退出登录
 
