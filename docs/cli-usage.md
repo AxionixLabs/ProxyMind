@@ -289,6 +289,7 @@ mind mcp add dbhub --url https://example.com/mcp `
 ### OAuth 浏览器登录
 
 ```powershell
+mind mcp add sentry --url "<SENTRY_MCP_URL>"
 mind mcp login sentry
 mind mcp login sentry --scopes "org:read,project:write" --timeout-sec 180
 mind mcp logout sentry
@@ -301,7 +302,8 @@ HTTP MCP 可使用本机 HTTP 授权端点。
 
 命令先显示授权地址，再打开系统浏览器；打开失败时可手动访问已显示的地址。
 回调只监听 `127.0.0.1`，默认使用系统分配的端口。凭据成功保存到系统凭据库后才报告
-登录成功；拒绝、超时、取消或保存失败保留原有凭据。Windows 使用 Credential Manager，
+登录成功；拒绝、超时、取消或保存失败均不报告成功，失败后可查询本地状态再重试。
+Windows 使用 Credential Manager，
 macOS 使用 Keychain，Linux 使用 Secret Service；不可用时显式失败，不回退明文文件。
 
 可选配置示例：
@@ -324,7 +326,7 @@ login_timeout_sec = 300
 保存的总时长；HTTP 单次等待另有 20 秒上限。
 
 `mcp list/get` 的 `OAuth (local)` / JSON `oauth` 字段只读取本地凭据：`missing` 无记录、
-`stored` 已保存、`expired` 已到期、`unavailable` 存储不可用或记录损坏，
+`registered` 仅有客户端注册记录、`stored` 已保存、`expired` 已到期、`unavailable` 存储不可用或记录损坏，
 `not_applicable` 为 stdio、SSE 或显式认证配置。查询不联网验证授权是否仍有效。
 `refresh_uncertain` 表示刷新可能已消费旧令牌但未确认提交，`reauthorization_required`
 表示远端拒绝或刷新授权失效；两者都需要重新运行 `mcp login`。
@@ -340,7 +342,26 @@ login_timeout_sec = 300
 后，使用过旧凭据的连接在下一个请求边界停止使用它，已发出的远端请求继续按原生命周期
 收束。401、403 和认证重定向会使服务失败并撤下工具目录；不会自动重放工具调用或打开
 浏览器。`/mcp status` 展示独立的授权错误；重新登录后可通过 `/mcp` 菜单重启对应服务。
-工具审批仍按既有权限策略执行。真实 Sentry 登录和工具调用验收仍以阶段六为准。
+工具审批仍按既有权限策略执行。
+
+首版支持 Streamable HTTP、授权码与 PKCE S256、公共客户端动态注册、客户端元数据文档和
+预注册公共客户端；是否可用取决于服务端声明的能力。不支持 stdio/SSE 的 OAuth、client
+secret、设备码登录，也不读取 Codex 或其他客户端保存的登录凭据。
+
+| 现象 | 处理方式 |
+| --- | --- |
+| `missing` / `registered` / `login_required` | 执行 `mind mcp login <name>`，然后重启对应 MCP 服务。匿名服务无需登录。 |
+| `expired` | 本地记录已到期；运行时有 refresh token 时自动刷新，无可用刷新授权时重新登录。 |
+| `insufficient_scope` / `reauthorization_required` / `refresh_uncertain` | 确认服务要求的范围，显式重新登录；成功后重启失败的服务。 |
+| `configuration_conflict` | 检查显式 Bearer/Header 与 OAuth 的选择，以及公共客户端和回调端口配置。 |
+| `storage_unavailable` / `unavailable` | 检查当前用户的系统凭据库及状态目录访问；Linux 还需可用的用户 D-Bus 会话和已解锁的 Secret Service。 |
+| `storage_busy` | 等待其他进程的登录、刷新或退出事务结束后重试。 |
+| `storage_corrupt` | 对原注册执行 logout 清理后重新登录；不要手工删除活动索引或锁文件。 |
+
+凭据按配置根、状态根、原始注册名和完整 URL 隔离；改变任一项都不会借用旧登录。
+更名、改 URL 或删除注册前，先对原注册执行 logout。浏览器回调要求运行 CLI 的机器能接收
+本机端口连接；远程终端不能把另一台机器的 `127.0.0.1` 当成本机回调。
+平台支持与实际验收结果分开记录，操作步骤和记录模板见 [OAuth 验收指南](mcp-oauth-acceptance.md)。
 
 ### 添加 stdio 服务
 

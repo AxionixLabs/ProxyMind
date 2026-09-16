@@ -279,29 +279,41 @@ SDK 退出时再次报告认证错误不等于资源清理失败，等待中的�
 
 ## 阶段五：回归、文档与发布收口
 
-- [ ] 更新 `README.md`、`docs/cli-usage.md` 和受影响的配置/MCP 文档，说明注册、登录、
+本阶段按用户确认的源码运行范围收口：停止编译打包，以 `python mind.py` 验收入口，
+安装/打包产物不作为本轮完成条件，也不宣称已验收。
+
+- [x] 更新 `README.md`、`docs/cli-usage.md` 和受影响的配置/MCP 文档，说明注册、登录、
   退出、凭据状态、失效恢复和首版支持范围；同步文档生成或校验所需的命令登记。
-- [ ] 如增加公开端口、状态所有者或依赖边界，同步架构文档及契约测试。长期文档只描述
+- [x] 如增加公开端口、状态所有者或依赖边界，同步架构文档及契约测试。长期文档只描述
   最终行为，不写调试流水账；删除实施中被替代的代码和未采用方案。
-- [ ] 先激活仓库虚拟环境，运行各阶段新增测试及受影响测试。不得通过修改进程环境
+- [x] 先激活仓库虚拟环境，运行各阶段新增测试及受影响测试。不得通过修改进程环境
   构造单元测试，使用注入的路径、时钟、依赖和配置派生值。
-- [ ] 对 CLI、配置、外接 MCP 生命周期和审批执行一次集成回归；共享契约受影响时扩大
+- [x] 对 CLI、配置、外接 MCP 生命周期和审批执行一次集成回归；共享契约受影响时扩大
   对应测试范围。新增测试归入真实责任目录，不在 `tests/` 根目录增加普通测试模块。
-- [ ] 发布收口时完成架构审计、编译及差异检查。以下现有测试作为基线，执行时补上新增
-  OAuth 测试的具体路径：
+- [x] 发布收口时完成架构审计、编译及差异检查。完整收口命令包括各阶段新增
+  OAuth 测试和发布契约：
 
 ```shell
-python -m pytest tests/frontends/cli tests/infrastructure/mcp tests/infrastructure/config tests/external_mcp tests/frontends/tui/features/test_tui_mcp.py tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py -q
+python -m pytest tests/frontends/cli tests/infrastructure/mcp tests/infrastructure/config tests/external_mcp tests/frontends/tui/features/test_tui_mcp.py tests/integration/test_mcp_approval_gate.py tests/integration/test_mcp_approval_semantics_matrix.py tests/integration/test_mcp_oauth_cli.py tests/integration/test_mcp_oauth_concurrency.py tests/integration/test_mcp_oauth_runtime.py tests/agent/domain/test_mcp_oauth.py tests/infrastructure/platform/test_credential_vault.py tests/distribution tests/website -q
 python -m pytest tests/test_package_architecture.py tests/architecture -q
 python -m compileall agent protocol frontends infrastructure observability metadata
 git diff --check
 ```
 
-- [ ] 检查安装/打包后的 `mind` 入口、凭据库依赖和平台 adapter，避免仅源码入口可用。
-- [ ] 准备真机验收记录模板和可重复步骤；诊断证据只记录时间、平台、版本、脱敏服务
+- [x] 检查源码 `python mind.py` 入口、凭据库依赖和平台 adapter；从隔离目录验证
+  跨进程恢复、过期状态和退出清理。安装/打包入口留待实际发布时另行验收。
+- [x] 准备真机验收记录模板和可重复步骤；诊断证据只记录时间、平台、版本、脱敏服务
   身份、状态与结果，保存在现有 reports 目录，不保存 Token 或完整 OAuth 回调 URL。
 
-完成条件：自动化与静态验证完成，用户文档匹配实现，安装产物可进入最终真机验收。
+完成条件：自动化与静态验证完成，用户文档匹配实现，源码入口可进入最终真机验收。
+
+稳定操作说明和记录模板位于 `docs/mcp-oauth-acceptance.md`，已登记官网 manifest；
+README 只链接稳定说明，实施清单不进入发布正文。CLI 的 login/logout 已登记在同一命令表，
+文档生成前后检查均覆盖命令与链接。阶段五不新增运行时端口或状态所有者。
+`tests/manual/mcp_oauth_entry.py` 从隔离工作目录验证指定运行入口，使用系统凭据库中的
+合成数据检查恢复、过期状态和幂等退出，并生成脱敏 JSON 报告。真实服务仍按阶段六
+逐项验收；本地记录模板和 `source-entry-final.json` 位于
+`build/mcp-oauth-validation/state/reports/`。源码入口检查通过，合成凭据已清理。
 
 ## 阶段六：最终真机验收
 
@@ -319,8 +331,8 @@ git diff --check
 
 ### 6.2 首次登录与实际工具调用
 
-以下为功能完成后的验收命令；先替换 URL 占位符。安装环境使用 `mind`，源码排障可用
-`python mind.py` 复核，但不替代安装入口验收。
+以下为功能完成后的验收命令；先替换 URL 占位符。本轮使用源码，将 `mind` 替换为
+Python 和 `mind.py` 的绝对路径。将来验收安装入口时单独记录，不与源码结果混用。
 
 ```shell
 mind mcp add sentry-oauth-acceptance --url "<SENTRY_MCP_URL>"
@@ -367,7 +379,8 @@ mind mcp list
 | 实际过期、刷新及刷新后重启 | 待验收 | 真实服务、过期时间、刷新与持久化结果 |
 | 多进程及退出登录竞争 | 待验收 | 并发场景、凭据版本变化与最终结果 |
 | 拒绝、取消、网络故障和撤销恢复 | 待验收 | 对应错误结果、资源释放及恢复结果 |
-| 安装/打包入口 | 待验收 | 安装方式、版本和入口验证结果 |
+| 源码运行入口 | 待验收 | 源码版本和真实服务入口验证结果 |
+| 安装/打包入口 | 本轮范围外，未验收 | 实际发布时补充安装方式、版本和验证结果 |
 | Linux 平台行为 | 待验收 | 系统、浏览器、凭据库及验证结果 |
 | macOS 平台行为 | 待验收 | 系统、浏览器、凭据库及验证结果 |
 

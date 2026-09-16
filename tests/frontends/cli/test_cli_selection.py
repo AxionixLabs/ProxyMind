@@ -793,7 +793,7 @@ async def test_resume_last_uses_existing_tui_session_loop(monkeypatch, tmp_path)
         "initial_model": "review-model",
     }
     host.subscription.close.assert_awaited_once_with()
-    assert events == ["load", "resume", "replace", "run"]
+    assert events == ["resume", "load", "replace", "run"]
 
 
 @pytest.mark.anyio
@@ -830,10 +830,11 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch, tmp_pa
         "require_tui_runtime",
         Mock(return_value=runtime),
     )
+    load_history_transcript = Mock(return_value=(object(),))
     monkeypatch.setattr(
         history_module,
         "load_history_transcript",
-        Mock(return_value=(object(),)),
+        load_history_transcript,
     )
     monkeypatch.setattr(
         "frontends.tui.session.loop.run_tui_loop",
@@ -847,6 +848,7 @@ async def test_failed_cli_resume_does_not_replace_transcript(monkeypatch, tmp_pa
             protocol_client=Mock(spec=ProtocolCommandClient),
         )
 
+    load_history_transcript.assert_not_called()
     runtime.replace_transcript.assert_not_called()
     run_tui_loop.assert_not_awaited()
 

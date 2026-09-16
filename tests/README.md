@@ -111,6 +111,12 @@ python -m pytest tests/test_package_architecture.py tests/architecture -q
 和合成令牌，验证独立进程恢复、大记录分片、绝对过期时间与删除；执行后清理本次记录。
 此项只验收本地存储，不连接真实 OAuth 账户，也不代替浏览器登录和工具调用验收。
 
+源码使用 `python -m tests.manual.mcp_oauth_entry --report <STATE_ROOT>/reports/<NAME>.json
+--command <ABSOLUTE_PYTHON> <ABSOLUTE_MIND_PY>` 检查。该脚本从隔离目录调用指定入口，
+验证真实凭据库恢复、过期状态和 logout，并清理合成凭据；报告不保存原始终端输出。
+未来验证安装入口时显式选择 `--entry-kind installed`；完整步骤与真实账户记录模板见
+`docs/mcp-oauth-acceptance.md`。
+
 Sandbox 父终端隔离验收使用以下命令；`importlib` 模式避免 `tests/pty` 遮蔽 POSIX 标准库
 `pty`。测试包含恢复终端继承的对照场景，必须能访问当前平台的控制终端，不能在禁止访问
 `/dev/tty` 的外层沙箱内作为通过证据。
