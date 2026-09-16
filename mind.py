@@ -13,6 +13,7 @@ from agent.application.config.settings import (
     AgentSettings,
     FeatureSettings,
 )
+from agent.application.mcp.oauth import McpOAuthService
 from agent.application.turns.run_result import RunResult
 from agent.application.turns.observation import TurnObservationCallbacks
 from agent.composition import create_runtime_services
@@ -62,16 +63,22 @@ from infrastructure.config.execution_policy_manager import ExecPolicyManager
 from infrastructure.config.paths import ApplicationLayout
 from infrastructure.config.paths import resolve_application_layout
 from infrastructure.config.preferences import Preferences
-from infrastructure.config.runtime_paths import effect_journal_db_path
+from infrastructure.config.runtime_paths import (
+    effect_journal_db_path,
+    state_home,
+)
 from infrastructure.config.session import ConfigSession
 from infrastructure.mcp.external_runtime import ExternalMcpRuntime
 from infrastructure.mcp.local_tool_factory import (
     build_builtin_tool_registry,
     build_client_tool_registry,
 )
+from infrastructure.mcp.oauth_adapter import McpOAuthAdapter
+from infrastructure.mcp.oauth_credentials import SystemMcpCredentialStore
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from infrastructure.mcp.tool_runtime import CompositeToolRuntime
 from infrastructure.platform.animation import AsyncAnimManager
+from infrastructure.platform.browser import open_browser_url
 from infrastructure.platform.hook_command import HookCommandExecutor
 from infrastructure.platform.images import FileImageReader
 from infrastructure.platform.process_sessions import ProcessSessionManager
@@ -283,6 +290,14 @@ def create_hook_registry(*, bypass_hook_trust: bool = False) -> HookRegistry:
     )
 
 
+def create_mcp_oauth_service(config_root: Path) -> McpOAuthService:
+    """为独立 CLI 登录和状态命令组合唯一凭据存储及短期授权适配器。"""
+    return McpOAuthService(
+        SystemMcpCredentialStore(config_root=config_root, state_root=state_home()),
+        McpOAuthAdapter(open_browser=open_browser_url),
+    )
+
+
 def create_mcp_runtime(context: McpRuntimeContext) -> McpRuntime:
     """在进程组合根创建绑定显式依赖的 MCP 运行时。"""
     return ExternalMcpRuntime(context)
@@ -453,6 +468,7 @@ if __name__ == "__main__":
         ),
         application_host_factory=create_application_host,
         turn_runner=root_turn_runner,
+        mcp_oauth_factory=create_mcp_oauth_service,
         environment_snapshot_provider=capture_active_turn_environment,
         conversation_compactor_factory=bind_conversation_compactor,
     ))

@@ -378,6 +378,15 @@ model intent
 `agent.domain.mcp_oauth`，访问契约位于 `agent.ports.mcp_credentials`。
 `infrastructure.mcp.oauth_credentials` 拥有凭据版本、恢复和逐目标跨进程事务；
 `infrastructure.platform.credential_vault` 只适配系统凭据库，不持有 MCP 连接或发起授权。
+显式登录、退出及本地状态读取由 `agent.application.mcp.oauth` 协调存储和
+`agent.ports.mcp_oauth` 授权端口；CLI 只解析选择并展示结果。
+`infrastructure.config.mcp_oauth` 校验 OAuth 配置及显式认证冲突；
+`infrastructure.mcp.oauth_adapter` 拥有单次发现、注册和授权码交换的 HTTP 客户端，
+`oauth_callback` 拥有该次登录的 loopback 监听、连接任务和一次性回调结果。
+平台浏览器启动由 `infrastructure.platform.browser` 适配，均在组合根注入。
+登录在浏览器等待期间释放凭据锁，保存时校验开始授权前读取的 generation；退出登录
+留下新版本墓碑，迟到的登录结果不得恢复已删除凭据。只有持久提交完成才能报告登录成功。
+查询中的本地凭据状态不代表实时远端认证状态；凭据不进入展示事件、日志或模型上下文。
 组合边界注入配置根与状态根，凭据命名空间绑定两者、原始配置键和完整服务 URL；恢复的
 快照还绑定 issuer、resource 和 client_id，认证适配器消费令牌前必须验证此绑定。
 

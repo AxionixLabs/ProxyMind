@@ -176,5 +176,116 @@ class McpOAuthLogoutResult:
     generation: int
 
 
+McpOAuthErrorCode = typing.Literal[
+    "unsupported_transport", "configuration_conflict", "invalid_response",
+    "registration_failed", "authorization_denied", "timeout", "network_error",
+    "reauthorization_required", "callback_unavailable", "oauth_unavailable",
+]
+
+
+class McpOAuthError(RuntimeError):
+    """提供固定的授权失败提示，不携带响应、授权码或回调地址。"""
+
+    def __init__(self, code: McpOAuthErrorCode) -> None:
+        """保存供 CLI 和认证用例裁决的安全错误码。"""
+        messages = {
+            "unsupported_transport": "OAuth login requires a Streamable HTTP MCP server.",
+            "configuration_conflict": "MCP OAuth settings conflict with the requested authorization.",
+            "invalid_response": "The MCP OAuth server returned an invalid authorization response.",
+            "registration_failed": "MCP OAuth public client registration failed.",
+            "authorization_denied": "MCP OAuth authorization was declined.",
+            "timeout": "MCP OAuth login timed out.",
+            "network_error": "MCP OAuth could not reach the authorization service.",
+            "reauthorization_required": "MCP OAuth authorization must be repeated.",
+            "callback_unavailable": "The local OAuth callback port could not be opened.",
+            "oauth_unavailable": "The MCP server does not provide the required OAuth capabilities.",
+        }
+        self.code = code
+        super().__init__(messages[code])
+
+
+def normalize_oauth_scopes(values: tuple[str, ...]) -> tuple[str, ...]:
+    """校验 scope-token 字符并去重保序，空元组表示显式不请求范围。"""
+    if any(
+        not value or any(not (ord(char) == 0x21 or 0x23 <= ord(char) <= 0x5B or 0x5D <= ord(char) <= 0x7E) for char in value)
+        for value in values
+    ):
+        raise ValueError("OAuth scopes must contain non-empty scope tokens")
+    return tuple(dict.fromkeys(values))
+
+
+@dataclass(frozen=True, slots=True)
+class McpDynamicClient:
+    """选择授权服务器声明的动态公共客户端注册端点。"""
+
+    kind: typing.Literal["dynamic"] = field(default="dynamic", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class McpMetadataClient:
+    """冻结由用户明确配置的客户端元数据文档身份。"""
+
+    metadata_url: str = field(repr=False)
+    kind: typing.Literal["metadata"] = field(default="metadata", init=False)
+
+    def __post_init__(self) -> None:
+        """拒绝非 HTTPS、根路径及带身份或片段的文档地址。"""
+        normalize_oauth_url(self.metadata_url)
+        parsed = urlsplit(self.metadata_url)
+        if parsed.scheme != "https" or parsed.path in ("", "/"):
+            raise ValueError("OAuth client metadata requires an HTTPS document URL")
+
+
+@dataclass(frozen=True, slots=True)
+class McpRegisteredClient:
+    """冻结预注册的公共客户端身份，回调端口由登录请求明确提供。"""
+
+    client_id: str = field(repr=False)
+    kind: typing.Literal["registered"] = field(default="registered", init=False)
+
+    def __post_init__(self) -> None:
+        """拒绝空客户端身份。"""
+        if not self.client_id.strip():
+            raise ValueError("OAuth client ID must be non-empty")
+
+
+McpOAuthClientRegistration = McpDynamicClient | McpMetadataClient | McpRegisteredClient
+
+
+@dataclass(frozen=True, slots=True)
+class McpOAuthLoginRequest:
+    """冻结一次显式登录的目标、客户端、范围和期限，不承载现有令牌。"""
+
+    target: McpOAuthTarget
+    registration: McpOAuthClientRegistration = field(default_factory=McpDynamicClient)
+    scopes: tuple[str, ...] | None = None
+    callback_port: int | None = None
+    timeout_sec: float = 300.0
+    headers: tuple[tuple[str, str], ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        """拒绝无法形成完整公共客户端登录的参数。"""
+        if isinstance(self.timeout_sec, bool) or not math.isfinite(self.timeout_sec) or self.timeout_sec <= 0:
+            raise ValueError("OAuth login timeout must be positive and finite")
+        if self.callback_port is not None and (
+            isinstance(self.callback_port, bool) or not 1 <= self.callback_port <= 65535
+        ):
+            raise ValueError("OAuth callback port must be between 1 and 65535")
+        if isinstance(self.registration, McpRegisteredClient) and self.callback_port is None:
+            raise ValueError("Pre-registered OAuth clients require a callback port")
+        if self.scopes is not None:
+            normalize_oauth_scopes(self.scopes)
+        if any(name.casefold() == "authorization" for name, _ in self.headers):
+            raise McpOAuthError("configuration_conflict")
+
+
+@dataclass(frozen=True, slots=True)
+class McpOAuthLoginResult:
+    """只在凭据持久提交后返回可展示结果。"""
+
+    target: McpOAuthTarget
+    expires_at: float | None
+
+
 if __name__ == '__main__':
     pass

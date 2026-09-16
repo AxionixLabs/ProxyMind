@@ -14,6 +14,11 @@ from tests.architecture.source_inventory import (
 def test_agent_responsibility_packages_are_physical() -> None:
     """确保 Agent Harness 的职责重组落在真实子包而非平铺或转发模块。"""
     expected_files = {
+        "application/mcp/__init__.py",
+        "application/mcp/oauth.py",
+        "domain/mcp_oauth.py",
+        "ports/mcp_oauth.py",
+        "ports/mcp_credentials.py",
         "application/approvals/__init__.py",
         "application/approvals/amendments.py",
         "application/approvals/coordinator.py",

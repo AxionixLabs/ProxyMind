@@ -12,14 +12,22 @@ from urllib.parse import (
     urlunsplit,
 )
 
+from agent.application.mcp.oauth import McpOAuthService
+from agent.domain.mcp_oauth import (
+    McpOAuthError,
+    McpOAuthStorageError,
+)
 from frontends.cli.commands import (
     McpAddCommand,
     McpGetCommand,
     McpListCommand,
+    McpLoginCommand,
+    McpLogoutCommand,
     McpRegistryCommand,
     McpRemoveCommand,
     McpSetEnabledCommand
 )
+from infrastructure.config.mcp_oauth import McpOAuthServerSettings
 from infrastructure.config.runtime_paths import application_config_path
 from infrastructure.config.schema import ConfigOverride
 from infrastructure.config.session import ConfigSession
@@ -28,6 +36,45 @@ from infrastructure.errors import AppError
 from infrastructure.mcp.registry import McpServerRegistry
 
 SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
+
+
+class _CredentialStatus(typing.TypedDict):
+    """限定 CLI 凭据状态的公开字段，不序列化完整凭据目标或快照。"""
+
+    state: str
+    expires_at: float | None
+    error: str | None
+
+
+class _OAuthPresenter:
+    """只向当前用户的终端输出授权地址，不经过运行时日志或模型上下文。"""
+
+    def __init__(self, stream: typing.TextIO) -> None:
+        """绑定短期命令的输出流。"""
+        self._stream = stream
+
+    def authorization_url(self, url: str) -> None:
+        """在打开浏览器之前输出可手动使用的授权地址。"""
+        self._stream.write(f"Authorize this MCP server by opening this URL in your browser:\n{url}\n")
+        self._stream.flush()
+
+    def browser_unavailable(self) -> None:
+        """保留已显示地址供无法自动启动浏览器的用户继续操作。"""
+        self._stream.write("Could not open the browser. Open the URL above to continue.\n")
+        self._stream.flush()
+
+
+async def _credential_status(
+    name: str, settings: McpOAuthServerSettings,
+    factory: typing.Callable[[Path], McpOAuthService] | None, config_root: Path,
+) -> _CredentialStatus:
+    """仅对适用服务读取本地凭据，不发起网络请求或覆盖连接状态。"""
+    if not settings.applicable:
+        return {"state": "not_applicable", "expires_at": None, "error": None}
+    if factory is None:
+        raise AppError("MCP OAuth service factory is not configured")
+    view = await factory(config_root).view(settings.target(name))
+    return {"state": view.state, "expires_at": view.expires_at, "error": view.error}
 
 
 def _server_transport(config: dict[str, typing.Any]) -> str:
@@ -83,6 +130,12 @@ def _public_server_config(
 
     if "url" in public:
         public["url"] = _redact_url(public.get("url"))
+    oauth = public.get("oauth")
+    if isinstance(oauth, dict):
+        public_oauth = dict(oauth)
+        if "client_metadata_url" in public_oauth:
+            public_oauth["client_metadata_url"] = _redact_url(public_oauth["client_metadata_url"])
+        public["oauth"] = public_oauth
     for field in ("env", "http_headers"):
         value = public.get(field)
         if isinstance(value, dict):
@@ -103,6 +156,7 @@ def _write_json(value: object, stream: typing.TextIO) -> None:
 def _write_server_list(
     servers: tuple[tuple[str, dict[str, typing.Any]], ...],
     stream: typing.TextIO,
+    credentials: dict[str, _CredentialStatus],
 ) -> None:
     """以稳定列宽输出外部 MCP 服务列表。"""
     if not servers:
@@ -126,13 +180,13 @@ def _write_server_list(
     stream.write(
         f"{'Name':<{name_width}}  "
         f"{'Transport':<{transport_width}}  "
-        f"{'Status':<{status_width}}  Target\n"
+        f"{'Status':<{status_width}}  {'OAuth (local)':<14}  Target\n"
     )
     for name, transport, status, target in rows:
         stream.write(
             f"{name:<{name_width}}  "
             f"{transport:<{transport_width}}  "
-            f"{status:<{status_width}}  {target}\n"
+            f"{status:<{status_width}}  {credentials[name]['state']:<14}  {target}\n"
         )
 
 
@@ -184,26 +238,35 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
     return config
 
 
-def run_mcp_registry_command(
+async def run_mcp_registry_command(
     command: McpRegistryCommand,
     *,
     config_overrides: tuple[ConfigOverride, ...] = (),
     config_profile: str | None = None,
-    output_stream: typing.TextIO | None = None
+    output_stream: typing.TextIO | None = None,
+    oauth_factory: typing.Callable[[Path], McpOAuthService] | None = None,
+    working_directory: str | None = None,
 ) -> int:
     """执行一个外部 MCP 服务注册表命令。"""
     stream = sys.stdout if output_stream is None else output_stream
 
+    config_path = application_config_path()
     registry = McpServerRegistry(ConfigSession(
-        ConfigStore(application_config_path()),
+        ConfigStore(config_path),
         config_overrides,
         profile=config_profile,
-        workspace=Path.cwd(),
+        workspace=Path(working_directory) if working_directory is not None else Path.cwd(),
     ))
 
     try:
         if isinstance(command, McpListCommand):
             servers = registry.list()
+            credentials = {
+                name: await _credential_status(
+                    name, McpOAuthServerSettings.model_validate(config), oauth_factory, config_path.parent,
+                )
+                for name, config in servers
+            }
             if command.output_format == "json":
                 _write_json(
                     {
@@ -211,6 +274,7 @@ def run_mcp_registry_command(
                             {
                                 "name": name,
                                 "config": _public_server_config(config),
+                                "oauth": credentials[name],
                             }
                             for name, config in servers
                         ]
@@ -218,20 +282,40 @@ def run_mcp_registry_command(
                     stream,
                 )
             else:
-                _write_server_list(servers, stream)
+                _write_server_list(servers, stream, credentials)
             return 0
 
         if isinstance(command, McpGetCommand):
-            config = _public_server_config(registry.get(command.name))
-            value = {"name": command.name, "config": config}
+            raw = registry.get(command.name)
+            status = await _credential_status(
+                command.name, McpOAuthServerSettings.model_validate(raw), oauth_factory, config_path.parent,
+            )
+            config = _public_server_config(raw)
+            value = {"name": command.name, "config": config, "oauth": status}
 
             if command.output_format == "json":
                 _write_json(value, stream)
             else:
                 stream.write(f"{command.name}\n")
+                stream.write(f"OAuth (local): {status['state']}\n")
                 stream.write(json.dumps(config, ensure_ascii=False, indent=2))
                 stream.write("\n")
 
+            return 0
+
+        if isinstance(command, (McpLoginCommand, McpLogoutCommand)):
+            settings = McpOAuthServerSettings.model_validate(registry.get(command.name))
+            if oauth_factory is None:
+                raise AppError("MCP OAuth service factory is not configured")
+            service = oauth_factory(config_path.parent)
+            if isinstance(command, McpLoginCommand):
+                request = settings.login_request(command.name, scopes=command.scopes, timeout_sec=command.timeout_sec)
+                await service.login(request, _OAuthPresenter(stream))
+                stream.write(f"Successfully logged in to MCP server '{command.name}'.\n")
+            else:
+                result = await service.logout(settings.target(command.name))
+                verb = "Removed" if result.removed else "No"
+                stream.write(f"{verb} local OAuth credentials for MCP server '{command.name}'. Remote authorization was not revoked.\n")
             return 0
 
         if isinstance(command, McpAddCommand):
@@ -250,6 +334,8 @@ def run_mcp_registry_command(
             stream.write(f"{action} MCP server '{command.name}'.\n")
             return 0
 
+    except (McpOAuthError, McpOAuthStorageError) as error:
+        raise AppError(str(error)) from None
     except (OSError, TypeError, ValueError) as error:
         raise AppError(str(error)) from error
 

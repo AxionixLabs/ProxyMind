@@ -20,33 +20,7 @@ from agent.domain.mcp_oauth import (
     McpOAuthToken,
 )
 from infrastructure.mcp.oauth_credentials import SystemMcpCredentialStore
-
-
-class MemoryVault:
-    def __init__(self) -> None:
-        self.values: dict[str, str] = {}
-        self.writes = 0
-        self.fail_write: int | None = None
-        self.fail_delete = False
-        self.fail_read = False
-
-    def read(self, key: str) -> str | None:
-        if self.fail_read:
-            raise McpOAuthStorageError("storage_unavailable")
-        return self.values.get(key)
-
-    def write_new(self, key: str, value: str) -> None:
-        self.writes += 1
-        if self.fail_write == self.writes:
-            raise McpOAuthStorageError("storage_unavailable")
-        assert key not in self.values
-        self.values[key] = value
-
-    def delete(self, key: str) -> None:
-        if self.fail_delete:
-            raise McpOAuthStorageError("storage_unavailable")
-        if key in self.values:
-            del self.values[key]
+from tests.fakes.mcp_credentials import MemoryVault
 
 
 def snapshot(target: McpOAuthTarget, generation: int = 0) -> McpOAuthCredentialSnapshot:

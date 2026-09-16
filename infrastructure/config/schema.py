@@ -20,6 +20,7 @@ from agent.domain.hooks import (
     HookConfigError,
     normalize_hook_state_table
 )
+from infrastructure.config.mcp_oauth import validate_mcp_oauth_options
 from infrastructure.config.providers import (
     DEFAULT_PROVIDER_KIND,
     DEFAULT_REASONING_EFFORT,
@@ -539,6 +540,7 @@ MCP_FIELDS = frozenset({
     *MCP_STRING_MAP_FIELDS,
     *MCP_NUMBER_FIELDS,
     "tools",
+    "oauth",
 })
 MCP_APPROVAL_MODES = frozenset({
     "auto",
@@ -690,6 +692,13 @@ def validate_config_value(
 
     if len(path) == 3 and path[0] == "mcp_servers" and path[1]:
         _validate_mcp_field(path[1], path[2], value)
+        return None
+
+    if len(path) == 4 and path[0] == "mcp_servers" and path[1] and path[2] == "oauth":
+        try:
+            validate_mcp_oauth_options({path[3]: value})
+        except ValueError as error:
+            raise ConfigValidationError(str(error)) from None
         return None
 
     if (
@@ -1049,6 +1058,11 @@ def _validate_effective_mcp_servers(
             raise ConfigValidationError(
                 f"mcp_servers.{name} must define exactly one of command or url"
             )
+        if "oauth" in value:
+            try:
+                validate_mcp_oauth_options(value["oauth"], effective=True)
+            except ValueError as error:
+                raise ConfigValidationError(str(error)) from None
 
 
 def _validate_mcp_field(
@@ -1058,6 +1072,13 @@ def _validate_mcp_field(
 ) -> None:
     """校验一个 MCP 服务字段。"""
     dotted = f"mcp_servers.{name}.{field}"
+
+    if field == "oauth":
+        try:
+            validate_mcp_oauth_options(value)
+        except ValueError as error:
+            raise ConfigValidationError(str(error)) from None
+        return None
 
     if field in MCP_STRING_FIELDS:
         if not isinstance(value, str):

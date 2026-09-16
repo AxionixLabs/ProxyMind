@@ -31,7 +31,7 @@ mind [OPTIONS] <COMMAND> [ARGS]
 | `mind upgrade helix` | 下载或更新 Helix 运行组件 |
 | `mind doctor` | 只读诊断本地运行环境 |
 | `mind mcp` | 外部 MCP 服务命令组 |
-| `mind mcp list/get/add/remove/enable/disable/help` | 管理外部 MCP 服务注册 |
+| `mind mcp list/get/add/remove/enable/disable/login/logout/help` | 管理外部 MCP 服务注册与本地 OAuth 凭据 |
 | `mind mcp-server` | 通过 stdio 暴露 MCP 服务 |
 | `mind completion` | 生成 shell 补全脚本 |
 | `mind help [COMMAND...]` | 查看根命令或多级子命令帮助 |
@@ -285,6 +285,52 @@ mind mcp add dbhub --url https://example.com/mcp `
 | `--approval-mode <MODE>` | 两者 | 设置 `auto`、`prompt`、`writes` 或 `approve` 工具审批模式 |
 | `--startup-timeout-sec <SECONDS>` | 两者 | 启动和工具发现超时 |
 | `--tool-timeout-sec <SECONDS>` | 两者 | 工具请求超时 |
+
+### OAuth 浏览器登录
+
+```powershell
+mind mcp login sentry
+mind mcp login sentry --scopes "org:read,project:write" --timeout-sec 180
+mind mcp logout sentry
+```
+
+`login` 使用原始配置键，适用于支持 OAuth 的 Streamable HTTP 服务。配置了
+`bearer_token_env_var` 或任意大小写的 `Authorization` header 时，登录会报告配置冲突，
+即使对应环境变量尚未设置。登录不会改写服务注册。服务和授权端点要求 HTTPS；本机
+HTTP MCP 可使用本机 HTTP 授权端点。
+
+命令先显示授权地址，再打开系统浏览器；打开失败时可手动访问已显示的地址。
+回调只监听 `127.0.0.1`，默认使用系统分配的端口。凭据成功保存到系统凭据库后才报告
+登录成功；拒绝、超时、取消或保存失败保留原有凭据。Windows 使用 Credential Manager，
+macOS 使用 Keychain，Linux 使用 Secret Service；不可用时显式失败，不回退明文文件。
+
+可选配置示例：
+
+```toml
+[mcp_servers.sentry.oauth]
+scopes = ["org:read", "project:write"]
+login_timeout_sec = 300
+# 预注册公共客户端需要同时提供固定回调端口：
+# client_id = "your-public-client-id"
+# callback_port = 12608
+# 或使用服务端支持的 HTTPS 客户端元数据文档，与 client_id 互斥：
+# client_metadata_url = "https://your-domain.example/oauth/client.json"
+```
+
+没有指定客户端身份时使用服务端声明的动态注册端点；只支持无需 client secret 的公共
+客户端。`--scopes` 使用逗号分隔；未指定时依次选择配置、Bearer challenge、资源元数据、
+授权服务器元数据中的范围。`scopes = []` 或 `--scopes ""` 明确请求空范围。显式范围不足
+或服务端返回不同范围会报错。`--timeout-sec` 覆盖配置，并限制发现、浏览器等待、交换和
+保存的总时长；HTTP 单次等待另有 20 秒上限。
+
+`mcp list/get` 的 `OAuth (local)` / JSON `oauth` 字段只读取本地凭据：`missing` 无记录、
+`stored` 已保存、`expired` 已到期、`unavailable` 存储不可用或记录损坏，
+`not_applicable` 为 stdio、SSE 或显式认证配置。查询不联网验证授权是否仍有效。
+`logout` 幂等删除当前目标的本地凭据，不移除配置，也不声称撤销服务端授权。
+退出码：成功为 `0`，登录或存储失败为 `1`，参数错误为 `2`，用户取消为 `130`。
+
+当前登录命令完成凭据保存；工具连接使用 OAuth 凭据及自动刷新按实现清单的阶段四接入。
+真实 Sentry 登录和工具调用验收仍以阶段六为准。
 
 ### 添加 stdio 服务
 

@@ -4,10 +4,13 @@
 import argparse
 import math
 
+from agent.domain.mcp_oauth import normalize_oauth_scopes
 from .commands import (
     McpAddCommand,
     McpGetCommand,
     McpListCommand,
+    McpLoginCommand,
+    McpLogoutCommand,
     McpRegistryCommand,
     McpRemoveCommand,
     McpSetEnabledCommand,
@@ -56,6 +59,23 @@ def parse_mcp_command(
 
     if command == "add":
         return _parse_add_command(parser, values)
+
+    if command == "login":
+        raw_scopes = _optional_string(parser, values, "scopes")
+        try:
+            scopes = None if raw_scopes is None else normalize_oauth_scopes(tuple(raw_scopes.split(",")) if raw_scopes else ())
+        except ValueError as error:
+            parser.error(str(error))
+        name = _optional_string(parser, values, "name")
+        if name is None or not name.strip():
+            parser.error("MCP server name must be non-empty")
+        return McpLoginCommand(name, scopes, _positive_number(parser, values, "timeout_sec"))
+
+    if command == "logout":
+        name = _optional_string(parser, values, "name")
+        if name is None or not name.strip():
+            parser.error("MCP server name must be non-empty")
+        return McpLogoutCommand(name)
 
     if command == "remove":
         return McpRemoveCommand(
@@ -192,7 +212,7 @@ def _required_string(
     value = _optional_string(parser, values, key)
     normalized = str(value or "").strip()
     if normalized:
-        return normalized
+        return value if value is not None else normalized
     parser.error(f"invalid {key}: expected non-empty string")
 
 

@@ -634,6 +634,8 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "local_tool_factory.py",
         "local_tool_registry.py",
         "nested_tool_results.py",
+        "oauth_adapter.py",
+        "oauth_callback.py",
         "oauth_credentials.py",
         "registry.py",
         "settings.py",

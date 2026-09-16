@@ -94,10 +94,9 @@ class McpServerRegistry(object):
     @staticmethod
     def _name(value: str) -> str:
         """校验服务名称。"""
-        name = str(value or "").strip()
-        if not name:
+        if not value.strip():
             raise McpConfigError("MCP server name is empty")
-        return name
+        return value
 
 
 if __name__ == '__main__':

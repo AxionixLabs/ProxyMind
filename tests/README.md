@@ -59,6 +59,13 @@ Turn/epoch、事件序号、cursor、输入 owner、lease、终态和执行门�
 进程；PTY 资源由 context manager 关闭。场景与 Fake 使用 event 或零延迟让步同步，真实 PTY、
 sidecar 和终端时序可以保留带明确截止时间的轮询。
 
+OAuth CLI 的完整用例由 `integration/test_mcp_oauth_cli.py` 和
+`test_mcp_oauth_concurrency.py` 组合生产入口、授权适配器和凭据存储验证。
+`infrastructure/mcp/test_oauth_adapter.py` 与 `test_oauth_callback.py` 使用可控 HTTP 服务
+和真实本机 TCP 回调覆盖发现、注册、PKCE、范围、拒绝、取消及资源清理。
+共享 `oauth_browser.py` 模拟浏览器重定向；`fakes/mcp_credentials.py` 提供可注入失败的
+系统凭据库替身。浏览器启动的平台分支使用 mock；这些自动测试不代表真实账号验收。
+
 ## 结构守护
 
 `test_package_architecture.py` 保留全仓入口与基础依赖方向，`architecture/` 承载 Agent、基础设施、

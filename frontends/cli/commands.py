@@ -125,6 +125,22 @@ class McpGetCommand(object):
 
 
 @dataclass(frozen=True, slots=True)
+class McpLoginCommand:
+    """描述一次显式 MCP 浏览器授权，None 范围继承配置或发现结果。"""
+
+    name: str
+    scopes: tuple[str, ...] | None = None
+    timeout_sec: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class McpLogoutCommand:
+    """描述清除指定原始配置键的本地 OAuth 凭据。"""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class McpAddCommand(object):
     """描述外部 MCP 服务添加命令。"""
     name: str
@@ -172,6 +188,8 @@ McpRegistryCommand: typing.TypeAlias = (
     | McpAddCommand
     | McpRemoveCommand
     | McpSetEnabledCommand
+    | McpLoginCommand
+    | McpLogoutCommand
 )
 
 CliCommand: typing.TypeAlias = (

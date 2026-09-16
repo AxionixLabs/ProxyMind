@@ -343,7 +343,7 @@ def create_cli_parser() -> CliArgumentParser:
         "mcp",
         prog=f"{const.APP_NAME} mcp",
         help=MCP_HELP,
-        description="Manage external MCP server registrations.",
+        description="Manage external MCP server registrations and OAuth login.",
         help_title=f"{const.APP_DESC} MCP",
         usage="%(prog)s [OPTIONS] <COMMAND>",
         add_help=False,
@@ -586,6 +586,23 @@ def create_cli_parser() -> CliArgumentParser:
         help="Print help (see more with '--help')",
     )
 
+    mcp_login_parser = mcp_subparsers.add_parser(
+        "login", prog=f"{const.APP_NAME} mcp login", help="Log in to an MCP server with OAuth",
+        description="Authorize a Streamable HTTP MCP server in your browser and store local credentials.",
+        help_title=f"{const.APP_DESC} MCP Login", usage="%(prog)s [OPTIONS] <NAME>", add_help=False,
+    )
+    mcp_login_parser.add_argument("name", metavar="NAME", help="Original configured MCP server name")
+    mcp_login_parser.add_argument("--scopes", metavar="SCOPES", help="Comma-separated scopes; an empty string explicitly requests no scopes")
+    mcp_login_parser.add_argument("--timeout-sec", type=float, metavar="SECONDS", help="Total login timeout (default: config or 300 seconds)")
+    mcp_login_parser.add_argument("-h", "--help", action="help", help="Print help")
+    mcp_logout_parser = mcp_subparsers.add_parser(
+        "logout", prog=f"{const.APP_NAME} mcp logout", help="Remove local MCP OAuth credentials",
+        description="Remove local OAuth credentials without revoking remote authorization or changing server configuration.",
+        help_title=f"{const.APP_DESC} MCP Logout", usage="%(prog)s [OPTIONS] <NAME>", add_help=False,
+    )
+    mcp_logout_parser.add_argument("name", metavar="NAME", help="Original configured MCP server name")
+    mcp_logout_parser.add_argument("-h", "--help", action="help", help="Print help")
+
     mcp_help_parser = mcp_subparsers.add_parser(
         "help",
         prog=f"{const.APP_NAME} mcp help",
@@ -742,6 +759,8 @@ def create_cli_parser() -> CliArgumentParser:
         ("mcp", "remove"): mcp_remove_parser,
         ("mcp", "enable"): mcp_enable_parser,
         ("mcp", "disable"): mcp_disable_parser,
+        ("mcp", "login"): mcp_login_parser,
+        ("mcp", "logout"): mcp_logout_parser,
         ("mcp", "help"): mcp_help_parser,
         ("mcp-server",): mcp_server_parser,
         ("completion",): completion_parser,

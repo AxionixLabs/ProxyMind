@@ -6,9 +6,11 @@ import signal
 import sys
 import threading
 import typing
+from pathlib import Path
 from types import FrameType
 
 from agent.application import RuntimeServices
+from agent.application.mcp.oauth import McpOAuthService
 from agent.ports import RunRecoveryRequired
 from frontends.tui.features.conversation import ConversationCompactorFactory
 from infrastructure.config.schema import ConfigOverride
@@ -21,6 +23,8 @@ from .commands import (
     McpAddCommand,
     McpGetCommand,
     McpListCommand,
+    McpLoginCommand,
+    McpLogoutCommand,
     McpRemoveCommand,
     McpServerCommand,
     McpSetEnabledCommand,
@@ -186,6 +190,7 @@ async def main(
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
     application_host_factory: "CliApplicationHostFactory | None" = None,
+    mcp_oauth_factory: typing.Callable[[Path], McpOAuthService] | None = None,
 ) -> int:
     """把已解析命令路由到对应的应用组合根。"""
     if isinstance(command, McpServerCommand):
@@ -222,13 +227,17 @@ async def main(
             McpAddCommand,
             McpRemoveCommand,
             McpSetEnabledCommand,
+            McpLoginCommand,
+            McpLogoutCommand,
     )):
         from .mcp_registry import run_mcp_registry_command
 
-        return run_mcp_registry_command(
+        return await run_mcp_registry_command(
             command,
             config_overrides=config_overrides,
             config_profile=config_profile,
+            oauth_factory=mcp_oauth_factory,
+            working_directory=working_directory,
         )
 
     if isinstance(command, SessionArchiveCommand):
@@ -282,6 +291,7 @@ async def _run_main(
     environment_snapshot_provider: EnvironmentSnapshotProvider | None,
     conversation_compactor_factory: ConversationCompactorFactory | None,
     application_host_factory: "CliApplicationHostFactory | None",
+    mcp_oauth_factory: typing.Callable[[Path], McpOAuthService] | None,
 ) -> int:
     """绑定主任务并进入命令路由。"""
     task = asyncio.current_task()
@@ -295,6 +305,7 @@ async def _run_main(
         and environment_snapshot_provider is None
         and conversation_compactor_factory is None
         and application_host_factory is None
+        and mcp_oauth_factory is None
     ):
         return await main(
             command,
@@ -316,6 +327,7 @@ async def _run_main(
         environment_snapshot_provider=environment_snapshot_provider,
         conversation_compactor_factory=conversation_compactor_factory,
         application_host_factory=application_host_factory,
+        mcp_oauth_factory=mcp_oauth_factory,
     )
 
 
@@ -329,6 +341,7 @@ def run(
     environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
     conversation_compactor_factory: ConversationCompactorFactory | None = None,
     application_host_factory: "CliApplicationHostFactory | None" = None,
+    mcp_oauth_factory: typing.Callable[[Path], McpOAuthService] | None = None,
 ) -> int:
     """解析命令并运行统一的进程级异步生命周期。"""
     invocation = parse_cli_invocation(arguments)
@@ -356,6 +369,7 @@ def run(
                 environment_snapshot_provider=environment_snapshot_provider,
                 conversation_compactor_factory=conversation_compactor_factory,
                 application_host_factory=application_host_factory,
+                mcp_oauth_factory=mcp_oauth_factory,
             ))
     except AppError as error:
         emit_entry_failure(command, error, phase="runtime")
