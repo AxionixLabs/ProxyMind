@@ -44,8 +44,10 @@ def main() -> None:
     """运行显式动作，凭据环境只派生给子进程，退出码和认证事实另存为脱敏证据。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--source-config", type=Path)
     parser.add_argument("--server", default="sentry")
+    parser.add_argument("--manual", action="store_true")
     parser.add_argument("action", choices=("setup", "get", "list", "login", "logout", "tui"))
     args = parser.parse_args()
     directory = args.directory.resolve()
@@ -54,7 +56,9 @@ def main() -> None:
             parser.error("setup requires --source-config")
         setup(directory, args.source_config, args.server)
         return
-    repository = Path(__file__).resolve().parents[2]
+    repository = args.repository.resolve()
+    if not (repository / "mind.py").is_file():
+        parser.error("--repository must be the source repository root")
     environment = {
         **os.environ, "MIND_HOME": str(directory / "config"),
         "MIND_STATE_HOME": str(directory / "state"), "MIND_NO_UPDATE_CHECK": "1",
@@ -67,6 +71,8 @@ def main() -> None:
         arguments.append("--json")
     if args.action == "login":
         arguments.extend(["--timeout-sec", "600"])
+        if args.manual:
+            arguments.append("--manual")
     captured = args.action == "get"
     result = subprocess.run(
         [sys.executable, str(repository / "mind.py"), *arguments],
@@ -83,6 +89,7 @@ def main() -> None:
         json.dump({
             "entry_kind": "source-cli-tty", "terminal": sys.stdin.isatty(),
             "action": args.action, "exit_code": result.returncode,
+            "manual": args.manual,
             "authorization": authorization.model_dump()["authorization"] if authorization is not None else None,
         }, stream, indent=2)
     print(f"Source {args.action} exit: {result.returncode}. Report: {report}", flush=True)

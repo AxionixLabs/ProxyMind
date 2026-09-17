@@ -63,7 +63,7 @@
         "verification": {"enum": ["unverified", "accepted", "rejected"]},
         "generation": {"type": ["integer", "null"], "minimum": 0},
         "expires_at": {"type": ["number", "null"]},
-        "error": {"enum": [null, "unsupported_transport", "configuration_conflict", "invalid_response", "registration_failed", "authorization_denied", "timeout", "network_error", "reauthorization_required", "callback_unavailable", "oauth_unavailable", "login_required", "insufficient_scope", "refresh_uncertain", "storage_unavailable", "storage_corrupt", "credential_conflict", "storage_busy"]}
+        "error": {"enum": [null, "unsupported_transport", "configuration_conflict", "invalid_response", "registration_failed", "authorization_denied", "timeout", "network_error", "reauthorization_required", "callback_unavailable", "oauth_unavailable", "login_required", "insufficient_scope", "refresh_uncertain", "callback_input_unavailable", "callback_input_closed", "callback_input_too_long", "storage_unavailable", "storage_corrupt", "credential_conflict", "storage_busy"]}
       }
     },
     "McpServiceSnapshot": {

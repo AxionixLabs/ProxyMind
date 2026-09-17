@@ -4,8 +4,13 @@ import asyncio
 
 import httpx
 import pytest
+from unittest.mock import AsyncMock
 
-from agent.domain.mcp_oauth import McpOAuthError
+from agent.domain.mcp_oauth import (
+    MCP_OAUTH_CALLBACK_MAX_BYTES,
+    McpOAuthError,
+)
+from agent.ports.mcp_oauth import McpOAuthCallbackInput
 from infrastructure.mcp.oauth_callback import oauth_callback
 from tests.infrastructure.mcp.oauth_browser import (
     assert_callback_closed,
@@ -93,3 +98,87 @@ async def test_busy_port_and_cancellation_with_incomplete_connection() -> None:
     assert await asyncio.wait_for(reader.read(), 2) == b""
     writer.close()
     await writer.wait_closed()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("change", [
+    "origin", "scheme", "port", "userinfo", "path", "fragment", "empty_fragment", "duplicate",
+    "state", "missing_state", "issuer", "missing_issuer", "code_error", "empty_code", "control", "percent", "encoding", "oversize",
+])
+async def test_pasted_callback_rejects_wrong_binding_and_malformed_parameters(change):
+    async with oauth_callback(port=None, state="expected", issuer=ISSUER_URL, require_issuer=True) as callback:
+        valid = httpx.URL(callback.redirect_uri).copy_merge_params({"code": "private-code", "state": "expected", "iss": ISSUER_URL})
+        variants = {
+            "origin": str(valid.copy_with(host="attacker.test")), "scheme": str(valid.copy_with(scheme="https")),
+            "port": str(valid.copy_with(port=1)), "userinfo": str(valid.copy_with(username="private-user")),
+            "path": str(valid.copy_with(path="/other")), "fragment": str(valid) + "#private-code", "empty_fragment": str(valid) + "#",
+            "duplicate": str(valid) + "&state=expected", "state": str(valid.copy_set_param("state", "wrong")),
+            "missing_state": str(valid.copy_remove_param("state")), "issuer": str(valid.copy_set_param("iss", "https://wrong.test")),
+            "missing_issuer": str(valid.copy_remove_param("iss")), "code_error": str(valid) + "&error=access_denied",
+            "empty_code": str(valid.copy_set_param("code", "")), "control": str(valid).replace("callback", "call\tback"),
+            "percent": str(valid) + "&extra=%xx", "encoding": str(valid) + "&extra=%ff", "oversize": str(valid) + "x" * MCP_OAUTH_CALLBACK_MAX_BYTES,
+        }
+        reader = AsyncMock(spec=McpOAuthCallbackInput)
+        reader.read_callback.return_value = variants[change]
+        with pytest.raises(McpOAuthError) as error:
+            await callback.wait(reader)
+        assert error.value.code == ("callback_input_too_long" if change == "oversize" else "invalid_response")
+        assert "private-" not in str(error.value)
+    await assert_callback_closed(callback.redirect_uri)
+
+
+@pytest.mark.anyio
+async def test_manual_success_and_provider_denial_share_one_time_receiver():
+    for denied in (False, True):
+        async with oauth_callback(port=None, state="expected", issuer=ISSUER_URL, require_issuer=False) as callback:
+            url = str(httpx.URL(callback.redirect_uri).copy_merge_params({"state": "expected", "error" if denied else "code": "access_denied" if denied else "private-code"}))
+            reader = AsyncMock(spec=McpOAuthCallbackInput)
+            reader.read_callback.return_value = url
+            if denied:
+                with pytest.raises(McpOAuthError) as error:
+                    await callback.wait(reader)
+                assert error.value.code == "authorization_denied"
+            else:
+                assert await callback.wait(reader) == "private-code"
+            assert await visit_callback(url) == 409
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("ending", ["http", "cancel", "restore_failure"])
+async def test_waiting_input_is_closed_when_loopback_wins_or_login_is_cancelled(ending):
+    entered, closed = asyncio.Event(), asyncio.Event()
+
+    async def read_callback(*, max_bytes):
+        assert max_bytes == MCP_OAUTH_CALLBACK_MAX_BYTES
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+            if ending == "restore_failure":
+                raise McpOAuthError("callback_input_unavailable")
+
+    reader = AsyncMock(spec=McpOAuthCallbackInput)
+    reader.read_callback.side_effect = read_callback
+    async with oauth_callback(port=None, state="expected", issuer=ISSUER_URL, require_issuer=False) as callback:
+        task = asyncio.create_task(callback.wait(reader))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            if ending in ("http", "restore_failure"):
+                url = str(httpx.URL(callback.redirect_uri).copy_merge_params({"state": "expected", "code": "private-code"}))
+                assert await visit_callback(url) == 200
+                if ending == "restore_failure":
+                    with pytest.raises(McpOAuthError) as error:
+                        await task
+                    assert error.value.code == "callback_input_unavailable"
+                else:
+                    assert await task == "private-code"
+            else:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            assert closed.is_set()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    await assert_callback_closed(callback.redirect_uri)

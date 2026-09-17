@@ -707,6 +707,7 @@ def test_mcp_oauth_contracts_do_not_depend_on_storage_or_sdk() -> None:
         "agent/domain/mcp_oauth.py": {"infrastructure", "frontends", "keyring", "mcp", "pydantic"},
         "agent/domain/mcp_authorization.py": {"infrastructure", "frontends", "keyring", "mcp", "pydantic"},
         "agent/ports/mcp_credentials.py": {"infrastructure", "frontends", "keyring", "mcp"},
+        "agent/ports/mcp_oauth.py": {"infrastructure", "frontends", "keyring", "mcp", "prompt_toolkit"},
         "infrastructure/platform/credential_vault.py": {"infrastructure.mcp", "agent.harness"},
     }
     violations: list[str] = []

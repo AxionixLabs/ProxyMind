@@ -76,15 +76,26 @@ Selector 事件循环另完成 4 项 stdio 验收，覆盖 SDK 进程回退及�
 
 ## 阶段四：远程终端的手动 OAuth 回调
 
-- [ ] 为显式 CLI login 增加独立输入模式，在终端隐藏粘贴的完整回调 URL。
-- [ ] 粘贴输入与 loopback 回调共用 state、issuer、回调地址校验和一次性消费规则；
+- [x] 为显式 CLI login 增加独立输入模式，在终端隐藏粘贴的完整回调 URL。
+- [x] 粘贴输入与 loopback 回调共用 state、issuer、回调地址校验和一次性消费规则；
   不导航到粘贴地址，不把地址或授权码写进诊断。
-- [ ] 对输入长度、等待期限及取消设置边界，任何终态恢复终端模式并释放监听资源。
-- [ ] 覆盖非法来源、重复参数、错误 state/issuer、超长输入、两路同时完成、
+- [x] 对输入长度、等待期限及取消设置边界，任何终态恢复终端模式并释放监听资源。
+- [x] 覆盖非法来源、重复参数、错误 state/issuer、超长输入、两路同时完成、
   token 交换时取消和退出登录竞争；从真实终端验收恢复路径。
 
 参考：`codex/codex-rs/cli/src/mcp_login.rs`、
 `codex/codex-rs/rmcp-client/src/oauth_callback_input.rs`。
+
+阶段四 Windows 源码真机通过：`mcp login --manual` 隐藏输入完整回调，输入上限为
+64 KiB，未闭合粘贴和控制序列也有界；取消、EOF、超时及失败均恢复原终端模式。
+15 项真实 PTY、本机 HTTP OAuth 和系统凭据库验收全部通过，包含交换时取消/超时、
+跨进程 logout 阻止迟到提交；确认 15 个验收进程均已退出，并对最终代码复验两种回调路径。
+独立目录完成 Sentry 手动模式登录、真实 `find_releases` 和凭据清理；本次 Sentry 由
+浏览器 loopback 送达，隐藏粘贴路径的真机证据来自本机 OAuth 服务。
+392 项 MCP 回归、54 项最终边界复验及 139 项架构审计通过，文档生成与差异检查通过。
+验收入口为 `python -m tests.manual.mcp_callback_acceptance`，报告位于
+`build/mcp-maturity-phase4-20260917/ACCEPTANCE.md`。跨机器 SSH、Linux 和 macOS
+实机仍留待阶段七，不以 Windows 本机结果代替。
 
 ## 阶段五：可选服务启动与目录复用
 

@@ -43,6 +43,7 @@ from frontends.terminal.mcp_authorization import (
     authorization_fields,
     authorization_recovery,
 )
+from frontends.terminal.oauth_input import HiddenOAuthCallbackInput
 
 SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
 
@@ -316,7 +317,8 @@ async def run_mcp_registry_command(
             service = oauth_factory(config_path.parent)
             if isinstance(command, McpLoginCommand):
                 request = settings.login_request(command.name, scopes=command.scopes, timeout_sec=command.timeout_sec)
-                await service.login(request, _OAuthPresenter(stream))
+                callback_input = HiddenOAuthCallbackInput(sys.stdin, stream) if command.manual else None
+                await service.login(request, _OAuthPresenter(stream), callback_input=callback_input)
                 stream.write(f"Successfully logged in to MCP server '{command.name}'.\n")
             else:
                 result = await service.logout(settings.target(command.name))

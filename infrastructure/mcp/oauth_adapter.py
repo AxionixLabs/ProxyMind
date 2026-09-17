@@ -49,7 +49,10 @@ from agent.domain.mcp_oauth import (
     normalize_oauth_scopes,
     normalize_oauth_url,
 )
-from agent.ports.mcp_oauth import McpOAuthPresenter
+from agent.ports.mcp_oauth import (
+    McpOAuthCallbackInput,
+    McpOAuthPresenter,
+)
 from infrastructure.mcp.oauth_callback import oauth_callback
 from metadata import const
 
@@ -284,6 +287,7 @@ class McpOAuthAdapter:
 
     async def authorize(
         self, request: McpOAuthLoginRequest, generation: int, presenter: McpOAuthPresenter,
+        *, callback_input: McpOAuthCallbackInput | None = None,
     ) -> McpOAuthCredentialSnapshot:
         """拥有授权所需短期资源，成功后返回待提交快照，取消沿调用链传播。"""
         client = self._client_factory() if self._client_factory is not None else httpx.AsyncClient(timeout=20.0, trust_env=False)
@@ -310,9 +314,9 @@ class McpOAuthAdapter:
                         raise McpOAuthError("invalid_response")
                     url = str(httpx.URL(endpoint).copy_merge_params(parameters))
                     presenter.authorization_url(url)
-                    if not await self._open_browser(url):
+                    if callback_input is None and not await self._open_browser(url):
                         presenter.browser_unavailable()
-                    code = await callback.wait()
+                    code = await callback.wait(callback_input)
                     received_at = self._clock()
                     status, document = await _json_document(
                         client, "POST", str(discovery.metadata.token_endpoint),

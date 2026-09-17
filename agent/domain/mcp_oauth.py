@@ -206,11 +206,14 @@ class McpOAuthLogoutResult:
     generation: int
 
 
+MCP_OAUTH_CALLBACK_MAX_BYTES = 64 * 1024
+
 McpOAuthErrorCode = typing.Literal[
     "unsupported_transport", "configuration_conflict", "invalid_response",
     "registration_failed", "authorization_denied", "timeout", "network_error",
     "reauthorization_required", "callback_unavailable", "oauth_unavailable",
     "login_required", "insufficient_scope", "refresh_uncertain",
+    "callback_input_unavailable", "callback_input_closed", "callback_input_too_long",
 ]
 
 
@@ -233,6 +236,9 @@ class McpOAuthError(RuntimeError):
             "login_required": "MCP OAuth login is required.",
             "insufficient_scope": "MCP OAuth permissions are insufficient; log in with the required scopes.",
             "refresh_uncertain": "MCP OAuth refresh could not be confirmed; log in again before retrying.",
+            "callback_input_unavailable": "Manual OAuth callback input requires an interactive terminal with hidden input support.",
+            "callback_input_closed": "No OAuth callback URL was received before input closed.",
+            "callback_input_too_long": "OAuth callback URL exceeds 64 KiB.",
         }
         self.code = code
         super().__init__(messages[code])

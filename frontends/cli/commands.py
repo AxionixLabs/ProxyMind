@@ -126,11 +126,12 @@ class McpGetCommand(object):
 
 @dataclass(frozen=True, slots=True)
 class McpLoginCommand:
-    """描述一次显式 MCP 浏览器授权，None 范围继承配置或发现结果。"""
+    """描述一次显式 MCP 授权及回调输入选择，None 范围继承配置或发现结果。"""
 
     name: str
     scopes: tuple[str, ...] | None = None
     timeout_sec: float | None = None
+    manual: bool = False
 
 
 @dataclass(frozen=True, slots=True)

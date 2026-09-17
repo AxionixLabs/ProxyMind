@@ -594,6 +594,7 @@ def create_cli_parser() -> CliArgumentParser:
     mcp_login_parser.add_argument("name", metavar="NAME", help="Original configured MCP server name")
     mcp_login_parser.add_argument("--scopes", metavar="SCOPES", help="Comma-separated scopes; an empty string explicitly requests no scopes")
     mcp_login_parser.add_argument("--timeout-sec", type=float, metavar="SECONDS", help="Total login timeout (default: config or 300 seconds)")
+    mcp_login_parser.add_argument("--manual", action="store_true", help="Open the link yourself and paste the callback URL with hidden terminal input")
     mcp_login_parser.add_argument("-h", "--help", action="help", help="Print help")
     mcp_logout_parser = mcp_subparsers.add_parser(
         "logout", prog=f"{const.APP_NAME} mcp logout", help="Remove local MCP OAuth credentials",

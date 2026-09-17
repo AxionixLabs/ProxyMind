@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
+import re
 import secrets
 import typing
 from contextlib import asynccontextmanager
@@ -15,9 +16,11 @@ from urllib.parse import (
 )
 
 from agent.domain.mcp_oauth import (
+    MCP_OAUTH_CALLBACK_MAX_BYTES,
     McpOAuthError,
     McpOAuthErrorCode,
 )
+from agent.ports.mcp_oauth import McpOAuthCallbackInput
 from metadata import const
 
 
@@ -49,7 +52,7 @@ class OAuthCallbackReceiver:
         try:
             self._server = await asyncio.start_server(
                 self._connected, host="127.0.0.1", port=port or 0,
-                limit=8192, reuse_address=False,
+                limit=MCP_OAUTH_CALLBACK_MAX_BYTES, reuse_address=False,
             )
         except OSError:
             raise McpOAuthError("callback_unavailable") from None
@@ -78,10 +81,18 @@ class OAuthCallbackReceiver:
         hosts = [line.partition(":")[2].strip() for line in lines[1:] if line.partition(":")[0].lower() == "host"]
         if hosts != [self._host]:
             return 400, "Invalid request."
+        if any(ord(char) <= 32 or ord(char) == 127 for char in raw_target):
+            return 400, "Invalid request."
         target = urlsplit(raw_target)
-        if target.scheme or target.netloc or target.fragment or target.path != "/callback":
+        if target.scheme or target.netloc or "#" in raw_target or target.path != "/callback":
             return 404, "Unknown callback."
-        pairs = parse_qsl(target.query, keep_blank_values=True, strict_parsing=True, max_num_fields=16)
+        return self._accept_query(target.query)
+
+    def _accept_query(self, query: str) -> tuple[int, str]:
+        """由两种回调入口共用严格参数校验及一次性提交，固定错误不回显输入。"""
+        if re.search(r"%(?![0-9A-Fa-f]{2})", query):
+            return 400, "Invalid request."
+        pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True, max_num_fields=16, errors="strict")
         parameters = dict(pairs)
         if len(parameters) != len(pairs):
             return 400, "Invalid request."
@@ -102,11 +113,36 @@ class OAuthCallbackReceiver:
         if error is not None:
             self._result.set_result(_CallbackResult(error="authorization_denied" if error == "access_denied" else "invalid_response"))
             return 200, "Authorization failed. Return to the terminal."
-        if not code or any(ord(char) < 32 for char in code):
+        if not code or any(ord(char) < 32 or ord(char) == 127 for char in code):
             self._result.set_result(_CallbackResult(error="invalid_response"))
             return 400, "Missing authorization code."
         self._result.set_result(_CallbackResult(code=code))
         return 200, "Authorization received. Return to the terminal to finish signing in."
+
+    def accept_url(self, value: str) -> None:
+        """校验粘贴地址与本次监听完全绑定后提交，不访问该地址或记录内容。"""
+        try:
+            if len(value.encode("utf-8")) > MCP_OAUTH_CALLBACK_MAX_BYTES:
+                raise McpOAuthError("callback_input_too_long")
+            value = value.strip()
+            if not value or any(ord(char) <= 32 or ord(char) == 127 for char in value):
+                raise McpOAuthError("invalid_response")
+            target = urlsplit(value)
+            if (
+                not self.redirect_uri or target.scheme != "http" or target.netloc != self._host
+                or target.path != "/callback" or "#" in value or "\\" in value
+            ):
+                raise McpOAuthError("invalid_response")
+            status, _ = self._accept_query(target.query)
+            if status != 200:
+                raise McpOAuthError("invalid_response")
+        except (ValueError, UnicodeError):
+            raise McpOAuthError("invalid_response") from None
+
+    async def _read_callback(self, callback_input: McpOAuthCallbackInput) -> None:
+        """仅在显式手动模式读取输入，将校验与提交交回当前接收器。"""
+        value = await callback_input.read_callback(max_bytes=MCP_OAUTH_CALLBACK_MAX_BYTES)
+        self.accept_url(value)
 
     async def _serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """处理有界 HTTP 请求并关闭连接，不在响应中回显身份或错误正文。"""
@@ -131,9 +167,23 @@ class OAuthCallbackReceiver:
             writer.close()
             self._writers.discard(writer)
 
-    async def wait(self) -> str:
-        """返回一次性授权码；外层用例负责总期限和用户取消。"""
-        result = await self._result
+    async def wait(self, callback_input: McpOAuthCallbackInput | None = None) -> str:
+        """等待首个有效回调，输入失败结束授权；外层负责总期限，退出前收束输入。"""
+        if callback_input is None:
+            result = await self._result
+        else:
+            reader = asyncio.create_task(self._read_callback(callback_input), name="MCP OAuth callback input")
+            try:
+                await asyncio.wait((self._result, reader), return_when=asyncio.FIRST_COMPLETED)
+                if not self._result.done():
+                    await reader
+                result = await self._result
+            finally:
+                reader.cancel()
+                completed = await asyncio.gather(reader, return_exceptions=True)
+                input_result = completed[0]
+                if isinstance(input_result, McpOAuthError) and input_result.code == "callback_input_unavailable":
+                    raise input_result
         if result.error is not None:
             raise McpOAuthError(result.error)
         if result.code is None:

@@ -14,6 +14,7 @@ from agent.domain.mcp_oauth import (
 from agent.ports.mcp_credentials import McpCredentialStore
 from agent.ports.mcp_oauth import (
     McpOAuthAuthorizer,
+    McpOAuthCallbackInput,
     McpOAuthPresenter,
 )
 
@@ -26,12 +27,15 @@ class McpOAuthService:
         self._store = store
         self._authorizer = authorizer
 
-    async def login(self, request: McpOAuthLoginRequest, presenter: McpOAuthPresenter) -> McpOAuthLoginResult:
+    async def login(
+        self, request: McpOAuthLoginRequest, presenter: McpOAuthPresenter,
+        *, callback_input: McpOAuthCallbackInput | None = None,
+    ) -> McpOAuthLoginResult:
         """授权期间释放凭据锁，提交时用原版本拒绝迟到结果。"""
         try:
             async with asyncio.timeout(request.timeout_sec):
                 record = await self._store.read(request.target)
-                snapshot = await self._authorizer.authorize(request, record.generation, presenter)
+                snapshot = await self._authorizer.authorize(request, record.generation, presenter, callback_input=callback_input)
                 if snapshot.token is None:
                     raise McpOAuthError("invalid_response")
                 async with self._store.transaction(request.target) as transaction:

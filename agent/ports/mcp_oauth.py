@@ -21,6 +21,18 @@ class McpOAuthPresenter(typing.Protocol):
         ...
 
 
+class McpOAuthCallbackInput(typing.Protocol):
+    """由终端前端实现一次隐藏输入；授权适配器负责取消，输入实现负责恢复终端。
+
+    返回完整回调 URL 供协议边界校验，不记录、回显或导航输入。
+    长度不得超过 max_bytes；成功、失败和取消都必须停止读取并释放终端状态。
+    """
+
+    async def read_callback(self, *, max_bytes: int) -> str:
+        """有界读取一次输入，用户中断传播取消，输入关闭报告固定错误。"""
+        ...
+
+
 class McpOAuthAuthorizer(typing.Protocol):
     """由基础设施实现授权协议及短期资源 owner；返回已验证快照，不自行保存。
 
@@ -30,8 +42,9 @@ class McpOAuthAuthorizer(typing.Protocol):
 
     async def authorize(
         self, request: McpOAuthLoginRequest, generation: int, presenter: McpOAuthPresenter,
+        *, callback_input: McpOAuthCallbackInput | None = None,
     ) -> McpOAuthCredentialSnapshot:
-        """完成一次显式授权，按传入版本构造尚未持久化的凭据。"""
+        """完成显式授权；提供输入时不启动浏览器，按原版本返回尚未持久化的凭据。"""
         ...
 
 

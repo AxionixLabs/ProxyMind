@@ -81,6 +81,7 @@ def test_login_and_logout_parse_raw_key_and_scope_override() -> None:
     assert parse_cli_command(["mcp", "login", " raw ", "--scopes", "read,write,read", "--timeout-sec", "12"]) == McpLoginCommand(" raw ", ("read", "write"), 12)
     assert parse_cli_command(["mcp", "login", " raw ", "--scopes", ""]) == McpLoginCommand(" raw ", ())
     assert parse_cli_command(["mcp", "login", " raw "]) == McpLoginCommand(" raw ")
+    assert parse_cli_command(["mcp", "login", " raw ", "--manual"]) == McpLoginCommand(" raw ", manual=True)
     assert parse_cli_command(["mcp", "logout", " raw "]) == McpLogoutCommand(" raw ")
 
 
@@ -106,4 +107,4 @@ def test_oauth_command_help(command: str, capsys: pytest.CaptureFixture[str]) ->
     help_text = capsys.readouterr().out
     assert command in help_text and "NAME" in help_text
     if command == "login":
-        assert "--scopes" in help_text and "--timeout-sec" in help_text
+        assert "--scopes" in help_text and "--timeout-sec" in help_text and "--manual" in help_text

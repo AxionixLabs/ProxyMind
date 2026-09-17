@@ -69,7 +69,7 @@ def parse_mcp_command(
         name = _optional_string(parser, values, "name")
         if name is None or not name.strip():
             parser.error("MCP server name must be non-empty")
-        return McpLoginCommand(name, scopes, _positive_number(parser, values, "timeout_sec"))
+        return McpLoginCommand(name, scopes, _positive_number(parser, values, "timeout_sec"), manual=bool(values["manual"]))
 
     if command == "logout":
         name = _optional_string(parser, values, "name")
