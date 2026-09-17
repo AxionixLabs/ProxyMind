@@ -160,7 +160,7 @@ async def observe_logout(
     except McpError:
         await asyncio.sleep(0)
         snapshot = group.service_snapshots[0]
-        if snapshot.authorization_error == "login_required" and not group.tools:
+        if snapshot.authorization.error == "login_required" and not group.tools:
             return
     raise LiveCheckError("logout_boundary_failed")
 
@@ -202,7 +202,7 @@ async def run_live(
                 if (
                     report.before.present or group.started or group.tools
                     or len(snapshots) != 1
-                    or snapshots[0].authorization_error != "login_required"
+                    or snapshots[0].authorization.error != "login_required"
                 ):
                     raise LiveCheckError("logged_out_boundary_failed")
                 report.logout_observed = True
@@ -230,7 +230,7 @@ async def run_live(
     finally:
         report.tools_after = len(group.tools)
         if group.service_snapshots:
-            report.authorization_error = group.service_snapshots[0].authorization_error
+            report.authorization_error = group.service_snapshots[0].authorization.error
         try:
             await group.close()
             report.resources_closed = not group.owned_keys

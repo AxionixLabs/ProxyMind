@@ -92,7 +92,7 @@ from ..features.mcp import (
     all_mcp_request,
     choose_mcp_action,
     parse_mcp_command,
-    render_mcp_status,
+    inspect_mcp_status,
     render_mcp_unavailable,
 )
 from ..features.model import (
@@ -659,9 +659,7 @@ class TuiCommandDispatcher(object):
             return StreamLocalAction(
                 key="mcp",
                 name="tui external mcp status",
-                factory=lambda: _run_immediate_stream_action(
-                    lambda: render_mcp_status(self.host)
-                ),
+                factory=lambda: inspect_mcp_status(self.host),
             )
         return StreamBarrierAction(
             lambda: self.foreground_tasks.handle_stream_command(
@@ -940,7 +938,7 @@ class TuiCommandDispatcher(object):
             return None
 
         if request.action == "status":
-            render_mcp_status(self.host, request)
+            await inspect_mcp_status(self.host, request)
             return None
 
         self.foreground_tasks.start_external_mcp(request)

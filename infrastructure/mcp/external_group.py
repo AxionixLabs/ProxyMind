@@ -36,7 +36,13 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 
+from agent.domain.mcp_authorization import (
+    McpAuthorizationStatus,
+    authorization_accepted,
+    authorization_failed,
+)
 from agent.domain.mcp_oauth import (
+    McpOAuthBinding,
     McpOAuthError,
     McpOAuthStorageError,
 )
@@ -76,7 +82,6 @@ from infrastructure.mcp.values import (
     tool_name_hook,
 )
 from observability import observe
-from metadata import const
 from observability.third_party import (
     route_session_termination_warnings,
     route_stdio_client_logs,
@@ -136,6 +141,7 @@ class ExternalMcpGroup:
         self._closed: bool = False
         self._close_lock: asyncio.Lock = asyncio.Lock()
         self._service_states: dict[str, McpServiceSnapshot] = {}
+        self._authorization_bindings: dict[str, McpOAuthBinding | None] = {}
         self._staged_keys: set[str] = set()
         self._can_publish = can_publish
         self._credential_store = credential_store
@@ -155,6 +161,10 @@ class ExternalMcpGroup:
         """返回仍持有资源或待确认清理结果的服务键。"""
         return frozenset(item.config_key for item in self._connections)
 
+    def authorization_binding(self, key: str) -> McpOAuthBinding | None:
+        """供运行时核对连接与本地凭据的身份，禁止把新配置的凭据合并到旧连接。"""
+        return self._authorization_bindings.get(key)
+
     def freeze_tools(self, keys: frozenset[str]) -> "ExternalMcpTools":
         """复制已发布服务的目录；调用方必须在引用存续期间阻止相应连接重建。"""
         names = {
@@ -165,10 +175,14 @@ class ExternalMcpGroup:
     def _remember_server(self, server: NormalizedMcpServer) -> None:
         """在预检前建立连接状态，使没有进入 SDK 的失败同样可被观察。"""
         key = server.get("config_key", server["name"])
+        self._authorization_bindings[key] = server.get("oauth_binding")
         self._service_states[key] = McpServiceSnapshot(
             config_key=key, tool_prefix=f"mcp__{server['name']}__",
             config_enabled=server.get("enabled", True), state="starting",
             transport=server.get("transport", "streamable_http"),
+            authorization=server.get("authorization", McpAuthorizationStatus(
+                "unsupported" if server.get("transport") == "stdio" else "unknown",
+            )),
         )
 
     def _withdraw(self, key: str) -> None:
@@ -187,9 +201,21 @@ class ExternalMcpGroup:
         self._withdraw(key)
         snapshot = self._service_states.get(key)
         if snapshot is not None:
-            if snapshot.authorization_error is not None and snapshot.connection_error:
+            if snapshot.authorization.error is not None and snapshot.connection_error:
                 detail = snapshot.connection_error
             self._service_states[key] = replace(snapshot, state="failed", connection_error=detail)
+
+    def _observe_http_rejection(self, key: str, error: BaseException) -> None:
+        """将显式 HTTP 凭据的远端拒绝归约为事实，不根据异常文本推断认证状态。"""
+        snapshot = self._service_states.get(key)
+        if snapshot is None or snapshot.authorization.state not in ("header", "bearer"):
+            return
+        for item in flatten_exceptions(error):
+            if isinstance(item, httpx.HTTPStatusError) and item.response.status_code in (401, 403):
+                status = authorization_failed(snapshot.authorization,
+                    "login_required" if item.response.status_code == 401 else "insufficient_scope")
+                self._service_states[key] = replace(snapshot, authorization=status)
+                return
 
     def _runtime_auth(self, server: NormalizedMcpServer, disconnected: asyncio.Event) -> McpOAuthRuntimeAuth | None:
         """为适用连接创建非交互认证；安全错误在所属连接快照中归约。"""
@@ -202,15 +228,17 @@ class ExternalMcpGroup:
             """撤下认证失败的目录并通知连接 owner 收束，不影响其他服务。"""
             key = binding.target.config_key
             detail = str(error)
-            if isinstance(error, McpOAuthError):
-                detail += f" Run {const.APP_NAME} mcp login <name>, then restart this MCP service."
             self._mark_failed(key, detail)
-            snapshot = self._service_states.get(key)
-            if snapshot is not None:
-                self._service_states[key] = replace(snapshot, authorization_error=error.code)
             disconnected.set()
 
-        return McpOAuthRuntimeAuth(binding, store, failed=failed)
+        def observed(authorization: McpAuthorizationStatus) -> None:
+            """将请求观察归约到所属连接，不把令牌或第三方载荷交给展示层。"""
+            key = binding.target.config_key
+            snapshot = self._service_states.get(key)
+            if snapshot is not None:
+                self._service_states[key] = replace(snapshot, authorization=authorization)
+
+        return McpOAuthRuntimeAuth(binding, store, failed=failed, observed=observed)
 
     async def start_service(
         self, server: NormalizedMcpServer, status: ExternalMcpStatus | None = None,
@@ -664,6 +692,7 @@ class ExternalMcpGroup:
         self._service_states[key] = replace(
             snapshot, state="ready", tools=tuple(sorted(prepared.tools)),
             discovered=prepared.discovered_count, filtered=prepared.discovered_count - exposed,
+            authorization=authorization_accepted(snapshot.authorization),
         )
 
     def _check_publication(self) -> None:
@@ -790,6 +819,7 @@ class ExternalMcpGroup:
                 raise ConnectionError("MCP transport closed")
 
         except BaseException as exc:
+            self._observe_http_rejection(config_key, exc)
             self._mark_failed(config_key, external_status_detail_from_exception(exc))
             if not ready.done():
                 if isinstance(exc, asyncio.CancelledError):
@@ -806,6 +836,7 @@ class ExternalMcpGroup:
                 with route_session_termination_warnings():
                     await session_stack.aclose()
             except BaseException as error:
+                self._observe_http_rejection(config_key, error)
                 if connection is not None:
                     # SDK 子任务的请求错误在任务组退出时重新抛出；资源栈仍已完成全部回收。
                     if _is_session_background_error(error):

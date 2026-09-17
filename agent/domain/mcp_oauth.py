@@ -162,17 +162,39 @@ class McpOAuthCredentialRecord:
     snapshot: McpOAuthCredentialSnapshot | None = field(repr=False)
 
 
+McpOAuthCredentialState = typing.Literal[
+    "not_applicable", "missing", "registered", "stored", "expired", "unavailable",
+    "refresh_uncertain", "reauthorization_required",
+]
+
+
 @dataclass(frozen=True, slots=True)
 class McpOAuthCredentialView:
     """投影本地凭据状态；不包含机密，也不宣称远端认证仍有效。"""
 
     target: McpOAuthTarget
-    state: typing.Literal[
-        "not_applicable", "missing", "registered", "stored", "expired", "unavailable",
-        "refresh_uncertain", "reauthorization_required",
-    ]
+    state: McpOAuthCredentialState
     expires_at: float | None = None
     error: McpOAuthStorageErrorCode | None = None
+    generation: int | None = None
+
+
+def credential_view_from_record(
+    target: McpOAuthTarget, record: McpOAuthCredentialRecord, *, now: float,
+) -> McpOAuthCredentialView:
+    """从已读取记录投影本地凭据事实，供存储查询和请求边界共同使用。"""
+    snapshot = record.snapshot
+    if snapshot is None:
+        return McpOAuthCredentialView(target, "missing", generation=record.generation)
+    if snapshot.recovery is not None:
+        return McpOAuthCredentialView(target, snapshot.recovery, generation=record.generation)
+    token = snapshot.token
+    if token is None:
+        return McpOAuthCredentialView(target, "registered", generation=record.generation)
+    expired = token.expires_at is not None and token.expires_at <= now
+    return McpOAuthCredentialView(
+        target, "expired" if expired else "stored", token.expires_at, generation=record.generation,
+    )
 
 
 @dataclass(frozen=True, slots=True)

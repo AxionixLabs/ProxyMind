@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import typing
+from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import (
     urlsplit,
@@ -13,6 +14,10 @@ from urllib.parse import (
 )
 
 from agent.application.mcp.oauth import McpOAuthService
+from agent.domain.mcp_authorization import (
+    McpAuthorizationStatus,
+    authorization_from_credentials,
+)
 from agent.domain.mcp_oauth import (
     McpOAuthError,
     McpOAuthStorageError,
@@ -34,16 +39,12 @@ from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.errors import AppError
 from infrastructure.mcp.registry import McpServerRegistry
+from frontends.terminal.mcp_authorization import (
+    authorization_fields,
+    authorization_recovery,
+)
 
 SENSITIVE_PATH_COMPONENT = re.compile(r"^[A-Za-z0-9_-]{24,}$")
-
-
-class _CredentialStatus(typing.TypedDict):
-    """限定 CLI 凭据状态的公开字段，不序列化完整凭据目标或快照。"""
-
-    state: str
-    expires_at: float | None
-    error: str | None
 
 
 class _OAuthPresenter:
@@ -64,17 +65,17 @@ class _OAuthPresenter:
         self._stream.flush()
 
 
-async def _credential_status(
+async def _authorization_status(
     name: str, settings: McpOAuthServerSettings,
     factory: typing.Callable[[Path], McpOAuthService] | None, config_root: Path,
-) -> _CredentialStatus:
+) -> McpAuthorizationStatus:
     """仅对适用服务读取本地凭据，不发起网络请求或覆盖连接状态。"""
     if not settings.applicable:
-        return {"state": "not_applicable", "expires_at": None, "error": None}
+        return settings.authorization
     if factory is None:
         raise AppError("MCP OAuth service factory is not configured")
     view = await factory(config_root).view(settings.target(name))
-    return {"state": view.state, "expires_at": view.expires_at, "error": view.error}
+    return authorization_from_credentials(view, settings.authorization)
 
 
 def _server_transport(config: dict[str, typing.Any]) -> str:
@@ -156,7 +157,7 @@ def _write_json(value: object, stream: typing.TextIO) -> None:
 def _write_server_list(
     servers: tuple[tuple[str, dict[str, typing.Any]], ...],
     stream: typing.TextIO,
-    credentials: dict[str, _CredentialStatus],
+    credentials: dict[str, McpAuthorizationStatus],
 ) -> None:
     """以稳定列宽输出外部 MCP 服务列表。"""
     if not servers:
@@ -180,14 +181,18 @@ def _write_server_list(
     stream.write(
         f"{'Name':<{name_width}}  "
         f"{'Transport':<{transport_width}}  "
-        f"{'Status':<{status_width}}  {'OAuth (local)':<14}  Target\n"
+        f"{'Status':<{status_width}}  {'Auth':<24}  {'Credentials (local)':<24}  Target\n"
     )
     for name, transport, status, target in rows:
         stream.write(
             f"{name:<{name_width}}  "
             f"{transport:<{transport_width}}  "
-            f"{status:<{status_width}}  {credentials[name]['state']:<14}  {target}\n"
+            f"{status:<{status_width}}  {credentials[name].state:<24}  {credentials[name].credentials or '-':<24}  {target}\n"
         )
+        hint = authorization_recovery(credentials[name], name)
+        if hint is not None:
+            stream.write(f"  Recovery: {hint}\n")
+    stream.write("Authentication is unverified; this command only reads local credentials.\n")
 
 
 def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
@@ -262,7 +267,7 @@ async def run_mcp_registry_command(
         if isinstance(command, McpListCommand):
             servers = registry.list()
             credentials = {
-                name: await _credential_status(
+                name: await _authorization_status(
                     name, McpOAuthServerSettings.model_validate(config), oauth_factory, config_path.parent,
                 )
                 for name, config in servers
@@ -274,7 +279,7 @@ async def run_mcp_registry_command(
                             {
                                 "name": name,
                                 "config": _public_server_config(config),
-                                "oauth": credentials[name],
+                                "authorization": asdict(credentials[name]),
                             }
                             for name, config in servers
                         ]
@@ -287,17 +292,18 @@ async def run_mcp_registry_command(
 
         if isinstance(command, McpGetCommand):
             raw = registry.get(command.name)
-            status = await _credential_status(
+            status = await _authorization_status(
                 command.name, McpOAuthServerSettings.model_validate(raw), oauth_factory, config_path.parent,
             )
             config = _public_server_config(raw)
-            value = {"name": command.name, "config": config, "oauth": status}
+            value = {"name": command.name, "config": config, "authorization": asdict(status)}
 
             if command.output_format == "json":
                 _write_json(value, stream)
             else:
                 stream.write(f"{command.name}\n")
-                stream.write(f"OAuth (local): {status['state']}\n")
+                for label, detail in authorization_fields(status, command.name):
+                    stream.write(f"{label}: {detail}\n")
                 stream.write(json.dumps(config, ensure_ascii=False, indent=2))
                 stream.write("\n")
 

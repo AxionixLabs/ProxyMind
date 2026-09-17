@@ -200,6 +200,9 @@ async def test_stale_401_does_not_delete_external_login_replacement(tmp_path: Pa
             await client.get(RESOURCE_URL)
     saved = (await fixture.store.read(fixture.target)).snapshot
     assert saved is not None and saved.token is not None and saved.token.access_token == "replacement"
+    status = fixture.authorizations[-1]
+    assert status.generation == saved.generation and status.state == "oauth"
+    assert status.verification == "unverified" and status.error is None
 
 
 @pytest.mark.anyio
@@ -211,6 +214,44 @@ async def test_blocked_refresh_has_finite_deadline_and_persistent_recovery_state
         await asyncio.wait_for(request(fixture), 7)
     assert error.value.code == "refresh_uncertain"
     assert (await fixture.store.view(fixture.target)).state == "refresh_uncertain"
+    assert fixture.authorizations[-1].state == "reauthorization_required"
+    assert fixture.authorizations[-1].credentials == "refresh_uncertain"
+
+
+@pytest.mark.anyio
+async def test_late_success_does_not_authenticate_a_newer_pending_request(tmp_path: Path) -> None:
+    fixture = RuntimeOAuthFixture(tmp_path)
+    await fixture.save()
+    entered = [asyncio.Event(), asyncio.Event()]
+    released = [asyncio.Event(), asyncio.Event()]
+    calls: list[httpx.Request] = []
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        index = len(calls)
+        calls.append(request)
+        entered[index].set()
+        await released[index].wait()
+        return httpx.Response(200)
+
+    tasks: list[asyncio.Task[httpx.Response]] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), auth=fixture.auth()) as client:
+        try:
+            tasks.append(asyncio.create_task(client.get(RESOURCE_URL)))
+            await asyncio.wait_for(entered[0].wait(), 2)
+            saved = await fixture.save()
+            tasks.append(asyncio.create_task(client.get(RESOURCE_URL)))
+            await asyncio.wait_for(entered[1].wait(), 2)
+            released[0].set()
+            await tasks[0]
+            assert fixture.authorizations[-1].generation == saved.generation
+            assert fixture.authorizations[-1].verification == "unverified"
+            released[1].set()
+            await tasks[1]
+            assert fixture.authorizations[-1].verification == "accepted"
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @pytest.mark.anyio

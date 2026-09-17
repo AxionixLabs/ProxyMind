@@ -9,6 +9,7 @@ from mcp.client.session_group import (
 )
 from mcp.client.stdio import StdioServerParameters
 
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from infrastructure.config.schema import (
     ConfigValidationError,
     validate_config,
@@ -54,6 +55,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
     assert servers == [
         {
             "name": "local-shell",
+            "authorization": McpAuthorizationStatus("unsupported"),
             "config_key": "Local Shell",
             "enabled": True,
             "required": True,
@@ -75,6 +77,7 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
         },
         {
             "name": "docs-api",
+            "authorization": McpAuthorizationStatus("unsupported"),
             "config_key": "Docs API",
             "enabled": True,
             "required": False,

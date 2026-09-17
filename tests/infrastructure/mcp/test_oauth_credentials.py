@@ -354,8 +354,16 @@ async def test_unavailable_backend_and_state_directory_do_not_fall_back(tmp_path
     vault = MemoryVault()
     vault.fail_read = True
     store = store_at(tmp_path, vault)
+    assert (await store.view(target)).state == "missing"
+    with pytest.raises(McpOAuthStorageError):
+        await store.read(target)
+    vault.fail_read = False
+    async with store.transaction(target) as transaction:
+        await transaction.save(snapshot(target))
+    vault.fail_read = True
     assert (await store.view(target)).error == "storage_unavailable"
     vault.fail_read = False
+    await store.delete(target)
     with patch("infrastructure.mcp.oauth_credentials.sqlite3.connect", side_effect=PermissionError("secret-error")):
         assert (await store.view(target)).error == "storage_unavailable"
     assert not vault.values

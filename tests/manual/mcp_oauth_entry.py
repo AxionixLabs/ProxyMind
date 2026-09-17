@@ -30,6 +30,7 @@ class _Status(BaseModel):
     """只接收运行入口公开的本地凭据状态。"""
 
     state: str
+    credentials: str
     expires_at: float | None
     error: str | None
 
@@ -38,7 +39,7 @@ class _Server(BaseModel):
     """在子进程输出边界验证所需字段，不使用未验证字典。"""
 
     name: str
-    oauth: _Status
+    authorization: _Status
 
 
 class _Report(typing.TypedDict):
@@ -101,17 +102,17 @@ def check_entry(command: list[str], entry_kind: typing.Literal["source", "instal
             cli("login_syntax", ["mcp", "login"], expected=2)
             cli("registration", ["mcp", "add", service, "--url", "https://example.invalid/mcp"])
             missing = _Server.model_validate_json(cli("missing", ["mcp", "get", service, "--json"]))
-            if missing.oauth.state != "missing":
+            if missing.authorization.credentials != "missing":
                 raise RuntimeError("Entry credential backend is unavailable or not isolated")
             anyio.run(run_operation, root, "write")
             restored = _Server.model_validate_json(cli("restore", ["mcp", "get", service, "--json"]))
-            if restored.name != service or restored.oauth != _Status(state="expired", expires_at=2000, error=None):
+            if restored.name != service or restored.authorization != _Status(state="oauth", credentials="expired", expires_at=2000, error=None):
                 raise RuntimeError("Entry did not restore the synthetic credential and its expiration")
             cli("logout", ["mcp", "logout", service])
             anyio.run(require_deleted, root)
             cli("repeated_logout", ["mcp", "logout", service])
             cleared = _Server.model_validate_json(cli("cleared", ["mcp", "get", service, "--json"]))
-            if cleared.oauth.state != "missing":
+            if cleared.authorization.credentials != "missing":
                 raise RuntimeError("Credential remained visible after logout")
             cli("remove_registration", ["mcp", "remove", service])
         finally:

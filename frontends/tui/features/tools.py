@@ -1,12 +1,22 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
 from collections import defaultdict
 
 from prompt_toolkit.utils import get_cwidth
 
 from agent.ports import McpSessionPort
+from agent.domain.mcp_authorization import McpAuthorizationStatus
+from agent.ports.mcp_runtime import (
+    McpAllServices,
+    McpControlRequest,
+    McpServiceSnapshot,
+)
+from frontends.terminal.mcp_authorization import authorization_fields
+from frontends.terminal.text import sanitize_terminal_line
+from frontends.terminal.text_layout import layout_styled_line
 from agent.ports.presentation import (
     ApplicationSink,
     ApplicationView
@@ -122,10 +132,7 @@ def summarize_tool_groups(
         if bool(meta.get("external")):
             label = str(meta.get("server") or "external").strip() or "external"
             transport = str(meta.get("transport") or "external").strip() or "external"
-            auth = str(meta.get("auth") or "Unknown").strip() or "Unknown"
             key = ("external", label, transport)
-
-            auth_by_group.setdefault(key, auth)
 
         elif bool(meta.get("client_builtin")):
             key = ("builtin", BUILTIN_TOOL_LABEL, "in-process")
@@ -165,9 +172,15 @@ def render_tools_summary(
     tools: list[dict[str, typing.Any]],
     terminal_width: int,
     limit: int = GROUP_DISPLAY_LIMIT,
+    services: tuple[McpServiceSnapshot, ...] = (),
 ) -> None:
     """打印当前会话可见工具摘要。"""
     groups = summarize_tool_groups(tools)
+    services_by_alias = {service.tool_prefix[5:-2]: service for service in services}
+    displayed = {group["label"] for group in groups if group["source"] == "external"}
+    groups.extend({
+        "source": "external", "label": alias, "detail": service.transport, "auth": "unknown", "tools": [],
+    } for alias, service in services_by_alias.items() if alias not in displayed)
     width = _terminal_width(terminal_width)
 
     parts = [
@@ -191,15 +204,29 @@ def render_tools_summary(
             label = group["label"]
             detail = group["detail"]
             auth = group["auth"]
-
-            parts.extend([
-                TextSpan("  • ", TOOLS_TEXT_STYLE),
-                TextSpan(label, TOOLS_TEXT_STYLE),
-                TextSpan("\n    • Auth: ", TOOLS_TEXT_STYLE),
-                TextSpan(auth, TOOLS_TEXT_STYLE),
-                TextSpan("\n    • Transport: ", TOOLS_TEXT_STYLE),
-                TextSpan(detail, TOOLS_TEXT_STYLE),
-            ])
+            service = services_by_alias.get(label) if group["source"] == "external" else None
+            fields = (
+                authorization_fields(
+                    service.authorization if service is not None else McpAuthorizationStatus(),
+                    service.config_key if service is not None else label,
+                    service.state if service is not None else None,
+                )
+                if group["source"] == "external" else (("Auth", auth),)
+            )
+            parts.extend(layout_styled_line(
+                [TextSpan(sanitize_terminal_line(service.config_key if service is not None else label), TOOLS_TEXT_STYLE)],
+                first_prefix=TextSpan("  • ", TOOLS_TEXT_STYLE),
+                continuation_prefix=TextSpan("    ", TOOLS_TEXT_STYLE), terminal_width=width,
+            ))
+            if service is not None:
+                fields = (("Connection", service.state), *fields)
+            for field, value in (*fields, ("Transport", detail)):
+                parts.append(TextSpan("\n", TOOLS_TEXT_STYLE))
+                parts.extend(layout_styled_line(
+                    [TextSpan(sanitize_terminal_line(value), TOOLS_TEXT_STYLE)],
+                    first_prefix=TextSpan(f"    • {field}: ", TOOLS_TEXT_STYLE),
+                    continuation_prefix=TextSpan("      ", TOOLS_TEXT_STYLE), terminal_width=width,
+                ))
 
             for line in _tool_name_lines(
                 names,
@@ -230,10 +257,14 @@ async def print_available_tools(
         session: McpSessionPort,
         tools: list[dict[str, typing.Any]]
     ) -> None:
+        owner = host.execution.external_mcp
+        snapshot = owner.snapshot
+        await owner.control(McpControlRequest(snapshot.runtime_id, snapshot.workspace, "status", McpAllServices()))
         render_tools_summary(
             application=host.frontend.application,
             tools=_tools_for_display(session, tools),
             terminal_width=host.frontend.application.viewport.width,
+            services=owner.snapshot.services,
         )
 
     try:
@@ -241,7 +272,7 @@ async def print_available_tools(
             pref_config,
             render_tools_with_session,
         )
-    except (KeyboardInterrupt, SystemExit):
+    except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
         raise
     except BaseException as tool_error:
         message = str(tool_error).strip()

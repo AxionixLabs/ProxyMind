@@ -12,10 +12,7 @@ from dataclasses import (
 )
 from pathlib import Path
 
-from agent.domain.mcp_oauth import (
-    McpOAuthErrorCode,
-    McpOAuthStorageErrorCode,
-)
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from .tool_runtime import ExternalToolGroupPort
 
 __all__ = (
@@ -104,7 +101,7 @@ class McpServiceSnapshot:
     discovered: int = 0
     filtered: int = 0
     connection_error: str | None = None
-    authorization_error: McpOAuthErrorCode | McpOAuthStorageErrorCode | None = None
+    authorization: McpAuthorizationStatus = field(default_factory=McpAuthorizationStatus)
 
 
 @dataclass(frozen=True, slots=True)

@@ -54,9 +54,21 @@
       }
     },
     "McpConnectionState": {"enum": ["stopped", "starting", "ready", "stopping", "failed"]},
+    "McpAuthorizationStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "credentials", "verification", "generation", "expires_at", "error"],
+      "properties": {
+        "state": {"enum": ["unknown", "unsupported", "header", "bearer", "oauth", "anonymous", "not_logged_in", "reauthorization_required", "unavailable"]},
+        "credentials": {"enum": [null, "not_applicable", "missing", "registered", "stored", "expired", "unavailable", "refresh_uncertain", "reauthorization_required"]},
+        "verification": {"enum": ["unverified", "accepted", "rejected"]},
+        "generation": {"type": ["integer", "null"], "minimum": 0},
+        "expires_at": {"type": ["number", "null"]},
+        "error": {"enum": [null, "unsupported_transport", "configuration_conflict", "invalid_response", "registration_failed", "authorization_denied", "timeout", "network_error", "reauthorization_required", "callback_unavailable", "oauth_unavailable", "login_required", "insufficient_scope", "refresh_uncertain", "storage_unavailable", "storage_corrupt", "credential_conflict", "storage_busy"]}
+      }
+    },
     "McpServiceSnapshot": {
       "type": "object", "additionalProperties": false,
-      "required": ["config_key", "tool_prefix", "config_enabled", "state", "transport", "tools", "discovered", "filtered", "connection_error", "authorization_error"],
+      "required": ["config_key", "tool_prefix", "config_enabled", "state", "transport", "tools", "discovered", "filtered", "connection_error", "authorization"],
       "properties": {
         "config_key": {"type": "string", "pattern": "\\S"},
         "tool_prefix": {"type": "string", "pattern": "^mcp__.+__$"},
@@ -67,7 +79,7 @@
         "discovered": {"type": "integer", "minimum": 0},
         "filtered": {"type": "integer", "minimum": 0},
         "connection_error": {"type": ["string", "null"]},
-        "authorization_error": {"enum": [null, "unsupported_transport", "configuration_conflict", "invalid_response", "registration_failed", "authorization_denied", "timeout", "network_error", "reauthorization_required", "callback_unavailable", "oauth_unavailable", "login_required", "insufficient_scope", "refresh_uncertain", "storage_unavailable", "storage_corrupt", "credential_conflict", "storage_busy"]}
+        "authorization": {"$ref": "#/$defs/McpAuthorizationStatus"}
       },
       "allOf": [
         {

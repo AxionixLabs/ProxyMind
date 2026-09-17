@@ -25,6 +25,7 @@ from agent.domain.mcp_oauth import (
     McpOAuthToken,
 )
 from agent.ports.mcp_runtime import McpServiceSnapshot
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from infrastructure.config.store import ConfigStore
 from tests.manual.mcp_oauth_sentry import (
     LiveCheckError,
@@ -147,7 +148,7 @@ async def test_logged_out_probe_requires_runtime_login_required(
         service_snapshots=(McpServiceSnapshot(
             config_key="acceptance", tool_prefix="mcp__acceptance__",
             config_enabled=True, state="failed", transport="streamable_http",
-            authorization_error=authorization_error,
+            authorization=McpAuthorizationStatus(error=authorization_error),
         ),),
         call_tool=AsyncMock(), close=AsyncMock(),
     )

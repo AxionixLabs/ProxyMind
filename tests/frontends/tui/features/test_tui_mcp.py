@@ -22,6 +22,7 @@ from agent.ports.mcp_runtime import (
     McpServicesBusy,
     McpSingleService,
 )
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from frontends.tui.core.keymap import TuiRuntimeKeymap
 from frontends.tui.core.menu import TuiMenu
 from frontends.tui.core.models import (
@@ -228,13 +229,19 @@ def test_status_restores_command_heading_bullets_and_semantic_colors():
         "    • Transport: stdio\n"
         "    • Tools: read\n"
         "    • Discovered: 3\n"
-        "    • Filtered: 2\n\n"
+        "    • Filtered: 2\n"
+        "    • Auth: unknown\n"
+        "    • Credentials (local): unknown\n"
+        "    • Last auth request: unverified\n\n"
         "  • paused\n"
         "    • Connection: stopped\n"
         "    • Config: disabled\n"
         "    • Transport: stdio\n"
         "    • Tools: (none)\n"
-        "    • Discovered: 0"
+        "    • Discovered: 0\n"
+        "    • Auth: unknown\n"
+        "    • Credentials (local): unknown\n"
+        "    • Last auth request: unverified"
     )
     assert ("class:terminal.success dim", "enabled") in fragments
     assert ("class:terminal.failure dim", "disabled") in fragments
@@ -251,10 +258,11 @@ def test_status_preserves_empty_tool_notice_with_ready_connection():
 
 
 def test_status_shows_typed_authorization_failure_without_changing_connection_semantics():
-    host, views = _host([_service("oauth", state="failed", transport="streamable_http", authorization_error="login_required", connection_error="MCP OAuth login is required.")])
+    host, views = _host([_service("oauth", state="failed", transport="streamable_http", authorization=McpAuthorizationStatus("not_logged_in", error="login_required"), connection_error="MCP OAuth login is required.")])
     mcp.render_mcp_status(host)
     text = "".join(value for _, value in views[0].renderable.fragments)
-    assert "Connection: failed" in text and "Authorization: login_required" in text
+    assert "Connection: failed" in text and "Authorization error: login_required" in text
+    assert "mind mcp login oauth" in text
     assert "MCP OAuth login is required." in text
     host.execution.external_mcp.control.assert_not_awaited()
 

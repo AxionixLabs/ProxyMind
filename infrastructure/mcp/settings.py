@@ -7,6 +7,7 @@ import typing
 from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from agent.domain.mcp_oauth import McpOAuthBinding
 from agent.ports.mcp_runtime import McpTransport
 from infrastructure.config.mcp_oauth import McpOAuthServerSettings
@@ -43,6 +44,7 @@ class NormalizedMcpServer(typing.TypedDict, total=False):
     sse_read_timeout_sec: float
     terminate_on_close: bool
     oauth_binding: McpOAuthBinding | None
+    authorization: McpAuthorizationStatus
 
 
 class McpConfigError(ValueError):
@@ -206,6 +208,7 @@ def normalize_mcp_servers(
         seen_names.add(unique_slug)
 
         base: NormalizedMcpServer = {
+            "authorization": McpOAuthServerSettings.model_validate(item).authorization,
             "name": unique_slug,
             "config_key": name,
             "enabled": item.get("enabled", True) is not False,

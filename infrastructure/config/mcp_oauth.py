@@ -14,6 +14,7 @@ from pydantic import (
     field_validator,
 )
 
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from agent.domain.mcp_oauth import (
     McpDynamicClient,
     McpMetadataClient,
@@ -101,6 +102,19 @@ class McpOAuthServerSettings(BaseModel):
     http_headers: dict[str, str] = Field(default_factory=dict, repr=False)
     env_http_headers: dict[str, str] = Field(default_factory=dict, repr=False)
     oauth: McpOAuthOptions = Field(default_factory=McpOAuthOptions)
+
+    @property
+    def authorization(self) -> McpAuthorizationStatus:
+        """仅依据配置选择认证类型，不解析环境秘密或宣称远端已接受。"""
+        if self.command:
+            return McpAuthorizationStatus("unsupported")
+        if "bearer_token_env_var" in self.model_fields_set:
+            return McpAuthorizationStatus("bearer")
+        if self.explicit_auth:
+            return McpAuthorizationStatus("header")
+        if not self.applicable:
+            return McpAuthorizationStatus("unsupported")
+        return McpAuthorizationStatus("not_logged_in" if "oauth" in self.model_fields_set else "unknown")
 
     @property
     def explicit_auth(self) -> bool:

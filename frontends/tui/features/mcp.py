@@ -26,6 +26,7 @@ from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     render_mcp_status_block,
 )
+from frontends.terminal.mcp_authorization import authorization_fields
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     semantic_text_style,
@@ -221,6 +222,17 @@ def _mcp_detail_line(label: str, value: str, style: TextStyle, *, width: int) ->
     )
 
 
+async def inspect_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | None = None) -> None:
+    """通过既有 owner 更新本地认证事实，再提交纯展示；不访问凭据或建立连接。"""
+    try:
+        selected = request or all_mcp_request(host, "status")
+        await host.execution.external_mcp.control(selected)
+    except RuntimeError as error:
+        render_mcp_unavailable(host, error)
+        return
+    render_mcp_status(host, selected)
+
+
 def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | None = None) -> None:
     """仅读取本地类型化快照，展示连接事实和配置错误。"""
     runtime = host.execution.external_mcp
@@ -305,8 +317,9 @@ def render_mcp_status(host: "TuiApplicationHost", request: McpControlRequest | N
         ]
         if service.filtered:
             fields.append(("Filtered", str(service.filtered), MUTED_STYLE))
-        if service.authorization_error:
-            fields.append(("Authorization", service.authorization_error, FAILURE_STYLE))
+        fields.extend((label, value, MUTED_STYLE) for label, value in authorization_fields(
+            service.authorization, service.config_key, service.state,
+        ))
         if service.connection_error:
             fields.append(("Connection error", service.connection_error, FAILURE_STYLE))
         for label, value, style in fields:

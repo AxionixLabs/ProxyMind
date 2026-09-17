@@ -121,7 +121,7 @@ async def worker_main(root: Path, key: str, command: str, pipe: Connection) -> N
             return httpx.Response(200)
 
         binding = McpOAuthBinding(target, McpRegisteredClient("native"))
-        auth = McpOAuthRuntimeAuth(binding, store, failed=lambda error: None, clock=lambda: 1950,
+        auth = McpOAuthRuntimeAuth(binding, store, failed=lambda error: None, observed=lambda status: None, clock=lambda: 1950,
             refresher=McpOAuthRefreshAdapter(client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handle)), clock=lambda: 1950))
         pipe.send("ready")
         assert await anyio.to_thread.run_sync(pipe.poll, 10)

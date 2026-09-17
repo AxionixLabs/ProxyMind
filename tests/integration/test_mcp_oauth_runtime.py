@@ -14,6 +14,8 @@ from mcp.shared.exceptions import McpError
 
 from agent.application.mcp.oauth import McpOAuthService
 from agent.ports.mcp_runtime import (
+    McpAllServices,
+    McpControlRequest,
     McpRuntimeContext,
     McpServicesBusy,
 )
@@ -80,7 +82,7 @@ async def test_production_owner_discovers_calls_refreshes_and_recovers_on_new_co
             try:
                 assert await group.start(servers) == 1
                 view = group.service_snapshots[0]
-                assert view.state == "ready" and view.authorization_error is None
+                assert view.state == "ready" and view.authorization.error is None
                 assert len(group.tools) == 1
                 result = await group.call_tool(next(iter(group.tools)), {})
                 assert result.content[0].type == "text" and result.content[0].text == "fixture result"
@@ -126,7 +128,7 @@ async def test_runtime_authentication_failure_withdraws_directory_and_closes_own
                 if failure in ("401", "403", "redirect"):
                     assert len(fixture.requests) == before + 1
             snapshot = group.service_snapshots[0]
-            assert snapshot.state == "failed" and snapshot.authorization_error is not None
+            assert snapshot.state == "failed" and snapshot.authorization.error is not None
             assert not group.tools
             assert "access-" not in repr(snapshot) and "refresh-" not in repr(snapshot)
         finally:
@@ -225,5 +227,133 @@ async def test_existing_http_authentication_selection_does_not_fall_back_to_oaut
             assert not fixture.refresh_requests
             expected = "Basic explicit" if mode == "header" else "Bearer explicit-secret" if mode == "bearer_present" else None
             assert fixture.requests[0].headers.get("Authorization") == expected
+            authorization = group.service_snapshots[0].authorization
+            assert authorization.state == ("anonymous" if mode == "anonymous" else "bearer" if mode.startswith("bearer") else "header")
+            assert authorization.verification == "accepted"
         finally:
             await group.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["header", "bearer"])
+async def test_explicit_http_rejection_is_visible_without_oauth_fallback(tmp_path: Path, mode: str) -> None:
+    fixture = RuntimeOAuthFixture(tmp_path)
+    fixture.resource_status = 401
+    settings = {"url": RESOURCE_URL}
+    if mode == "header":
+        settings["http_headers"] = {"Authorization": "Basic explicit"}
+    else:
+        settings["bearer_token_env_var"] = "EXPLICIT_TOKEN"
+    with patch("httpx.AsyncHTTPTransport", side_effect=lambda **kwargs: httpx.MockTransport(fixture.handle)), patch(
+        "infrastructure.mcp.external_group.preflight_server", AsyncMock(),
+    ):
+        group = ExternalMcpGroup(credential_store=fixture.store)
+        try:
+            assert await group.start(normalize_mcp_servers({fixture.target.config_key: settings})) == 0
+            authorization = group.service_snapshots[0].authorization
+            assert authorization.state == mode and authorization.verification == "rejected"
+            assert authorization.error == "login_required"
+        finally:
+            await group.close()
+
+
+@pytest.mark.anyio
+async def test_status_updates_credentials_without_connecting_and_rejects_retired_publication(tmp_path: Path) -> None:
+    fixture = RuntimeOAuthFixture(tmp_path)
+    config = ConfigStore(tmp_path / "runtime.toml")
+    config.update({("mcp_servers",): configured(fixture)})
+    runtime = ExternalMcpRuntime(McpRuntimeContext(
+        ConfigSession(config, workspace=tmp_path), AsyncMock(), AsyncMock(), lambda operation: operation,
+    ), credential_store=fixture.store)
+    request = McpControlRequest(runtime.runtime_id, str(runtime.workspace), "status", McpAllServices())
+    with patch("httpx.AsyncClient", side_effect=AssertionError("status must not probe network")):
+        await runtime.control(request)
+        assert runtime.snapshot.services[0].authorization.state == "not_logged_in"
+        await fixture.save()
+        await runtime.control(request)
+        saved = runtime.snapshot.services[0].authorization
+        assert saved.state == "oauth" and saved.verification == "unverified"
+        await fixture.store.delete(fixture.target)
+        await runtime.control(request)
+        cleared = runtime.snapshot.services[0].authorization
+        assert cleared.state == "not_logged_in" and cleared.generation > saved.generation
+        assert runtime.group is None
+        original = fixture.store.view
+
+        async def delayed(target):
+            view = await original(target)
+            runtime.retire()
+            return view
+
+        with patch.object(fixture.store, "view", side_effect=delayed):
+            with pytest.raises(RuntimeError, match="no longer active"):
+                await runtime.control(request)
+    await runtime.stop()
+
+
+@pytest.mark.anyio
+async def test_status_preserves_zero_tools_and_resets_verification_after_login_replacement(tmp_path: Path) -> None:
+    fixture = RuntimeOAuthFixture(tmp_path)
+    await fixture.save()
+    config = ConfigStore(tmp_path / "runtime.toml")
+    settings = configured(fixture)
+    settings[fixture.target.config_key]["allow"] = []
+    config.update({("mcp_servers",): settings})
+    runtime = ExternalMcpRuntime(McpRuntimeContext(
+        ConfigSession(config, workspace=tmp_path), AsyncMock(), AsyncMock(), lambda operation: operation,
+    ), credential_store=fixture.store)
+    with patch("httpx.AsyncHTTPTransport", side_effect=lambda **kwargs: httpx.MockTransport(fixture.handle)), patch(
+        "infrastructure.mcp.external_group.preflight_server", AsyncMock(),
+    ):
+        try:
+            await runtime.start()
+            connected = runtime.snapshot.services[0]
+            assert connected.state == "ready" and not connected.tools
+            assert connected.authorization.verification == "accepted"
+            await fixture.save()
+            before = len(fixture.requests)
+            await runtime.control(McpControlRequest(runtime.runtime_id, str(runtime.workspace), "status", McpAllServices()))
+            updated = runtime.snapshot.services[0]
+            assert updated.state == "ready" and updated.authorization.verification == "unverified"
+            assert len(fixture.requests) == before
+            # A new target must not borrow the credentials or observations of this live connection.
+            settings[fixture.target.config_key]["url"] = "https://other.test/mcp"
+            config.update({("mcp_servers",): settings})
+            await runtime.control(McpControlRequest(runtime.runtime_id, str(runtime.workspace), "status", McpAllServices()))
+            assert runtime.snapshot.services[0].authorization == connected.authorization
+        finally:
+            await runtime.stop()
+
+
+@pytest.mark.anyio
+async def test_cached_status_never_hides_later_success_or_storage_failure(tmp_path: Path) -> None:
+    fixture = RuntimeOAuthFixture(tmp_path)
+    await fixture.save()
+    config = ConfigStore(tmp_path / "runtime.toml")
+    config.update({("mcp_servers",): configured(fixture)})
+    runtime = ExternalMcpRuntime(McpRuntimeContext(
+        ConfigSession(config, workspace=tmp_path), AsyncMock(), AsyncMock(), lambda operation: operation,
+    ), credential_store=fixture.store)
+    request = McpControlRequest(runtime.runtime_id, str(runtime.workspace), "status", McpAllServices())
+    with patch("httpx.AsyncHTTPTransport", side_effect=lambda **kwargs: httpx.MockTransport(fixture.handle)), patch(
+        "infrastructure.mcp.external_group.preflight_server", AsyncMock(),
+    ):
+        try:
+            await runtime.start()
+            fixture.vault.fail_read = True
+            await runtime.control(request)
+            assert runtime.snapshot.services[0].authorization.state == "unavailable"
+            fixture.vault.fail_read = False
+            with runtime.use_tools() as tools:
+                assert tools is not None
+                await tools.call_tool(next(iter(tools.tools)), {})
+                assert runtime.snapshot.services[0].authorization.verification == "accepted"
+                await runtime.control(request)
+                fixture.vault.fail_read = True
+                with pytest.raises(McpError):
+                    await tools.call_tool(next(iter(tools.tools)), {})
+                assert runtime.snapshot.services[0].authorization.state == "unavailable"
+                assert runtime.snapshot.services[0].authorization.error == "storage_unavailable"
+        finally:
+            fixture.vault.fail_read = False
+            await runtime.stop()

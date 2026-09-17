@@ -17,6 +17,7 @@ def test_agent_responsibility_packages_are_physical() -> None:
         "application/mcp/__init__.py",
         "application/mcp/oauth.py",
         "domain/mcp_oauth.py",
+        "domain/mcp_authorization.py",
         "ports/mcp_oauth.py",
         "ports/mcp_credentials.py",
         "application/approvals/__init__.py",

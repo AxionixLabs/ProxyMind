@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl
 
 from pydantic import JsonValue
 
+from agent.domain.mcp_authorization import McpAuthorizationStatus
 from agent.domain.mcp_oauth import (
     McpDynamicClient,
     McpOAuthBinding,
@@ -56,6 +57,7 @@ class RuntimeOAuthFixture:
         self.resource_status = 200
         self.anonymous = False
         self.calls = 0
+        self.authorizations: list[McpAuthorizationStatus] = []
 
     async def save(self, *, expired: bool = False) -> McpOAuthCredentialSnapshot:
         """创建当前测试服务对应的已登录记录，允许模拟冷启动时已经过期。"""
@@ -73,7 +75,7 @@ class RuntimeOAuthFixture:
 
     def auth(self) -> McpOAuthRuntimeAuth:
         """创建不共享缓存的新连接认证实例。"""
-        return McpOAuthRuntimeAuth(self.binding, self.store, failed=lambda error: None,
+        return McpOAuthRuntimeAuth(self.binding, self.store, failed=lambda error: None, observed=self.authorizations.append,
             refresher=McpOAuthRefreshAdapter(client_factory=self.client, clock=lambda: self.now), clock=lambda: self.now)
 
     async def handle(self, request: httpx.Request) -> httpx.Response:

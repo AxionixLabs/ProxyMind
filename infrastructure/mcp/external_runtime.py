@@ -5,10 +5,21 @@ import asyncio
 import typing
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import (
+    dataclass,
+    replace,
+)
 from pathlib import Path
 from uuid import uuid4
 
+from agent.domain.mcp_authorization import (
+    McpAuthorizationStatus,
+    authorization_from_credentials,
+)
+from agent.domain.mcp_oauth import (
+    McpOAuthBinding,
+    McpOAuthCredentialView,
+)
 from agent.ports import McpRuntimeContext
 from agent.ports.mcp_credentials import McpCredentialStore
 from agent.ports.mcp_runtime import (
@@ -35,6 +46,17 @@ from infrastructure.mcp.settings import (
 from observability import observe
 
 
+@dataclass(frozen=True, slots=True)
+class _CredentialInspection:
+    """保存一次本地查询及查询开始时的连接事实，由 runtime 拥有并随配置失效。
+
+    相同代际仍可能产生新的成功或存储错误；只有连接事实未更新时才应用查询投影。
+    """
+
+    view: McpOAuthCredentialView
+    observed: McpAuthorizationStatus | None
+
+
 class ExternalMcpRuntime:
     """管理应用生命周期内的外部 MCP 连接和状态。"""
 
@@ -46,6 +68,7 @@ class ExternalMcpRuntime:
         self._runtime_id = str(uuid4())
         self._workspace = context.config.workspace.resolve()
         self._configured: dict[str, NormalizedMcpServer] = {}
+        self._credential_views: dict[McpOAuthBinding, _CredentialInspection] = {}
         self._last_start_snapshot: dict[str, typing.Any] = {}
         self._lifecycle_lock: asyncio.Lock = asyncio.Lock()
         self._accepting = True
@@ -143,7 +166,33 @@ class ExternalMcpRuntime:
             if command_path.parent != Path(".") or server.get("command", "").startswith(("./", ".\\")):
                 server["command"] = str((cwd / command_path).resolve())
         self._configured = {server["config_key"]: server for server in servers}
+        bindings = {server.get("oauth_binding") for server in servers}
+        self._credential_views = {binding: view for binding, view in self._credential_views.items() if binding in bindings}
         return servers
+
+    async def _refresh_authorization(self, key: str | None = None) -> None:
+        """在显式状态查询中读取本地凭据；不探测网络，退休或配置变更后不提交迟到结果。"""
+        store = self._credential_store
+        if store is None:
+            return
+        for server in tuple(self._configured.values()):
+            if key is not None and server["config_key"] != key:
+                continue
+            binding = server.get("oauth_binding")
+            if binding is None:
+                continue
+            group = self._group
+            connection = next((item for item in group.service_snapshots if item.config_key == server["config_key"]), None) if group else None
+            observed = connection.authorization if connection is not None else None
+            view = await store.view(binding.target)
+            if not self._is_active():
+                raise RuntimeError("MCP runtime or workspace is no longer active")
+            current = self._configured.get(server["config_key"])
+            if current is not None and current.get("oauth_binding") == binding:
+                previous = self._credential_views.get(binding)
+                if previous is not None and previous.view.generation is not None and view.generation is not None and view.generation < previous.view.generation:
+                    continue
+                self._credential_views[binding] = _CredentialInspection(view, observed)
 
     def _snapshots(self) -> tuple[McpServiceSnapshot, ...]:
         """合并配置事实和连接事实，不由工具数量推断连接是否存在。"""
@@ -156,8 +205,17 @@ class ExternalMcpRuntime:
                 if current is not None
                 else McpServiceSnapshot(
                     key, f"mcp__{server['name']}__", server["enabled"], "stopped", server["transport"],
+                    authorization=server.get("authorization", McpAuthorizationStatus()),
                 )
             )
+            binding = server.get("oauth_binding")
+            inspection = self._credential_views.get(binding) if binding is not None else None
+            if inspection is not None and (current is None or (group is not None and group.authorization_binding(key) == binding)):
+                view = inspection.view
+                authorization = states[key].authorization
+                newer = view.generation is not None and authorization.generation is not None and view.generation > authorization.generation
+                if current is None or authorization is inspection.observed or newer:
+                    states[key] = replace(states[key], authorization=authorization_from_credentials(view, authorization))
         for key in states.keys() - self._configured.keys():
             states[key] = replace(states[key], config_enabled=None)
         return tuple(states.values())
@@ -192,6 +250,9 @@ class ExternalMcpRuntime:
             if not self._is_active() or request.runtime_id != self._runtime_id or request.workspace != str(self._workspace):
                 raise RuntimeError("MCP runtime or workspace is no longer active")
             snapshot = self.snapshot
+            if snapshot.config_error is None:
+                await self._refresh_authorization()
+                snapshot = self.snapshot
             return McpControlResult(request, tuple(
                 McpServiceOutcome(item.config_key, "unchanged", item, snapshot.config_error)
                 for item in snapshot.services
@@ -238,6 +299,7 @@ class ExternalMcpRuntime:
                 return McpServiceOutcome(key, "failed", None, "MCP runtime or workspace is no longer active")
             try:
                 self._load_servers()
+                await self._refresh_authorization(key)
             except (ValueError, OSError, AppError) as error:
                 snapshot = next((item for item in self._snapshots() if item.config_key == key), None)
                 return McpServiceOutcome(key, "unchanged" if snapshot is not None else "failed", snapshot, external_status_detail_from_exception(error))

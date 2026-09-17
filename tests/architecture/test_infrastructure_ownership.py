@@ -705,6 +705,7 @@ def test_mcp_oauth_contracts_do_not_depend_on_storage_or_sdk() -> None:
     """凭据值和端口保持纯契约，系统后端不能反向取得 MCP 生命周期。"""
     boundaries = {
         "agent/domain/mcp_oauth.py": {"infrastructure", "frontends", "keyring", "mcp", "pydantic"},
+        "agent/domain/mcp_authorization.py": {"infrastructure", "frontends", "keyring", "mcp", "pydantic"},
         "agent/ports/mcp_credentials.py": {"infrastructure", "frontends", "keyring", "mcp"},
         "infrastructure/platform/credential_vault.py": {"infrastructure.mcp", "agent.harness"},
     }

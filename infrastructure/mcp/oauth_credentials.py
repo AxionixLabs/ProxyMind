@@ -29,6 +29,7 @@ from pydantic import (
 )
 
 from agent.domain.mcp_oauth import (
+    credential_view_from_record,
     McpOAuthCredentialRecord,
     McpOAuthCredentialSnapshot,
     McpOAuthCredentialView,
@@ -397,19 +398,10 @@ class SystemMcpCredentialStore:
     async def view(self, target: McpOAuthTarget) -> McpOAuthCredentialView:
         """投影注册、存储、过期或不可用状态，不暴露 SDK 或机密对象。"""
         try:
-            record = await self.read(target)
+            record = await self.read(target, require_available=False)
         except McpOAuthStorageError as error:
             return McpOAuthCredentialView(target, "unavailable", error=error.code)
-        snapshot = record.snapshot
-        if snapshot is None:
-            return McpOAuthCredentialView(target, "missing")
-        if snapshot.recovery is not None:
-            return McpOAuthCredentialView(target, snapshot.recovery)
-        token = snapshot.token
-        if token is None:
-            return McpOAuthCredentialView(target, "registered")
-        expired = token.expires_at is not None and token.expires_at <= self._clock()
-        return McpOAuthCredentialView(target, "expired" if expired else "stored", token.expires_at)
+        return credential_view_from_record(target, record, now=self._clock())
 
 
 if __name__ == '__main__':

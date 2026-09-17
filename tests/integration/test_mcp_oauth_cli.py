@@ -57,11 +57,14 @@ def test_production_cli_login_get_list_logout_and_secret_redaction(tmp_path: Pat
     anyio.run(assert_callback_closed, fixture.browser.callback_url)
     assert fixture.run("get", fixture.name, "--json") == 0
     output += (get_output := capsys.readouterr().out)
-    assert json.loads(get_output)["oauth"] == {"state": "stored", "expires_at": 4600, "error": None}
+    assert json.loads(get_output)["authorization"] == {
+        "state": "oauth", "credentials": "stored", "expires_at": 4600, "error": None,
+        "verification": "unverified", "generation": 1,
+    }
     before = len(fixture.remote.requests)
     assert fixture.run("list", "--json") == 0
     output += (list_output := capsys.readouterr().out)
-    assert json.loads(list_output)["servers"][0]["oauth"]["state"] == "stored"
+    assert json.loads(list_output)["servers"][0]["authorization"]["state"] == "oauth"
     assert len(fixture.remote.requests) == before
     assert "access-1" not in output and "refresh-1" not in output and "code-1" not in output
     assert fixture.run("logout", fixture.name) == 0
@@ -112,7 +115,7 @@ def test_cli_unknown_server_and_explicit_auth_do_not_create_credentials(tmp_path
     assert fixture.run("login", fixture.name) == 1
     assert not fixture.vault.values and not fixture.remote.requests
     assert fixture.run("get", fixture.name, "--json") == 0
-    assert '"state": "not_applicable"' in capsys.readouterr().out
+    assert '"state": "bearer"' in capsys.readouterr().out
 
 
 def test_cli_service_without_oauth_fails_without_browser_or_config_changes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -136,13 +139,13 @@ def test_cli_service_without_oauth_fails_without_browser_or_config_changes(tmp_p
 def test_cli_local_credential_status_does_not_claim_remote_validity(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fixture = LoginFixture(tmp_path)
     assert fixture.run("get", fixture.name, "--json") == 0
-    assert json.loads(capsys.readouterr().out)["oauth"]["state"] == "missing"
+    assert json.loads(capsys.readouterr().out)["authorization"]["credentials"] == "missing"
     fixture.remote.expires_in = 0
     assert fixture.run("login", fixture.name) == 0
     capsys.readouterr()
     assert fixture.run("get", fixture.name, "--json") == 0
-    assert json.loads(capsys.readouterr().out)["oauth"]["state"] == "expired"
+    assert json.loads(capsys.readouterr().out)["authorization"]["credentials"] == "expired"
     fixture.vault.fail_read = True
     assert fixture.run("get", fixture.name, "--json") == 0
-    status = json.loads(capsys.readouterr().out)["oauth"]
+    status = json.loads(capsys.readouterr().out)["authorization"]
     assert status["state"] == "unavailable" and status["error"] == "storage_unavailable"
