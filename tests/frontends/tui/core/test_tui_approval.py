@@ -264,6 +264,35 @@ def test_mcp_approval_narrow_layout_keeps_identity_risk_and_options() -> None:
     assert any(line.startswith("  3.") for line in text_lines)
 
 
+def test_mcp_gateway_approval_keeps_operation_arguments_when_description_is_collapsed() -> None:
+    decisions = ["accept", "acceptForSession", "acceptAndRemember", "decline"]
+    lines = tui_approval_content_lines(
+        decisions,
+        approval={
+            "kind": "mcp_tool_call",
+            "approval_id": "gateway-approval",
+            "call_id": "gateway-call",
+            "server": "sentry-acceptance",
+            "tool_name": "execute_sentry_tool",
+            "tool_description": "Detailed gateway documentation. " * 80,
+            "arguments": {"name": "find_releases", "arguments": {}},
+            "annotations": {"destructive_hint": True},
+            "_local_mcp_approval": True,
+            "available_decisions": decisions,
+        },
+        width=76,
+        max_height=20,
+    )
+    text = "\n".join(_line_texts(lines))
+    assert len(lines) <= 20
+    assert "Arguments (2):" in text
+    assert 'name="find_releases"' in text
+    assert "arguments={}" in text
+    assert "Risk: destructive" in text
+    assert "for this session" in text
+    assert "don't ask again" in text
+
+
 def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:
     approval = {
         "tool": "apply_patch",

@@ -22,14 +22,14 @@
 
 参考实现：
 
-| 本地 Codex 源码 | 参考内容 |
-| --- | --- |
-| [mcp_cmd.rs](codex/codex-rs/cli/src/mcp_cmd.rs) | CLI 登录、退出、配置和 scopes 选择 |
-| [perform_oauth_login.rs](codex/codex-rs/rmcp-client/src/perform_oauth_login.rs) | 浏览器打开、回调监听、取消与超时 |
-| [oauth_client_registration.rs](codex/codex-rs/rmcp-client/src/oauth_client_registration.rs) | 客户端注册和 CIMD 选择 |
-| [oauth.rs](codex/codex-rs/rmcp-client/src/oauth.rs) | 凭据身份、存储和绝对过期时间 |
-| [refresh_transaction.rs](codex/codex-rs/rmcp-client/src/oauth/refresh_transaction.rs) | 刷新令牌轮换、跨进程协调和落盘 |
-| [auth_status.rs](codex/codex-rs/rmcp-client/src/auth_status.rs) | 认证能力发现和状态展示 |
+| 本地 Codex 源码                                                                             | 参考内容                           |
+|---------------------------------------------------------------------------------------------|------------------------------------|
+| [mcp_cmd.rs](codex/codex-rs/cli/src/mcp_cmd.rs)                                             | CLI 登录、退出、配置和 scopes 选择 |
+| [perform_oauth_login.rs](codex/codex-rs/rmcp-client/src/perform_oauth_login.rs)             | 浏览器打开、回调监听、取消与超时   |
+| [oauth_client_registration.rs](codex/codex-rs/rmcp-client/src/oauth_client_registration.rs) | 客户端注册和 CIMD 选择             |
+| [oauth.rs](codex/codex-rs/rmcp-client/src/oauth.rs)                                         | 凭据身份、存储和绝对过期时间       |
+| [refresh_transaction.rs](codex/codex-rs/rmcp-client/src/oauth/refresh_transaction.rs)       | 刷新令牌轮换、跨进程协调和落盘     |
+| [auth_status.rs](codex/codex-rs/rmcp-client/src/auth_status.rs)                             | 认证能力发现和状态展示             |
 
 ## 阶段一：确认 SDK 适配范围与职责契约
 
@@ -51,16 +51,16 @@
 
 职责落点：
 
-| 职责 | 实现位置与约束 |
-| --- | --- |
-| CLI 参数、提示和退出码 | `frontends/cli/arguments.py`、`commands.py`、`mcp_parser.py`、`entry.py` 及 MCP 命令适配 |
-| 登录用例与跨层契约 | 复用 `agent.application`、`agent.ports`；仅在完整用例需要时增加具名端口 |
-| OAuth/SDK、凭据存储适配 | `infrastructure/mcp/`，SDK 对象在此边界内转换 |
-| 浏览器、系统凭据库及平台差异 | `infrastructure/platform/` 中职责明确的 adapter |
-| 配置与路径 | `infrastructure/config/`，机密不得写入普通配置展示或导出 |
-| 活动连接与关闭 | 复用 `agent/harness/mcp/owner.py` 及 infrastructure 的逐服务 owner |
-| TUI 状态 | 消费 owner 的类型化快照，不直接读凭据库或 SDK |
-| 实现组合 | 根组合边界显式注入，独立 CLI 登录拥有并关闭自己的短期资源 |
+| 职责                         | 实现位置与约束                                                                           |
+|------------------------------|------------------------------------------------------------------------------------------|
+| CLI 参数、提示和退出码       | `frontends/cli/arguments.py`、`commands.py`、`mcp_parser.py`、`entry.py` 及 MCP 命令适配 |
+| 登录用例与跨层契约           | 复用 `agent.application`、`agent.ports`；仅在完整用例需要时增加具名端口                  |
+| OAuth/SDK、凭据存储适配      | `infrastructure/mcp/`，SDK 对象在此边界内转换                                            |
+| 浏览器、系统凭据库及平台差异 | `infrastructure/platform/` 中职责明确的 adapter                                          |
+| 配置与路径                   | `infrastructure/config/`，机密不得写入普通配置展示或导出                                 |
+| 活动连接与关闭               | 复用 `agent/harness/mcp/owner.py` 及 infrastructure 的逐服务 owner                       |
+| TUI 状态                     | 消费 owner 的类型化快照，不直接读凭据库或 SDK                                            |
+| 实现组合                     | 根组合边界显式注入，独立 CLI 登录拥有并关闭自己的短期资源                                |
 
 完成条件：SDK 成功及失败路径已有验证，所有状态和资源都有唯一 owner，后续阶段无需猜测
 凭据格式、客户端身份或公开协议。不为本地 OAuth 向 `protocol/schema/` 增加服务端未声明字段。
@@ -73,18 +73,18 @@
 实际运行 SDK 的 HTTP 认证、MCP initialize 和 tools/list。浏览器只在测试中模拟重定向，
 不访问账户、不打开监听端口；真实网络、系统浏览器与凭据库留到阶段六验收。
 
-| 已验证行为 | 后续实现要求 |
-| --- | --- |
-| 动态注册、预注册客户端和 CIMD 均可完成授权码交换及 MCP 工具发现 | 保留三种明确的客户端注册策略；客户端名称使用 `metadata.const` |
-| 服务端校验 S256 challenge/verifier、client_id、redirect_uri 和 resource，SDK 拒绝错误/缺失 state | 复用公开 PKCE 原语；回调 owner 继续承担路由、issuer、超时和资源关闭 |
-| 活动 provider 能向已发现的不同源 token endpoint 刷新，并保存轮换结果 | 保留同等能力，并增加持久化事务与凭据版本检查 |
-| 新 provider 只恢复令牌与客户端信息；过期令牌先被发送，收到 401 后进入交互授权 | 冷启动必须恢复绝对过期时间、issuer、resource 与 token endpoint；不能直接接入默认 provider |
-| 401 不先尝试现有 refresh token，而是重新授权；刷新失败也进入重新授权 | 运行时只报告需登录；浏览器授权必须由显式登录用例发起 |
-| 403 insufficient_scope 会启动交互授权；普通 403 也会将同一 POST 重放一次 | 运行时认证层不隐式重放工具请求或自动提升 scopes |
-| 构造时设置的 scope 被发现结果覆盖 | 显式 CLI/config scopes 由本地用例裁决，不能依赖 provider 默认逻辑 |
-| 发现的 metadata issuer 与声明授权服务器不一致时，SDK 仍继续登录 | adapter 在注册或交换前验证 issuer 绑定及端点策略 |
-| 活动 provider 刷新前不重读已被外部更新的存储 | 刷新、登录和退出共用跨进程事务及版本检查，SDK 内存锁不能充当权威 |
-| 注册失败、令牌交换失败、保存失败、回调拒绝/超时、调用方取消均能传播 | 业务边界转换成具名安全错误；取消沿现有生命周期传播；成功提示以保存完成为准 |
+| 已验证行为                                                                                       | 后续实现要求                                                                              |
+|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| 动态注册、预注册客户端和 CIMD 均可完成授权码交换及 MCP 工具发现                                  | 保留三种明确的客户端注册策略；客户端名称使用 `metadata.const`                             |
+| 服务端校验 S256 challenge/verifier、client_id、redirect_uri 和 resource，SDK 拒绝错误/缺失 state | 复用公开 PKCE 原语；回调 owner 继续承担路由、issuer、超时和资源关闭                       |
+| 活动 provider 能向已发现的不同源 token endpoint 刷新，并保存轮换结果                             | 保留同等能力，并增加持久化事务与凭据版本检查                                              |
+| 新 provider 只恢复令牌与客户端信息；过期令牌先被发送，收到 401 后进入交互授权                    | 冷启动必须恢复绝对过期时间、issuer、resource 与 token endpoint；不能直接接入默认 provider |
+| 401 不先尝试现有 refresh token，而是重新授权；刷新失败也进入重新授权                             | 运行时只报告需登录；浏览器授权必须由显式登录用例发起                                      |
+| 403 insufficient_scope 会启动交互授权；普通 403 也会将同一 POST 重放一次                         | 运行时认证层不隐式重放工具请求或自动提升 scopes                                           |
+| 构造时设置的 scope 被发现结果覆盖                                                                | 显式 CLI/config scopes 由本地用例裁决，不能依赖 provider 默认逻辑                         |
+| 发现的 metadata issuer 与声明授权服务器不一致时，SDK 仍继续登录                                  | adapter 在注册或交换前验证 issuer 绑定及端点策略                                          |
+| 活动 provider 刷新前不重读已被外部更新的存储                                                     | 刷新、登录和退出共用跨进程事务及版本检查，SDK 内存锁不能充当权威                          |
+| 注册失败、令牌交换失败、保存失败、回调拒绝/超时、调用方取消均能传播                              | 业务边界转换成具名安全错误；取消沿现有生命周期传播；成功提示以保存完成为准                |
 
 固定保留 `mcp==1.24.0`，本阶段不升级依赖。后续采用具名 `McpOAuthAdapter`，复用
 SDK 公开的 `PKCEParameters`、`OAuthClientMetadata`、`OAuthClientInformationFull`、
@@ -101,17 +101,17 @@ SDK 公开的 `PKCEParameters`、`OAuthClientMetadata`、`OAuthClientInformation
 下表确定后续代码的字段和责任；在阶段二至四形成完整用例时落地，不提前加入无人消费的
 生产类、端口或配置字段。跨层不传 SDK 对象、原始响应字典或带机密的异常字符串。
 
-| 具名类型 | 字段与约束 |
-| --- | --- |
-| `McpOAuthTarget` | `config_key: str` 保留原始键；`server_url: str` 使用冻结的规范化完整 URL；保留端口、路径和查询语义，拒绝 userinfo/fragment |
-| `McpOAuthLoginRequest` | target、客户端注册策略、`scopes: tuple[str, ...] \| None`、`callback_port: int \| None`、`timeout_sec: float`；None 表示发现 scopes，空元组表示显式不发送 scope |
-| `McpOAuthClientRegistration` | 判别联合：dynamic；metadata（HTTPS metadata_url）；registered（client_id 与已注册的固定 loopback 端口）。首版只接入原生公共客户端的 token auth method `none` |
-| `McpOAuthCredentialSnapshot` | target、issuer、resource、验证过的 token_endpoint、客户端注册信息、generation 及可空 token；无 token 且无 recovery 为 registered；recovery 为 refresh_uncertain / reauthorization_required 时禁止消费旧令牌 |
-| token 记录 | `access_token: str`、`refresh_token: str \| None`、`expires_at: float \| None`（UTC Unix 秒）、`granted_scopes: tuple[str, ...] \| None`；无 scopes 返回值时按请求范围确定有效授权范围；缺少 expires_in 时不虚构有效期 |
-| `McpOAuthCredentialView` | target、状态及可空的 expires_at；状态为 not_applicable / missing / registered / stored / expired / unavailable / refresh_uncertain / reauthorization_required；不包含机密，不表示刚刚验证了远端账户 |
-| `McpOAuthLoginResult` | 保存完成后的 target 和 expires_at；保存失败不构造成功结果 |
-| `McpOAuthLogoutResult` | target、`removed: bool` 和最新 generation；清除令牌后保留必要的无机密版本标记，防止迟到事务复活旧登录 |
-| `McpOAuthError` | 具名错误码与安全提示；错误码区分 unsupported_transport、configuration_conflict、invalid_response、registration_failed、authorization_denied、timeout、network_error、reauthorization_required、storage_unavailable；不携带原始响应体或完整回调 URL |
+| 具名类型                     | 字段与约束                                                                                                                                                                                                                                         |
+|------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `McpOAuthTarget`             | `config_key: str` 保留原始键；`server_url: str` 使用冻结的规范化完整 URL；保留端口、路径和查询语义，拒绝 userinfo/fragment                                                                                                                         |
+| `McpOAuthLoginRequest`       | target、客户端注册策略、`scopes: tuple[str, ...] \| None`、`callback_port: int \| None`、`timeout_sec: float`；None 表示发现 scopes，空元组表示显式不发送 scope                                                                                    |
+| `McpOAuthClientRegistration` | 判别联合：dynamic；metadata（HTTPS metadata_url）；registered（client_id 与已注册的固定 loopback 端口）。首版只接入原生公共客户端的 token auth method `none`                                                                                       |
+| `McpOAuthCredentialSnapshot` | target、issuer、resource、验证过的 token_endpoint、客户端注册信息、generation 及可空 token；无 token 且无 recovery 为 registered；recovery 为 refresh_uncertain / reauthorization_required 时禁止消费旧令牌                                        |
+| token 记录                   | `access_token: str`、`refresh_token: str \| None`、`expires_at: float \| None`（UTC Unix 秒）、`granted_scopes: tuple[str, ...] \| None`；无 scopes 返回值时按请求范围确定有效授权范围；缺少 expires_in 时不虚构有效期                             |
+| `McpOAuthCredentialView`     | target、状态及可空的 expires_at；状态为 not_applicable / missing / registered / stored / expired / unavailable / refresh_uncertain / reauthorization_required；不包含机密，不表示刚刚验证了远端账户                                                |
+| `McpOAuthLoginResult`        | 保存完成后的 target 和 expires_at；保存失败不构造成功结果                                                                                                                                                                                          |
+| `McpOAuthLogoutResult`       | target、`removed: bool` 和最新 generation；清除令牌后保留必要的无机密版本标记，防止迟到事务复活旧登录                                                                                                                                              |
+| `McpOAuthError`              | 具名错误码与安全提示；错误码区分 unsupported_transport、configuration_conflict、invalid_response、registration_failed、authorization_denied、timeout、network_error、reauthorization_required、storage_unavailable；不携带原始响应体或完整回调 URL |
 
 CLI 成功（包括重复 logout）返回 0；上述用例失败经现有 `AppError` 边界返回 1；参数
 语法错误沿现有 parser 返回 2；Ctrl+C / 调用方取消继续传播，由现有入口返回 130。
@@ -127,13 +127,13 @@ CLI 成功（包括重复 logout）返回 0；上述用例失败经现有 `AppEr
 
 以下配置契约由阶段三实现；运行时使用已批准凭据，配置与 CLI 的 scopes 选择只发生在显式登录时。
 
-| `mcp_servers.<name>.oauth` 字段 | 约束与默认值 |
-| --- | --- |
-| `scopes` | 可选字符串数组；拒绝空白项及项内空白，去重保序；省略代表发现，空数组代表显式不请求 scopes |
-| `client_id` | 可选非空字符串；预注册公共客户端身份；与 client_metadata_url 互斥，使用时要求 callback_port |
-| `client_metadata_url` | 可选 HTTPS URL，非根路径，不含 userinfo/fragment；服务器必须声明支持 CIMD，否则明确失败 |
-| `callback_port` | 可选整数 1～65535，不接受 bool；省略时由 OS 分配 loopback 端口；不支持自定义远程 callback URL |
-| `login_timeout_sec` | 可选有限正数，默认 300；整个登录用例的总期限，不复用工具调用超时 |
+| `mcp_servers.<name>.oauth` 字段 | 约束与默认值                                                                                  |
+|---------------------------------|-----------------------------------------------------------------------------------------------|
+| `scopes`                        | 可选字符串数组；拒绝空白项及项内空白，去重保序；省略代表发现，空数组代表显式不请求 scopes     |
+| `client_id`                     | 可选非空字符串；预注册公共客户端身份；与 client_metadata_url 互斥，使用时要求 callback_port   |
+| `client_metadata_url`           | 可选 HTTPS URL，非根路径，不含 userinfo/fragment；服务器必须声明支持 CIMD，否则明确失败       |
+| `callback_port`                 | 可选整数 1～65535，不接受 bool；省略时由 OS 分配 loopback 端口；不支持自定义远程 callback URL |
+| `login_timeout_sec`             | 可选有限正数，默认 300；整个登录用例的总期限，不复用工具调用超时                              |
 
 客户端选择按预注册 client_id、显式 CIMD、动态注册三种互斥策略执行。动态注册要求已
 验证 metadata 中声明 registration_endpoint；缺失时报告不支持，不猜测 `/register`。
@@ -322,11 +322,11 @@ README 只链接稳定说明，实施清单不进入发布正文。CLI 的 login
 
 ### 6.1 环境准备
 
-- [ ] 使用独立验收配置/状态目录，或确认专用注册名 `sentry-oauth-acceptance` 未被占用；
+- [x] 使用独立验收配置/状态目录，或确认专用注册名 `sentry-oauth-acceptance` 未被占用；
   不覆盖既有 Sentry 注册和账号凭据。记录实际使用的 Mind 版本或提交及 SDK 版本。
-- [ ] 准备 Sentry 实际 MCP URL、可用测试账户、组织/项目访问范围和客户端注册方式。
+- [x] 准备 Sentry 实际 MCP URL、可用测试账户、组织/项目访问范围和客户端注册方式。
   使用真实授权页面完成账户选择及同意步骤。
-- [ ] 从真实工具目录选择一个可验证结果的只读调用；仅当服务确实暴露对应工具时使用
+- [x] 从真实工具目录选择一个可验证结果的只读调用；仅当服务确实暴露对应工具时使用
   `find_releases`。测试目标和参数使用该账户可访问的数据。
 
 ### 6.2 首次登录与实际工具调用
@@ -341,51 +341,67 @@ mind mcp get sentry-oauth-acceptance
 mind mcp list
 ```
 
-- [ ] 真实浏览器打开正确授权页面，授权结束后本地回调成功，CLI 返回成功。
-- [ ] `get/list` 状态符合本地凭据事实，输出不包含 Token、secret 或授权码。
-- [ ] 启动 Mind，发现该服务工具，经现有审批路径执行选定的只读调用并获得真实结果；
+- [x] 真实浏览器打开正确授权页面，授权结束后本地回调成功，CLI 返回成功。
+- [x] `get/list` 状态符合本地凭据事实，输出不包含 Token、secret 或授权码。
+- [x] 启动 Mind，发现该服务工具，经现有审批路径执行选定的只读调用并获得真实结果；
   确认未使用环境中的旧 Bearer Token 或 Codex 保存的凭据绕过本次 OAuth。
-- [ ] 退出 Mind 并启动新进程，再次调用成功，无需重复登录；重启后的到期判断准确。
+- [x] 退出 Mind 并启动新进程，再次调用成功，无需重复登录；重启后的到期判断准确。
 
 ### 6.3 令牌刷新与多进程
 
-- [ ] 使用真实服务发放的令牌等待实际过期，或使用该服务正式支持的短有效期测试设置；
+- [x] 使用真实服务发放的令牌等待实际过期，或使用该服务正式支持的短有效期测试设置；
   确认下一次调用触发刷新并成功，刷新后再启动新进程仍可调用。
-- [ ] 记录脱敏的刷新发生及持久化证据。仅有“调用成功”不足以证明刷新路径已执行。
-- [ ] 两个真实 Mind 进程共用同一验收凭据，在到期边界进行只读调用，确认没有刷新
+- [x] 记录脱敏的刷新发生及持久化证据。仅有“调用成功”不足以证明刷新路径已执行。
+- [x] 两个真实源码进程共用同一验收凭据，在到期边界通过生产连接适配器进行只读调用，确认没有刷新
   轮换冲突、凭据覆盖或重复浏览器登录。
-- [ ] 如果 Sentry 当前授权不发放 refresh token 或无法在验收窗口内验证过期，保留该项
-  待验收，并用确实支持刷新流程的真实 MCP/OAuth 服务补验，不能以模拟测试替代。
+
+Sentry 本轮实际发放 refresh token，已等待真实到期；无需替代服务。
+两进程最终 generation 均为 3（初始为 1），新有效期一致，令牌轮换和持久化判断通过。
+证据入口为 `tests/manual/mcp_oauth_sentry.py` 的 `wait-expiry` 模式和新进程 `call` 模式；
+报告明确标记 `source-runtime-adapter`，不将适配器检查混同于交互 TUI 验收。
 
 ### 6.4 失败恢复、退出与清理
 
-- [ ] 在真实授权页拒绝一次登录；另一次登录按 Ctrl+C；两次均正确退出并释放监听端口，
-  随后重新登录成功。验证浏览器打开失败时手动访问授权地址仍可完成流程。
+- [x] 在真实授权页拒绝一次登录；另一次登录按 Ctrl+C；两次均正确退出并释放监听端口，
+  随后重新登录成功。源码 CLI 拒绝返回 1、取消返回 130、恢复登录返回 0。
+- [ ] 验证浏览器打开失败时手动访问授权地址仍可完成流程。
 - [ ] 网络暂时不可用时给出可理解的错误，恢复网络后可重试；使用测试账户在服务端撤销
   授权后，客户端识别失效并提示重新登录，不进入无限刷新或自动弹窗循环。
-- [ ] 登录恢复后，执行 `mind mcp logout sentry-oauth-acceptance`，确认本地凭据清除；
+- [x] 登录恢复后，执行 `mind mcp logout sentry-oauth-acceptance`，确认本地凭据清除；
   再次退出登录无害。新进程和仍活动的进程在下一认证边界都不得恢复旧凭据。
-- [ ] 验证未登录调用提示明确，重新登录后可恢复。清理仅限本次创建的测试注册、凭据
+- [ ] 在真实刷新交换尚未完成时并发退出登录，确认迟到响应不能恢复已删除凭据；
+  当前自动化覆盖该竞争，实际请求边界退出通过不替代此项。
+- [x] 验证未登录调用提示明确，重新登录后可恢复。清理仅限本次创建的测试注册、凭据
   和验收资源；保留原有用户配置。
 - [ ] 在 Windows 完成整条链路；Linux、macOS 分别验证真实终端、浏览器回调、系统
   凭据库、取消和关闭。未执行的平台明确记录为待验收，不宣称全部平台通过。
 
 ### 6.5 最终记录与完成条件
 
-| 验收项目 | 初始状态 | 完成时填写的证据 |
-| --- | --- | --- |
-| Windows + Sentry 首次登录及工具调用 | 待验收 | 系统/版本、命令返回码、脱敏工具结果 |
-| 新进程恢复认证 | 待验收 | 重新启动后的实际调用结果 |
-| 实际过期、刷新及刷新后重启 | 待验收 | 真实服务、过期时间、刷新与持久化结果 |
-| 多进程及退出登录竞争 | 待验收 | 并发场景、凭据版本变化与最终结果 |
-| 拒绝、取消、网络故障和撤销恢复 | 待验收 | 对应错误结果、资源释放及恢复结果 |
-| 源码运行入口 | 待验收 | 源码版本和真实服务入口验证结果 |
-| 安装/打包入口 | 本轮范围外，未验收 | 实际发布时补充安装方式、版本和验证结果 |
-| Linux 平台行为 | 待验收 | 系统、浏览器、凭据库及验证结果 |
-| macOS 平台行为 | 待验收 | 系统、浏览器、凭据库及验证结果 |
+| 验收项目                            | 当前状态           | 完成时填写的证据                                                         |
+|-------------------------------------|--------------------|--------------------------------------------------------------------------|
+| Windows + Sentry 首次登录及工具调用 | 通过               | Windows 源码 TTY；登录返回 0；发现 7 个工具；经审批只读调用返回 6 个版本 |
+| 新进程恢复认证                      | 通过               | 完全退出后新进程再次调用成功，返回 6 个版本，无重复浏览器登录            |
+| 实际过期、刷新及刷新后重启          | 通过               | 真实到期后版本 1→3；有效期推进；新进程使用版本 3 调用成功 |
+| 两进程到期并发调用                  | 通过               | 两份独立进程报告最终版本及有效期一致；无轮换冲突 |
+| 活动连接及新进程观察 logout         | 通过               | 本地凭据删除；下一请求 login_required；目录清空；重复 logout 安全 |
+| 刷新交换中的 logout 竞争            | 待验收             | 已有自动化覆盖，尚无真实服务并发交换证据 |
+| 拒绝、取消和重新登录                | 通过               | CLI 返回码 1 / 130 / 0；回调端口可复用 |
+| 手动打开、网络故障和服务端撤销      | 待验收             | 对应真实故障、资源释放及恢复结果 |
+| TUI 参数与会话审批记忆              | 通过               | 紧凑卡片显示 find_releases 参数；第二次调用由本地会话策略批准 |
+| 源码运行入口                        | 通过               | Mind 1.2.8 / MCP SDK 1.24.0；真实服务登录、审批及调用通过                |
+| 安装/打包入口                       | 本轮范围外，未验收 | 实际发布时补充安装方式、版本和验证结果                                   |
+| Linux 平台行为                      | 待验收             | 系统、浏览器、凭据库及验证结果                                           |
+| macOS 平台行为                      | 待验收             | 系统、浏览器、凭据库及验证结果                                           |
 
-- [ ] 将实际结果填入验收记录，未通过项目修复后定向复验。测试账户、真实服务或平台
+2026-09-17 Windows 本轮脱敏记录位于
+`build/mcp-oauth-live-20260917/state/reports/mcp-oauth-acceptance-20260917-windows.md`。
+阶段六仍未全部完成：手动打开浏览器、真实断网/服务端撤销、刷新交换中的退出竞争及
+Linux/macOS 保持待验收。Windows 本轮证据、失败尝试及复验结果均保留在上述报告目录。
+两个隔离验收注册已 logout 后 remove；本地验收凭据已清除，脱敏报告保留。
+
+- [x] 将实际结果填入验收记录，未通过项目修复后定向复验。测试账户、真实服务或平台
   不可用时明确记录阻塞，不把待验收项目勾选为完成。
-- [ ] 最终交付说明列出实现范围、自动化结果、真机结果和剩余平台限制。
+- [x] 本轮交付说明列出实现范围、自动化结果、真机结果和剩余平台限制。
 - [ ] 全部目标完成后，将最终操作说明归入稳定文档，按仓库维护约定归档或移除此执行
   清单；不把实施过程日志写入架构文档。

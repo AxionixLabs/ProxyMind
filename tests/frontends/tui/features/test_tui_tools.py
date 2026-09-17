@@ -65,7 +65,7 @@ def test_tools_summary_renders_as_one_compact_block() -> None:
         "    • Transport: in-process\n"
         "    • Tools: apply_patch, shell_command\n\n"
         "  • search\n"
-        "    • Auth: Unsupported\n"
+        "    • Auth: Unknown\n"
         "    • Transport: stdio\n"
         "    • Tools: external_search"
     )

@@ -477,10 +477,19 @@ def _mcp_compact_card_lines(
     *,
     max_width: int,
 ) -> list[list[tuple[str, str]]]:
-    """生成窄高度下仍保留目标身份和风险的 MCP 摘要。"""
+    """生成窄高度下仍保留目标身份、脱敏参数摘要和风险的 MCP 卡片。"""
+    arguments = ", ".join(
+        f"{argument.name}={argument.value}"
+        for argument in approval.arguments
+    ) or ("unknown" if approval.degraded else "none")
+    if approval.omitted_arguments or approval.arguments_truncated:
+        arguments += " …"
     groups = (
         _mcp_field_lines("Server", approval.server, max_width=max_width),
         _mcp_field_lines("Tool", approval.tool_name, max_width=max_width),
+        _mcp_field_lines(
+            f"Arguments ({approval.argument_count})", arguments, max_width=max_width,
+        ),
         _mcp_field_lines(
             "Risk",
             approval.risk,

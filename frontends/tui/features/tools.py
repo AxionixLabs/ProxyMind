@@ -122,7 +122,7 @@ def summarize_tool_groups(
         if bool(meta.get("external")):
             label = str(meta.get("server") or "external").strip() or "external"
             transport = str(meta.get("transport") or "external").strip() or "external"
-            auth = str(meta.get("auth") or "Unsupported").strip() or "Unsupported"
+            auth = str(meta.get("auth") or "Unknown").strip() or "Unknown"
             key = ("external", label, transport)
 
             auth_by_group.setdefault(key, auth)
