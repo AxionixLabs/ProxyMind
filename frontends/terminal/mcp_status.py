@@ -103,6 +103,7 @@ def external_mcp_status_view(
     ready_count: int = 0
     connected_count: int = 0
     failed_count: int = 0
+    pending_count: int = 0
     total_tools: int = 0
     total_filtered: int = 0
 
@@ -116,6 +117,8 @@ def external_mcp_status_view(
                 pass
         elif state == "failed":
             failed_count += 1
+        elif state in {"starting", "linking", "queued"}:
+            pending_count += 1
 
         if state != "ready":
             continue
@@ -130,6 +133,9 @@ def external_mcp_status_view(
     if not done:
         prefix = "External MCP linking"
         level = "running"
+    elif pending_count:
+        prefix = "External MCP starting in background"
+        level = "warning" if failed_count else "running"
     elif failed_count and connected_count <= 0:
         prefix = "External MCP failed"
         level = "failed"
@@ -147,6 +153,8 @@ def external_mcp_status_view(
         level = "failed"
 
     parts = [prefix, f"{connected_count}/{len(items)} servers"]
+    if pending_count:
+        parts.append(f"{pending_count} starting")
     if total_tools > 0:
         parts.append(f"{total_tools} tools")
     if total_filtered > 0:

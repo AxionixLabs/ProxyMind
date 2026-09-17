@@ -28,6 +28,7 @@ FixtureMode = typing.Literal[
     "handshake-timeout", "disconnect", "close-stall",
     "oversize-line", "oversize-unframed", "large-response", "http-recover",
     "http-exhausted", "http-unauthorized", "http-protocol-error", "http-call-failure",
+    "delayed-discovery",
 ]
 FixtureEvent = typing.Literal[
     "process.started", "process.closed", "listening", "session.opened",
@@ -202,6 +203,7 @@ def write_config(directory: Path, remotes: tuple[RemoteFixture, ...], *, reposit
         item["cwd"] = str(repository)
         item["enabled"] = enabled
         item["startup_timeout_sec"] = 2.0
+        item["optional_startup_wait_sec"] = 0
         item["tool_timeout_sec"] = 30.0
         if key == "Filtered":
             item["allow"] = []

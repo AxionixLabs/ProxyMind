@@ -105,6 +105,12 @@ def create_server(name: str, state: FixtureState) -> Server[str, Request]:
 
     async def list_tools() -> list[mcp_types.Tool]:
         """返回有效空目录、普通目录或显式工具发现失败。"""
+        changed = False
+        if state.mode == "delayed-discovery":
+            state.record("fault.injected")
+            while not state.release.exists():
+                await asyncio.sleep(0.025)
+            changed = state.release.read_text(encoding="utf-8").strip() == "changed"
         state.record("tools.listed")
         if state.mode == "discovery-failure":
             state.record("fault.injected")
@@ -117,6 +123,7 @@ def create_server(name: str, state: FixtureState) -> Server[str, Request]:
                 inputSchema={
                     "type": "object", "properties": {"value": {"type": "string"}},
                     "additionalProperties": False,
+                    **({"required": ["value"]} if changed else {}),
                 },
             )
             for tool in ("ping", "block")
@@ -288,6 +295,7 @@ def main() -> None:
     parser.add_argument("--release", required=True, type=Path)
     parser.add_argument("--transport", choices=("stdio", "streamable_http", "sse"), default="stdio")
     parser.add_argument("--mode", choices=(
+        "delayed-discovery",
         "ready", "empty", "no-tools", "discovery-failure", "startup-failure",
         "handshake-timeout", "disconnect", "close-stall",
         "oversize-line", "oversize-unframed", "large-response", "http-recover",

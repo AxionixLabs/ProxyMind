@@ -541,6 +541,7 @@ MCP_FIELDS = frozenset({
     *MCP_NUMBER_FIELDS,
     "tools",
     "oauth",
+    "optional_startup_wait_sec",
 })
 MCP_APPROVAL_MODES = frozenset({
     "auto",
@@ -1072,6 +1073,11 @@ def _validate_mcp_field(
 ) -> None:
     """校验一个 MCP 服务字段。"""
     dotted = f"mcp_servers.{name}.{field}"
+
+    if field == "optional_startup_wait_sec":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ConfigValidationError(f"{dotted} must be a non-negative number")
+        return None
 
     if field == "oauth":
         try:

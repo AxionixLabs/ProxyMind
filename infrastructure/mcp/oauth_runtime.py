@@ -40,14 +40,16 @@ class McpOAuthRuntimeAuth(httpx.Auth):
         self, binding: McpOAuthBinding, store: McpCredentialStore,
         *, failed: typing.Callable[[McpOAuthError | McpOAuthStorageError], None],
         observed: typing.Callable[[McpAuthorizationStatus], None],
+        validate_request: typing.Callable[[McpAuthorizationStatus], None] | None = None,
         refresher: McpOAuthRefreshAdapter | None = None,
         clock: typing.Callable[[], float] = time.time,
     ) -> None:
-        """冻结本连接的授权边界与失败通知，不缓存 access token。"""
+        """冻结本连接授权边界；可选同步校验在请求发送前执行，不接收或保存令牌。"""
         self._binding = binding
         self._store = store
         self._failed = failed
         self._observed = observed
+        self._validate_request = validate_request
         self._authorization = McpAuthorizationStatus()
         self._refresher = refresher or McpOAuthRefreshAdapter(clock=clock)
         self._clock = clock
@@ -177,6 +179,8 @@ class McpOAuthRuntimeAuth(httpx.Auth):
             if request.url != httpx.URL(self._binding.target.server_url):
                 raise McpOAuthError("configuration_conflict")
             snapshot, request_status = await self._credentials()
+            if self._validate_request is not None and request.method != "DELETE":
+                self._validate_request(request_status)
             if snapshot is not None and snapshot.token is not None:
                 request.headers["Authorization"] = f"Bearer {snapshot.token.access_token}"
             response = yield request

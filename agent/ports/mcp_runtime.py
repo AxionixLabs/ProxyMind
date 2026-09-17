@@ -157,8 +157,9 @@ class McpRuntime(typing.Protocol):
     def use_tools(self, server: str | None = None) -> typing.ContextManager[ExternalToolGroupPort | None]:
         """借用冻结目录直至上下文退出；Harness 的 Turn 与 Hook 必须覆盖整个使用范围。
 
-        server 是 Hook 的既有服务别名，空值借用全部已发布服务。实现方在同一同步步骤中
-        冻结目录和记录引用，关闭检查与禁止新引用间不能让出执行权。
+        server 是 Hook 的既有服务别名，空值借用当前可见目录。实现方在同一同步步骤中
+        冻结目录和记录引用，关闭检查与禁止新引用间不能让出执行权。缓存目录不代表就绪，
+        调用必须等待原连接并校验完整版本；不得借缓存注解降低审批要求。
         """
         ...
 

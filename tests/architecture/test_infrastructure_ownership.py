@@ -629,6 +629,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "external_group.py",
         "external_runtime.py",
         "external_status.py",
+        "catalog_cache.py",
         "hook_runner.py",
         "initialize_retry.py",
         "local_session.py",

@@ -49,6 +49,10 @@ class ExternalMcpStatus(object):
         """标记服务连接或工具加载失败。"""
         self._update(server, "failed", detail=reason)
 
+    def mark_deferred(self, server: dict[str, typing.Any]) -> None:
+        """等待预算用完后仍由原 owner 建连，不把后台启动报告成失败。"""
+        self._update(server, "starting", detail="Continuing in background")
+
     def mark_ready(
         self,
         server: dict[str, typing.Any],
@@ -81,6 +85,8 @@ class ExternalMcpStatus(object):
 
     def finish_unresolved(self, reason: str = "") -> None:
         """结束前把仍处于等待态的服务统一标记为失败。"""
+        if self._done:
+            return
         final_reason = str(reason or "").strip()
         for item in self._items.values():
             if str(item.get("state") or "").lower() in {"linking", "queued"}:

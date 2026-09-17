@@ -28,6 +28,7 @@ from agent.domain.policies import (
 from agent.harness.tools.client_calls import ClientToolCallRunner
 from agent.ports.persistence import EffectJournalDecision
 from infrastructure.mcp.composite_session import CompositeToolSession
+from infrastructure.mcp.catalog_cache import CatalogSnapshot
 from infrastructure.mcp.tool_execution import McpToolExecutionAdapter
 from protocol.schema.stream_events import ExecutionEffect
 
@@ -163,6 +164,20 @@ async def test_prompt_mode_approves_before_external_mcp_execution() -> None:
     assert approval.presentations[0]["arguments"] == {"query": "approval"}
     external.call_tool.assert_awaited_once()
     presentation.emit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("decision", ["accept", "decline"])
+async def test_cached_approve_catalog_uses_explicit_gate_without_remember_choices(decision):
+    runner, invocation, approval, external, _presentation = _runtime("approve", decision=decision, read_only=True)
+    external.tools = CatalogSnapshot.capture(external.tools).preview()
+
+    outcome = await runner.execute(invocation, use_coding_trace=False, display=False)
+
+    assert len(approval.actions) == 1
+    assert approval.presentations[0]["available_decisions"] == ["accept", "decline"]
+    assert outcome.result.ok is (decision == "accept")
+    assert external.call_tool.await_count == (1 if decision == "accept" else 0)
 
 
 @pytest.mark.anyio

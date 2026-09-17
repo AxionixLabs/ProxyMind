@@ -127,7 +127,6 @@ async def test_required_failure_retires_only_uncommitted_batch(control_runtime, 
     config.servers["Slow"].update(enabled=True, required=True)
     start = asyncio.create_task(runtime.restart() if operation == "restart" else runtime.start())
     try:
-        await wait_for_fact(config.workspace / "a.jsonl", "tools.listed")
         await wait_for_fact(config.workspace / "slow.jsonl", "process.started")
         assert not start.done()
         with runtime.use_tools() as view:
@@ -204,7 +203,7 @@ async def test_disconnected_frozen_scope_cannot_be_rebound_or_replayed(control_r
         assert result.outcome == "busy" and result.snapshot.state == "failed"
         with pytest.raises(McpServicesBusy):
             await runtime.start(include_disabled=True)
-        with pytest.raises(KeyError):
+        with pytest.raises(McpError, match="catalog changed"):
             await view.call_tool("mcp__disconnect__ping")
     assert sum(fact.event == "tool.started" for fact in read_facts(config.workspace / "disconnect.jsonl")) == 1
 

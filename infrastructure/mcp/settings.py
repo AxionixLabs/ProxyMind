@@ -15,6 +15,7 @@ from .values import slugify_mcp_name
 
 DEFAULT_MCP_TRANSPORT = "streamable_http"
 DEFAULT_MCP_START_TIMEOUT_SEC = 30.0
+DEFAULT_MCP_OPTIONAL_STARTUP_WAIT_SEC = 1.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
 MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
@@ -26,9 +27,11 @@ class NormalizedMcpServer(typing.TypedDict, total=False):
     name: str
     config_key: str
     enabled: bool
+    config_enabled: bool
     required: bool
     transport: McpTransport
     startup_timeout_sec: float
+    optional_startup_wait_sec: float
     timeout_sec: float
     tool_filter: dict[str, list[str]]
     default_tools_approval_mode: str
@@ -212,12 +215,14 @@ def normalize_mcp_servers(
             "name": unique_slug,
             "config_key": name,
             "enabled": item.get("enabled", True) is not False,
+            "config_enabled": item.get("enabled", True) is not False,
             "required": item.get("required", False) is True,
             "transport": transport,
             "startup_timeout_sec": positive_float(
                 item.get("startup_timeout_sec"),
                 DEFAULT_MCP_START_TIMEOUT_SEC,
             ),
+            "optional_startup_wait_sec": float(item.get("optional_startup_wait_sec", DEFAULT_MCP_OPTIONAL_STARTUP_WAIT_SEC)),
             "timeout_sec": timeout_sec,
             "tool_filter": tool_rules,
             "default_tools_approval_mode": normalize_mcp_approval_mode(

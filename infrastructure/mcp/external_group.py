@@ -19,6 +19,7 @@ from dataclasses import (
     replace,
 )
 from datetime import timedelta
+from pathlib import Path
 from types import MappingProxyType
 
 from mcp import (
@@ -56,6 +57,12 @@ from infrastructure.mcp.external_status import (
     should_reraise_external,
 )
 from infrastructure.mcp.errors import flatten_exceptions
+from infrastructure.mcp.catalog_cache import (
+    CatalogIdentity,
+    CatalogSnapshot,
+    ToolCatalogCache,
+    configuration_identity,
+)
 from infrastructure.mcp.initialize_retry import (
     HTTP_INITIALIZE_RETRY_DELAYS,
     is_retryable_initialize_error,
@@ -111,6 +118,7 @@ class _ExternalMcpConnectionReady:
     tools: dict[str, mcp_types.Tool]
     discovered_count: int
     disconnected: asyncio.Event
+    authorization_generation: int | None
 
 
 @dataclass(slots=True)
@@ -125,12 +133,26 @@ class _ExternalMcpConnection:
     cleanup_error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _CatalogBinding:
+    """绑定冻结使用范围与一次启动，旧范围不能迁移到重建后的会话。"""
+
+    key: str
+    attempt: int
+    revision: str
+    generation: int | None
+    cached: bool
+
+
 class ExternalMcpGroup:
     """管理一组外部 MCP 会话，并把多个服务的工具合并成统一入口。"""
 
     def __init__(
         self, *, can_publish: Callable[[], bool] | None = None,
         credential_store: McpCredentialStore | None = None,
+        catalog_cache: ToolCatalogCache | None = None,
+        workspace: Path | None = None,
+        can_publish_server: Callable[[NormalizedMcpServer], bool] | None = None,
     ) -> None:
         """初始化外部 MCP 工具索引和连接所有者集合。"""
         self.tools: dict[str, mcp_types.Tool] = {}
@@ -145,6 +167,22 @@ class ExternalMcpGroup:
         self._staged_keys: set[str] = set()
         self._can_publish = can_publish
         self._credential_store = credential_store
+        self._catalog_cache = catalog_cache
+        self._workspace = workspace
+        self._can_publish_server = can_publish_server
+        self._startup_tasks: dict[str, asyncio.Task[bool]] = {}
+        self._startup_configs: dict[str, NormalizedMcpServer] = {}
+        self._configuration_ids: dict[str, str] = {}
+        self._attempts: dict[str, int] = {}
+        self._next_attempt = 0
+        self._catalogs: dict[str, str] = {}
+        self._previews: dict[str, CatalogIdentity] = {}
+        self._cache_blocked: set[str] = set()
+        self._cached_calls: dict[str, tuple[int | None, int]] = {}
+        self._uncertain_cached_calls: set[str] = set()
+        self._start_lock = asyncio.Lock()
+        self._connect_limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
+        self._stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
 
     @property
     def started(self) -> bool:
@@ -159,7 +197,7 @@ class ExternalMcpGroup:
     @property
     def owned_keys(self) -> frozenset[str]:
         """返回仍持有资源或待确认清理结果的服务键。"""
-        return frozenset(item.config_key for item in self._connections)
+        return frozenset(item.config_key for item in self._connections) | frozenset(key for key, task in self._startup_tasks.items() if not task.done())
 
     def authorization_binding(self, key: str) -> McpOAuthBinding | None:
         """供运行时核对连接与本地凭据的身份，禁止把新配置的凭据合并到旧连接。"""
@@ -167,10 +205,81 @@ class ExternalMcpGroup:
 
     def freeze_tools(self, keys: frozenset[str]) -> "ExternalMcpTools":
         """复制已发布服务的目录；调用方必须在引用存续期间阻止相应连接重建。"""
-        names = {
-            name for key in keys for name in self._service_states[key].tools
-        }
-        return ExternalMcpTools(self, {name: tool.model_copy(deep=True) for name, tool in self.tools.items() if name in names})
+        tools: dict[str, mcp_types.Tool] = {}
+        bindings: dict[str, _CatalogBinding] = {}
+        for key in keys:
+            state = self._service_states[key]
+            if state.state == "ready":
+                selected = {name: self.tools[name].model_copy(deep=True) for name in state.tools}
+                revision = self._catalogs[key]
+                generation = state.authorization.generation
+            else:
+                preview = self._preview(key)
+                if preview is None:
+                    continue
+                identity, catalog = preview
+                selected = catalog.preview()
+                revision = catalog.revision
+                generation = identity.generation
+            binding = _CatalogBinding(key, self._attempts[key], revision, generation, state.state != "ready")
+            tools.update(selected)
+            bindings.update({name: binding for name in selected})
+        return ExternalMcpTools(self, tools, bindings)
+
+    def _identity(self, key: str, generation: int | None) -> CatalogIdentity | None:
+        """从本次启动的已解析配置生成缓存身份，未知 OAuth 代际不能复用。"""
+        server = self._startup_configs.get(key)
+        if server is None or self._workspace is None:
+            return None
+        if server.get("oauth_binding") is not None and self._credential_store is not None and generation is None:
+            return None
+        return CatalogIdentity(self._workspace, key, self._configuration_ids[key], generation)
+
+    def _preview(self, key: str) -> tuple[CatalogIdentity, CatalogSnapshot] | None:
+        """只为仍在后台启动且配置有效的服务返回未过期缓存。"""
+        pending = self._startup_tasks.get(key)
+        saved = self._previews.get(key)
+        server = self._startup_configs.get(key)
+        cache = self._catalog_cache
+        if pending is None or pending.done() or saved is None or server is None or cache is None or key in self._staged_keys:
+            return None
+        if (configuration_identity(server) != self._configuration_ids[key]
+                or (self._can_publish_server is not None and not self._can_publish_server(server))):
+            return None
+        snapshot = cache.get(saved)
+        return (saved, snapshot) if snapshot is not None else None
+
+    def has_preview(self, key: str) -> bool:
+        """供同步使用范围纳入可复用目录，不改变服务连接状态。"""
+        return self._preview(key) is not None
+
+    def _begin_startup(self, server: NormalizedMcpServer) -> None:
+        """冻结本次启动的身份，缓存预览与未来实时目录绑定同一个 attempt。"""
+        key = server.get("config_key", server["name"])
+        self._next_attempt += 1
+        self._attempts[key] = self._next_attempt
+        self._startup_configs[key] = server.copy()
+        self._configuration_ids[key] = configuration_identity(server)
+        self._previews.pop(key, None)
+        self._cache_blocked.discard(key)
+        self._cached_calls.pop(key, None)
+        self._uncertain_cached_calls.discard(key)
+        identity = self._identity(key, server.get("authorization", McpAuthorizationStatus()).generation)
+        if self._catalog_cache is not None and identity is not None:
+            cached = self._catalog_cache.get(identity)
+            if cached is not None:
+                self._previews[key] = identity
+
+    def matches_startup(self, server: NormalizedMcpServer) -> bool:
+        """同配置的重复预热借用既有启动；配置变化必须收束原任务后再启动。"""
+        key = server.get("config_key", server["name"])
+        previous = self._startup_configs.get(key)
+        return (
+            previous is not None
+            and self._configuration_ids[key] == configuration_identity(server)
+            and previous.get("authorization", McpAuthorizationStatus()).generation
+            == server.get("authorization", McpAuthorizationStatus()).generation
+        )
 
     def _remember_server(self, server: NormalizedMcpServer) -> None:
         """在预检前建立连接状态，使没有进入 SDK 的失败同样可被观察。"""
@@ -199,6 +308,9 @@ class ExternalMcpGroup:
     def _mark_failed(self, key: str, detail: str) -> None:
         """记录已观察到的连接失败并撤下不可用目录。"""
         self._withdraw(key)
+        self._previews.pop(key, None)
+        if self._catalog_cache is not None:
+            self._catalog_cache.invalidate(key)
         snapshot = self._service_states.get(key)
         if snapshot is not None:
             if snapshot.authorization.error is not None and snapshot.connection_error:
@@ -236,22 +348,42 @@ class ExternalMcpGroup:
             key = binding.target.config_key
             snapshot = self._service_states.get(key)
             if snapshot is not None:
+                if self._catalog_cache is not None and snapshot.authorization.generation != authorization.generation:
+                    self._catalog_cache.invalidate(key)
                 self._service_states[key] = replace(snapshot, authorization=authorization)
 
-        return McpOAuthRuntimeAuth(binding, store, failed=failed, observed=observed)
+        def validate_request(authorization: McpAuthorizationStatus) -> None:
+            """在 SDK 实际发送前核对缓存调用身份，覆盖排队期间的凭据变化。"""
+            pending = self._cached_calls.get(binding.target.config_key)
+            if pending is not None and pending[0] != authorization.generation:
+                raise McpOAuthError("configuration_conflict")
+
+        return McpOAuthRuntimeAuth(binding, store, failed=failed, observed=observed, validate_request=validate_request)
 
     async def start_service(
         self, server: NormalizedMcpServer, status: ExternalMcpStatus | None = None,
     ) -> bool:
         """复用现有建连时限和 owner 启动一个服务，不执行 required 全组收束。"""
+        self._begin_startup(server)
         return await _connect_external_server(
-            self, server, asyncio.Semaphore(1), asyncio.Semaphore(1), status,
+            self, server, self._connect_limiter, self._stdio_limiter, status,
         )
 
     async def stop_service(self, key: str) -> None:
         """只关闭目标，调用方取消后仍等待拥有资源的任务收束。"""
         async with self._close_lock:
             cancelled = False
+            startup = self._startup_tasks.pop(key, None)
+            if startup is not None:
+                if not startup.done():
+                    startup.cancel()
+                startup_cleanup = asyncio.gather(startup, return_exceptions=True)
+                while not startup_cleanup.done():
+                    try:
+                        await asyncio.shield(startup_cleanup)
+                    except asyncio.CancelledError:
+                        cancelled = True
+            self._previews.pop(key, None)
             connection = next((item for item in self._connections if item.config_key == key), None)
             self._withdraw(key)
             snapshot = self._service_states.get(key)
@@ -456,20 +588,34 @@ class ExternalMcpGroup:
         )
 
     async def start(
+        self, servers: list[NormalizedMcpServer], status: ExternalMcpStatus | None = None,
+        *, allow_background: bool = False,
+    ) -> int:
+        """串行归约预热请求；已有后台启动不会因重复请求重建或重置预算。"""
+        async with self._start_lock:
+            return await self._start_batch(servers, status, allow_background=allow_background)
+
+    async def _start_batch(
         self,
         servers: list[NormalizedMcpServer],
-        status: ExternalMcpStatus | None = None
+        status: ExternalMcpStatus | None = None,
+        *, allow_background: bool,
     ) -> int:
         """补齐缺失连接，required 判定完成后原子发布本批目录；失败只回收本批。"""
         if self._closing or self._closed:
             raise RuntimeError("External MCP group is closed")
         enabled: list[NormalizedMcpServer] = []
-        for item in servers:
+        for item in sorted(servers, key=lambda item: not item.get("required", False)):
             if not bool(item.get("enabled", True)):
                 continue
             key = item.get("config_key", item["name"])
             snapshot = self._service_states.get(key)
             if snapshot is not None and snapshot.state == "ready":
+                continue
+            pending = self._startup_tasks.get(key)
+            if pending is not None and not pending.done() and self.matches_startup(item):
+                if status is not None:
+                    status.mark_deferred(item)
                 continue
             if key in self.owned_keys:
                 await self.stop_service(key)
@@ -482,14 +628,18 @@ class ExternalMcpGroup:
                 status.finish()
             return 0
 
-        limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
-        stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
+        limiter = self._connect_limiter
+        stdio_limiter = self._stdio_limiter
         batch_keys = frozenset(item.get("config_key", item["name"]) for item in enabled)
         self._staged_keys.update(batch_keys)
         committed = False
-
-        connect_tasks = [
-            asyncio.create_task(
+        started_at = asyncio.get_running_loop().time()
+        connect_tasks: list[asyncio.Task[bool]] = []
+        for server in enabled:
+            key = server.get("config_key", server["name"])
+            self._begin_startup(server)
+            self._remember_server(server)
+            task = asyncio.create_task(
                 _connect_external_server(
                     self,
                     server,
@@ -499,11 +649,20 @@ class ExternalMcpGroup:
                 ),
                 name=f"external MCP {server.get('name') or 'server'} startup",
             )
-            for server in enabled
-        ]
+            self._startup_tasks[key] = task
+            task.add_done_callback(self._startup_finished)
+            connect_tasks.append(task)
 
         try:
-            await asyncio.gather(*connect_tasks)
+            async def wait_for_startup(server: NormalizedMcpServer, task: asyncio.Task[bool]) -> None:
+                """必需服务完整等待，可选服务共享批次起点且不取消后台连接。"""
+                budget = server.get("optional_startup_wait_sec", 1.0)
+                if not allow_background or server.get("required", False) or budget == 0:
+                    await asyncio.shield(task)
+                else:
+                    await asyncio.wait({task}, timeout=max(0.0, started_at + budget - asyncio.get_running_loop().time()))
+
+            await asyncio.gather(*(wait_for_startup(server, task) for server, task in zip(enabled, connect_tasks)))
             prepared = [
                 connection for connection in self._connections
                 if connection.config_key in batch_keys
@@ -514,6 +673,9 @@ class ExternalMcpGroup:
                 and self._service_states[connection.config_key].state == "starting"
             ]
             prepared_keys = {connection.config_key for connection in prepared}
+            for connection in tuple(prepared):
+                if not await self._catalog_authorization_matches(connection.config_key, connection.ready.result().authorization_generation):
+                    self._cache_blocked.add(connection.config_key)
             connected_servers = len(prepared)
 
             failed_required = [
@@ -530,6 +692,7 @@ class ExternalMcpGroup:
             for connection in prepared:
                 self._publish(connection.config_key, connection.ready.result())
             committed = True
+            self._staged_keys.difference_update(batch_keys)
 
             if status is not None:
                 for server in enabled:
@@ -537,10 +700,12 @@ class ExternalMcpGroup:
                     snapshot = self._service_states[key]
                     if key in prepared_keys:
                         status.mark_ready(server, server["name"], len(snapshot.tools), discovered_count=snapshot.discovered)
+                    elif not self._startup_tasks[key].done():
+                        status.mark_deferred(server)
                     else:
                         status.mark_failed(server, snapshot.connection_error or "MCP connection closed before publication")
 
-            if connected_servers <= 0:
+            if connected_servers <= 0 and all(task.done() for task in connect_tasks):
                 observe(
                     "external_mcp.unavailable",
                     level="WARNING",
@@ -571,12 +736,16 @@ class ExternalMcpGroup:
         self, tasks: list[asyncio.Task[bool]], keys: frozenset[str], committed: bool,
     ) -> None:
         """取消未完成启动并收束未提交批次，不触碰操作前连接。"""
+        if committed:
+            return
+        for key in keys:
+            self._previews.pop(key, None)
+            if self._catalog_cache is not None:
+                self._catalog_cache.invalidate(key)
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        if committed:
-            return
         connections = tuple(item for item in self._connections if item.config_key in keys)
         for connection in connections:
             snapshot = self._service_states[connection.config_key]
@@ -604,6 +773,13 @@ class ExternalMcpGroup:
             return None
 
         self._closing = True
+        startups = tuple(self._startup_tasks.values())
+        for task in startups:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*startups, return_exceptions=True)
+        self._startup_tasks.clear()
+        self._previews.clear()
 
         connections = tuple(self._connections)
         for connection in connections:
@@ -633,6 +809,8 @@ class ExternalMcpGroup:
 
         server_name = str(server.get("name") or "server")
         config_key = str(server.get("config_key", server_name))
+        if config_key not in self._attempts:
+            self._begin_startup(server)
         if any(item.config_key == config_key or item.server == server_name for item in self._connections):
             raise ValueError("MCP service or tool prefix is already owned by a connection")
         self._remember_server(server)
@@ -657,6 +835,8 @@ class ExternalMcpGroup:
 
         try:
             prepared = await asyncio.shield(ready)
+            if not await self._catalog_authorization_matches(config_key, prepared.authorization_generation):
+                self._cache_blocked.add(config_key)
             if task.done() or prepared.disconnected.is_set() or self._closing or self._service_states[config_key].state != "starting":
                 raise ConnectionError("MCP connection closed before publication")
             matching_tools = prepared.tools.keys() & self.tools.keys()
@@ -680,7 +860,20 @@ class ExternalMcpGroup:
     def _publish(self, key: str, prepared: _ExternalMcpConnectionReady) -> None:
         """在不让出执行权的步骤中共同发布目录、路由和连接事实。"""
         self._check_publication()
+        server = self._startup_configs[key]
+        if (configuration_identity(server) != self._configuration_ids[key]
+                or (self._can_publish_server is not None and not self._can_publish_server(server))):
+            raise RuntimeError("MCP configuration changed during startup")
         snapshot = self._service_states[key]
+        connection = next((item for item in self._connections if item.config_key == key), None)
+        if connection is None or connection.task.done() or connection.stop_event.is_set() or prepared.disconnected.is_set() or snapshot.state != "starting":
+            raise RuntimeError("MCP connection closed before publication")
+        catalog = CatalogSnapshot.capture(prepared.tools)
+        self._catalogs[key] = catalog.revision
+        self._previews.pop(key, None)
+        identity = self._identity(key, prepared.authorization_generation)
+        if self._catalog_cache is not None and identity is not None and key not in self._cache_blocked:
+            self._catalog_cache.publish(identity, catalog)
         exposed = len(prepared.tools)
         self.tools.update(prepared.tools)
         self._tool_to_session.update({name: prepared.session for name in prepared.tools})
@@ -700,13 +893,66 @@ class ExternalMcpGroup:
         if self._closing or self._closed or (self._can_publish is not None and not self._can_publish()):
             raise RuntimeError("MCP runtime or workspace is no longer active")
 
+    @staticmethod
+    def _startup_finished(task: asyncio.Task[bool]) -> None:
+        """消费后台任务异常；失败事实和资源清理由原启动及连接 owner 归约。"""
+        if not task.cancelled():
+            task.exception()
+
+    async def _catalog_authorization_matches(self, key: str, generation: int | None) -> bool:
+        """在目录发布及调用边界重读认证身份，存储错误与账号替换均拒绝旧目录。"""
+        binding = self._authorization_bindings.get(key)
+        if binding is None or self._credential_store is None or self._catalog_cache is None:
+            return True
+        current = await self._credential_store.view(binding.target)
+        matches = current.generation == generation and current.state not in ("unavailable", "registered", "reauthorization_required", "refresh_uncertain")
+        if not matches and self._catalog_cache is not None:
+            self._catalog_cache.invalidate(key)
+        return matches
+
+    async def call_bound_tool(
+        self, binding: _CatalogBinding, name: str, arguments: dict[str, ThawedJsonValue] | None,
+        read_timeout_seconds: timedelta | None, progress_callback: ProgressFnT | None,
+        meta: dict[str, ThawedJsonValue] | None,
+    ) -> mcp_types.CallToolResult:
+        """缓存调用先等待原启动，再核对完整实时版本，任何不匹配都不发送工具请求。"""
+        startup = self._startup_tasks.get(binding.key)
+        if startup is not None and not startup.done():
+            server = self._startup_configs[binding.key]
+            timeout = read_timeout_seconds.total_seconds() if read_timeout_seconds is not None else request_timeout_sec(server)
+            async with asyncio.timeout(timeout):
+                await asyncio.shield(startup)
+        catalog = self._catalogs.get(binding.key)
+        state = self._service_states.get(binding.key)
+        if (self._attempts.get(binding.key) != binding.attempt or catalog is None or catalog != binding.revision
+                or state is None or state.state != "ready" or (binding.cached and state.authorization.generation != binding.generation)):
+            raise McpError(mcp_types.ErrorData(code=mcp_types.INVALID_REQUEST, message="MCP tool catalog changed or connection is unavailable; start a new tool scope."))
+        if binding.cached and not await self._catalog_authorization_matches(binding.key, binding.generation):
+            raise McpError(mcp_types.ErrorData(code=mcp_types.INVALID_REQUEST, message="MCP authorization changed; restart the service before retrying."))
+        if not binding.cached:
+            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta)
+        pending = self._cached_calls.get(binding.key)
+        self._cached_calls[binding.key] = (binding.generation, pending[1] + 1 if pending else 1)
+        try:
+            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta)
+        except BaseException:
+            # SDK 写队列可能已接收请求；异常后保留身份约束直到连接收束，禁止迟到请求借用新账号。
+            self._uncertain_cached_calls.add(binding.key)
+            raise
+        finally:
+            generation, count = self._cached_calls[binding.key]
+            if count == 1 and binding.key not in self._uncertain_cached_calls:
+                del self._cached_calls[binding.key]
+            else:
+                self._cached_calls[binding.key] = (generation, count - 1)
+
     def _connection_finished(self, connection: _ExternalMcpConnection, task: asyncio.Task[None]) -> None:
         """消费 owner 终态，只归约仍属于本次连接的记录，防止旧任务回写。"""
         if connection not in self._connections:
             return
         error = None if task.cancelled() else task.exception()
         snapshot = self._service_states.get(connection.config_key)
-        if snapshot is not None and snapshot.state in ("ready", "starting"):
+        if snapshot is not None and snapshot.state in ("ready", "starting") and not connection.stop_event.is_set():
             self._mark_failed(
                 connection.config_key,
                 external_status_detail_from_exception(error) if error else "MCP connection closed",
@@ -787,6 +1033,7 @@ class ExternalMcpGroup:
                 websiteUrl=server_info.websiteUrl,
                 icons=server_info.icons
             )
+            generation_before_discovery = self._service_states[config_key].authorization.generation
             tools, discovered_count = await self._collect_tools(
                 alias_info,
                 session,
@@ -805,6 +1052,8 @@ class ExternalMcpGroup:
 
             if disconnected.is_set():
                 raise ConnectionError("MCP transport closed during initialization")
+            if generation_before_discovery != self._service_states[config_key].authorization.generation:
+                self._cache_blocked.add(config_key)
             if not ready.done():
                 ready.set_result(_ExternalMcpConnectionReady(
                     alias=alias,
@@ -812,6 +1061,7 @@ class ExternalMcpGroup:
                     tools=tools,
                     discovered_count=discovered_count,
                     disconnected=disconnected,
+                    authorization_generation=self._service_states[config_key].authorization.generation,
                 ))
             waiters = [asyncio.create_task(stop_event.wait()), asyncio.create_task(disconnected.wait())]
             await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
@@ -884,11 +1134,12 @@ class ExternalMcpTools:
     断线会使原路由失败，不尝试迁移请求或重放工具调用。
     """
 
-    def __init__(self, group: ExternalMcpGroup, tools: dict[str, mcp_types.Tool]) -> None:
+    def __init__(self, group: ExternalMcpGroup, tools: dict[str, mcp_types.Tool], bindings: dict[str, _CatalogBinding]) -> None:
         """冻结可调用名称，不复制连接所有权。"""
         self._group = group
         self._tools = MappingProxyType(tools)
         self._active = True
+        self._bindings = bindings
 
     @property
     def tools(self) -> Mapping[str, mcp_types.Tool]:
@@ -910,8 +1161,8 @@ class ExternalMcpTools:
             raise RuntimeError("MCP tool scope has ended")
         if name not in self._tools:
             raise KeyError(name)
-        return await self._group.call_tool(
-            name, arguments, read_timeout_seconds, progress_callback, meta=meta,
+        return await self._group.call_bound_tool(
+            self._bindings[name], name, arguments, read_timeout_seconds, progress_callback, meta,
         )
 
     async def call_hook_tool(

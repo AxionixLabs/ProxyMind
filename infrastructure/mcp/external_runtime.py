@@ -35,6 +35,10 @@ from agent.ports.tool_runtime import ExternalToolGroupPort
 from infrastructure.config.schema import validate_config
 from infrastructure.errors import AppError
 from infrastructure.mcp.external_group import ExternalMcpGroup
+from infrastructure.mcp.catalog_cache import (
+    ToolCatalogCache,
+    configuration_identity,
+)
 from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
     external_status_detail_from_exception,
@@ -76,6 +80,7 @@ class ExternalMcpRuntime:
         self._blocked: set[str] = set()
         self._idle = asyncio.Event()
         self._idle.set()
+        self._catalog_cache = ToolCatalogCache()
 
     def _is_active(self) -> bool:
         """校验此实例仍可接收使用范围和建连结果。"""
@@ -84,6 +89,7 @@ class ExternalMcpRuntime:
     def retire(self) -> None:
         """同步禁止新使用范围及迟到发布，已冻结引用继续由原消费者归还。"""
         self._accepting = False
+        self._catalog_cache.clear()
 
     @contextmanager
     def use_tools(self, server: str | None = None) -> Iterator[ExternalToolGroupPort | None]:
@@ -94,7 +100,7 @@ class ExternalMcpRuntime:
             return
         keys = frozenset(
             item.config_key for item in group.service_snapshots
-            if item.state == "ready" and item.config_key not in self._blocked
+            if (item.state == "ready" or group.has_preview(item.config_key)) and item.config_key not in self._blocked
             and (server is None or item.tool_prefix == f"mcp__{server.strip()}__")
         )
         view = group.freeze_tools(keys)
@@ -170,6 +176,25 @@ class ExternalMcpRuntime:
         self._credential_views = {binding: view for binding, view in self._credential_views.items() if binding in bindings}
         return servers
 
+    def _can_publish_server(self, server: NormalizedMcpServer) -> bool:
+        """在迟到发布前重新核对有效配置，退休或配置失效不接受旧启动结果。"""
+        if not self._is_active():
+            return False
+        try:
+            self._load_servers()
+        except (ValueError, OSError, AppError):
+            return False
+        current = self._configured.get(server["config_key"])
+        return current is not None and configuration_identity(current) == configuration_identity(server)
+
+    def _create_group(self) -> ExternalMcpGroup:
+        """将同 runtime 的缓存借给逐连接 owner，缓存本身不拥有后台生命周期。"""
+        return ExternalMcpGroup(
+            can_publish=self._is_active, credential_store=self._credential_store,
+            catalog_cache=self._catalog_cache, workspace=self._workspace,
+            can_publish_server=self._can_publish_server,
+        )
+
     async def _refresh_authorization(self, key: str | None = None) -> None:
         """在显式状态查询中读取本地凭据；不探测网络，退休或配置变更后不提交迟到结果。"""
         store = self._credential_store
@@ -192,6 +217,8 @@ class ExternalMcpRuntime:
                 previous = self._credential_views.get(binding)
                 if previous is not None and previous.view.generation is not None and view.generation is not None and view.generation < previous.view.generation:
                     continue
+                if previous is not None and previous.view.generation != view.generation:
+                    self._catalog_cache.invalidate(server["config_key"])
                 self._credential_views[binding] = _CredentialInspection(view, observed)
 
     def _snapshots(self) -> tuple[McpServiceSnapshot, ...]:
@@ -336,7 +363,7 @@ class ExternalMcpRuntime:
                 return McpServiceOutcome(key, "unchanged", snapshot)
             group = self._group
             if group is None:
-                group = ExternalMcpGroup(can_publish=self._is_active, credential_store=self._credential_store)
+                group = self._create_group()
                 self._group = group
             try:
                 if server is not None and request.action in ("start", "force", "restart"):
@@ -435,6 +462,21 @@ class ExternalMcpRuntime:
                     raise ValueError("MCP tool prefix conflicts with an existing service")
         if not servers:
             return
+        await self._refresh_authorization()
+        enriched: list[NormalizedMcpServer] = []
+        for server in servers:
+            current = server.copy()
+            binding = server.get("oauth_binding")
+            inspection = self._credential_views.get(binding) if binding is not None else None
+            if inspection is not None:
+                current["authorization"] = authorization_from_credentials(inspection.view, server.get("authorization", McpAuthorizationStatus()))
+            enriched.append(current)
+        servers = enriched
+        if group is not None:
+            pending = {item.config_key for item in group.service_snapshots if item.state == "starting"}
+            servers = [server for server in servers if server["config_key"] not in pending or not group.matches_startup(server)]
+        if not servers:
+            return
         if include_disabled:
             servers = [
                 {
@@ -467,9 +509,9 @@ class ExternalMcpRuntime:
 
             group = self._group
             if group is None:
-                group = ExternalMcpGroup(can_publish=self._is_active, credential_store=self._credential_store)
+                group = self._create_group()
                 self._group = group
-            await group.start(servers, status=status)
+            await group.start(servers, status=status, allow_background=True)
 
         except BaseException as exc:
             status.finish_unresolved(external_status_detail_from_exception(exc))
