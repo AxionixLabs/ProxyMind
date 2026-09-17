@@ -26,11 +26,14 @@ FixtureTransport = typing.Literal["stdio", "streamable_http", "sse"]
 FixtureMode = typing.Literal[
     "ready", "empty", "no-tools", "discovery-failure", "startup-failure",
     "handshake-timeout", "disconnect", "close-stall",
+    "oversize-line", "oversize-unframed", "large-response", "http-recover",
+    "http-exhausted", "http-unauthorized", "http-protocol-error", "http-call-failure",
 ]
 FixtureEvent = typing.Literal[
     "process.started", "process.closed", "listening", "session.opened",
     "session.closed", "initialized", "tools.listed", "tool.started",
     "tool.completed", "fault.injected",
+    "initialize.received", "request.completed",
 ]
 
 
@@ -47,6 +50,7 @@ class FixtureFact(BaseModel):
     session_id: str | None = None
     tool: str | None = None
     port: int | None = Field(default=None, gt=0, le=65535)
+    peer_port: int | None = Field(default=None, gt=0, le=65535)
 
 
 class FixtureReply(BaseModel):

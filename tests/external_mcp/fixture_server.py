@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import os
 import socket
+import sys
 import time
 
 import uvicorn
@@ -21,11 +22,16 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from pydantic import JsonValue
 from starlette.applications import Starlette
 from starlette.requests import Request
+from starlette.responses import (
+    JSONResponse,
+    Response,
+)
 from starlette.routing import (
     Mount,
     Route,
 )
 from starlette.types import (
+    Message,
     Receive,
     Scope,
     Send,
@@ -55,17 +61,19 @@ class FixtureState:
         self.created_ns = time.time_ns()
         self.sequence = 0
         self.calls = 0
+        self.initializations = 0
 
     def record(
         self, event: FixtureEvent, *, session_id: str | None = None,
         tool: str | None = None, port: int | None = None,
+        peer_port: int | None = None,
     ) -> None:
         """追加一条完整且经过校验的进程事实，不保存工具参数。"""
         self.sequence += 1
         fact = FixtureFact(
             event=event, instance_id=self.instance_id, pid=os.getpid(),
             created_ns=self.created_ns, sequence=self.sequence,
-            transport=self.transport, session_id=session_id, tool=tool, port=port,
+            transport=self.transport, session_id=session_id, tool=tool, port=port, peer_port=peer_port,
         )
         self.facts.parent.mkdir(parents=True, exist_ok=True)
         with self.facts.open("a", encoding="utf-8", newline="\n") as stream:
@@ -133,7 +141,7 @@ def create_server(name: str, state: FixtureState) -> Server[str, Request]:
                 await asyncio.sleep(0.025)
         reply = FixtureReply(
             instance_id=state.instance_id, pid=os.getpid(), session_id=session_id,
-            call_count=call_count, value=value,
+            call_count=call_count, value="汉🙂" * 300_000 if state.mode == "large-response" else value,
         )
         state.record("tool.completed", session_id=session_id, tool=name)
         return [mcp_types.TextContent(type="text", text=reply.model_dump_json())]
@@ -158,6 +166,58 @@ class SseEndpoint:
             await self.server.run(*streams, self.server.create_initialization_options())
 
 
+class FaultHttpEndpoint:
+    """在真实 HTTP 连接上注入握手或调用故障，并记录请求次数与对端端口。"""
+
+    def __init__(self, manager: StreamableHTTPSessionManager, state: FixtureState) -> None:
+        """绑定当前测试进程持有的 SDK 管理器与故障状态。"""
+        self.manager = manager
+        self.state = state
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """只在显式故障模式拦截请求，其余请求完整交给正式 SDK。"""
+        request = Request(scope, receive)
+        if request.method != "POST":
+            await self.manager.handle_request(scope, receive, send)
+            return
+        body = await request.body()
+        message = mcp_types.JSONRPCMessage.model_validate_json(body).root
+        peer = request.client
+        response: Response | None = None
+        if isinstance(message, mcp_types.JSONRPCRequest):
+            if message.method == "initialize":
+                self.state.initializations += 1
+                self.state.record("initialize.received", peer_port=peer.port if peer is not None else None)
+                if self.state.mode == "http-exhausted" or (
+                    self.state.mode == "http-recover" and self.state.initializations <= 2
+                ):
+                    response = Response(status_code=503)
+                elif self.state.mode == "http-unauthorized":
+                    response = Response(status_code=401)
+                elif self.state.mode == "http-protocol-error":
+                    response = JSONResponse({
+                        "jsonrpc": "2.0", "id": message.id,
+                        "error": {"code": -32600, "message": "fixture invalid request"},
+                    })
+            elif message.method == "tools/call" and self.state.mode == "http-call-failure":
+                self.state.record("tool.started", tool="ping")
+                response = Response(status_code=503)
+        if response is not None:
+            self.state.record("fault.injected")
+            await response(scope, receive, send)
+            self.state.record("request.completed")
+            return
+        messages: list[Message] = [{"type": "http.request", "body": body, "more_body": False}]
+        initial = iter(messages)
+
+        async def replay() -> Message:
+            """重放已校验的请求体，后续断开仍来自真实连接。"""
+            first = next(initial, None)
+            return first if first is not None else await receive()
+
+        await self.manager.handle_request(scope, replay, send)
+
+
 async def run_remote(server: Server[str, Request], state: FixtureState) -> None:
     """绑定操作系统分配的本机端口并服务，避免先探空闲端口的竞争。"""
     manager = StreamableHTTPSessionManager(server)
@@ -172,7 +232,7 @@ async def run_remote(server: Server[str, Request], state: FixtureState) -> None:
     routes = (
         [Route("/sse", endpoint=SseEndpoint(server, sse), methods=["GET"]), Mount("/messages/", app=sse.handle_post_message)]
         if state.transport == "sse"
-        else [Mount("/mcp", app=manager.handle_request)]
+        else [Mount("/mcp", app=FaultHttpEndpoint(manager, state))]
     )
     app = Starlette(routes=routes, lifespan=lifespan)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -197,6 +257,19 @@ async def run(name: str, state: FixtureState) -> None:
         if state.mode == "handshake-timeout":
             state.record("fault.injected")
             await asyncio.Event().wait()
+        if state.mode in {"oversize-line", "oversize-unframed"}:
+            state.record("fault.injected")
+            try:
+                for _ in range(129):
+                    sys.stdout.buffer.write(b"x" * (64 * 1024))
+                    sys.stdout.buffer.flush()
+                if state.mode == "oversize-line":
+                    sys.stdout.buffer.write(b"\n")
+                    sys.stdout.buffer.flush()
+                sys.stdin.buffer.read()
+            except BrokenPipeError:
+                pass
+            return
         server = create_server(name, state)
         if state.transport == "stdio":
             async with stdio_server() as streams:
@@ -217,6 +290,8 @@ def main() -> None:
     parser.add_argument("--mode", choices=(
         "ready", "empty", "no-tools", "discovery-failure", "startup-failure",
         "handshake-timeout", "disconnect", "close-stall",
+        "oversize-line", "oversize-unframed", "large-response", "http-recover",
+        "http-exhausted", "http-unauthorized", "http-protocol-error", "http-call-failure",
     ), default="ready")
     values = parser.parse_args()
     state = FixtureState(values.facts, values.release, values.transport, values.mode)

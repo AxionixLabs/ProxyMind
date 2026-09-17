@@ -33,18 +33,27 @@ OAuth 登录、系统凭据库、刷新事务、跨进程退出失效、工具�
 
 职责归属：传输 adapter 负责有界字节读取；既有逐连接 owner 负责尝试、清理和总期限。
 
-- [ ] 在 JSON 解码前限制 stdio 单帧字节数，覆盖分块输入和长期无换行输出。
+- [x] 在 JSON 解码前限制 stdio 单帧字节数，覆盖分块输入和长期无换行输出。
   超限关闭所属连接；stderr 继续复用既有脱敏、有界诊断。
-- [ ] 保留 Windows/Linux/macOS 的进程启动、取消、信号和关闭语义；复用公开生命周期，
+- [x] 保留 Windows/Linux/macOS 的进程启动、取消、信号和关闭语义；复用公开生命周期，
   替换旧无界读取路径，不维护两套可切换实现。
-- [ ] HTTP 初始化对明确的临时网络错误、408/429/500/502/503/504 有限重试，
+- [x] HTTP 初始化对明确的临时网络错误、408/429/500/502/503/504 有限重试，
   各次尝试共用总期限，并在重新建连前释放前一次资源。
-- [ ] 认证失败、协议错误及已开始执行的工具调用不纳入握手重试；取消不继续尝试。
-- [ ] 覆盖超长帧、跨块 UTF-8、正常大消息、握手恢复、重试耗尽、总超时、
+- [x] 认证失败、协议错误及已开始执行的工具调用不纳入握手重试；取消不继续尝试。
+- [x] 覆盖超长帧、跨块 UTF-8、正常大消息、握手恢复、重试耗尽、总超时、
   取消及资源关闭；用真实本地子进程/HTTP fixture 验证 adapter 集成。
 
 参考：`codex/codex-rs/rmcp-client/src/bounded_stdio_transport.rs`、
 `codex/codex-rs/rmcp-client/src/streamable_http_retry.rs`。
+
+阶段二 Windows 真机通过：源码 adapter 在真实 TTY 完成 11 项本地子进程/HTTP 故障验收；
+Selector 事件循环另完成 4 项 stdio 验收，覆盖 SDK 进程回退及卡住进程的取消。
+源码 TUI 完成 `/mcp status`、`/mcp restart`、`/mcp stop` 和 Ctrl+D 退出，超限服务不发布工具。
+操作系统核对本轮 44 个 fixture 进程身份均已退出；验收入口为
+`python -m tests.manual.mcp_transport_acceptance`，报告位于
+`build/mcp-maturity-phase2-20260917/ACCEPTANCE.md`。这批结果属于 Windows 本地故障服务，
+不代替 Sentry、Linux 或 macOS 的真实验收；跨平台进程代码复用 SDK 公开实现，实机证据留在阶段七。
+366 项 MCP 定向回归、139 项架构审计、文档生成校验及差异检查通过。
 
 ## 阶段三：认证状态与恢复提示贯通
 

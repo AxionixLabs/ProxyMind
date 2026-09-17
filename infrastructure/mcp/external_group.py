@@ -31,10 +31,7 @@ from mcp.client.session_group import (
     StreamableHttpParameters,
 )
 from mcp.client.sse import sse_client
-from mcp.client.stdio import (
-    StdioServerParameters,
-    stdio_client
-)
+from mcp.client.stdio import StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
@@ -53,6 +50,10 @@ from infrastructure.mcp.external_status import (
     should_reraise_external,
 )
 from infrastructure.mcp.errors import flatten_exceptions
+from infrastructure.mcp.initialize_retry import (
+    HTTP_INITIALIZE_RETRY_DELAYS,
+    is_retryable_initialize_error,
+)
 from infrastructure.mcp.settings import (
     NormalizedMcpServer,
     is_mcp_tool_allowed,
@@ -61,6 +62,7 @@ from infrastructure.mcp.settings import (
     startup_timeout_sec,
 )
 from infrastructure.mcp.stdio_diagnostics import capture_stdio_stderr
+from infrastructure.mcp.stdio_transport import bounded_stdio_client
 from infrastructure.mcp.oauth_runtime import McpOAuthRuntimeAuth
 from infrastructure.mcp.tool_discovery import collect_tool_catalog
 from infrastructure.mcp.transport import (
@@ -85,6 +87,15 @@ EXTERNAL_MCP_STDIO_CONCURRENCY = 1
 EXTERNAL_MCP_PREFLIGHT_TIMEOUT_SEC = 2.0
 EXTERNAL_MCP_CLOSE_TIMEOUT_SEC = 5.0
 EXTERNAL_MCP_TOOL_YIELD_INTERVAL = 32
+
+
+def _is_session_background_error(error: BaseException) -> bool:
+    """识别 SDK 任务组退出时重新抛出的请求错误，关闭 I/O 错误仍须保留 owner。"""
+    return all(
+        isinstance(item, (httpx.HTTPError, McpOAuthError, McpOAuthStorageError))
+        and not isinstance(item, httpx.CloseError)
+        for item in flatten_exceptions(error)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,7 +259,7 @@ class ExternalMcpGroup:
             stderr_sink = await session_stack.enter_async_context(capture_stdio_stderr(
                 config_key, server_params.encoding,
             ))
-            read, write = await session_stack.enter_async_context(stdio_client(server_params, errlog=stderr_sink))
+            read, write = await session_stack.enter_async_context(bounded_stdio_client(server_params, errlog=stderr_sink))
         elif isinstance(server_params, SseServerParameters):
             client = sse_client(
                 url=server_params.url, headers=server_params.headers,
@@ -569,7 +580,7 @@ class ExternalMcpGroup:
         connections = tuple(self._connections)
         for connection in connections:
             connection.stop_event.set()
-            if not connection.ready.done() and not connection.task.done():
+            if not connection.ready.done() and not connection.task.done() and not connection.task.cancelling():
                 connection.task.cancel()
 
         results = await asyncio.gather(
@@ -674,6 +685,56 @@ class ExternalMcpGroup:
         if connection.cleaned:
             self._connections.remove(connection)
 
+    async def _initialize_connection(
+        self, server: NormalizedMcpServer, stop_event: asyncio.Event,
+        disconnected: asyncio.Event, session_stack: contextlib.AsyncExitStack,
+    ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
+        """在同一 owner 内关闭失败尝试再重建，所有尝试共用调用方的启动总期限。"""
+        params = build_server_params(server)
+        config_key = str(server.get("config_key", server.get("name", "server")))
+        session_params = ClientSessionParameters(read_timeout_seconds=timedelta(seconds=request_timeout_sec(server)))
+        if not isinstance(params, StreamableHttpParameters):
+            return await self._establish_session(
+                params, session_params, disconnected, session_stack, config_key=config_key,
+                auth=self._runtime_auth(server, disconnected),
+            )
+        delays = HTTP_INITIALIZE_RETRY_DELAYS
+        for attempt in range(len(delays) + 1):
+            disconnected.clear()
+            try:
+                return await self._establish_session(
+                    params,
+                    session_params,
+                    disconnected, session_stack, config_key=config_key,
+                    auth=self._runtime_auth(server, disconnected),
+                )
+            except BaseException as initialization_error:
+                if stop_event.is_set():
+                    raise
+                error = initialization_error
+                try:
+                    with route_session_termination_warnings():
+                        await session_stack.aclose()
+                except BaseException as closing_error:
+                    # SDK HTTP 子任务在退出任务组时才重新抛出请求错误，须先完成退出再判断重试。
+                    if not _is_session_background_error(closing_error):
+                        connection = next((item for item in self._connections if item.task is asyncio.current_task()), None)
+                        if connection is not None:
+                            connection.cleanup_error = external_status_detail_from_exception(closing_error)
+                        raise
+                    error = closing_error
+                owner = asyncio.current_task()
+                if stop_event.is_set() or (owner is not None and owner.cancelling()):
+                    raise asyncio.CancelledError from None
+                if attempt == len(delays) or not is_retryable_initialize_error(error):
+                    raise error
+                observe(
+                    "external_mcp.initialize.retry", level="INFO", server=config_key,
+                    attempt=attempt + 1, delay_sec=delays[attempt],
+                )
+                await asyncio.sleep(delays[attempt])
+        raise RuntimeError("MCP initialize attempts exhausted")
+
     async def _run_owned_connection(
         self,
         server: NormalizedMcpServer,
@@ -688,19 +749,8 @@ class ExternalMcpGroup:
 
         try:
             alias = slugify_mcp_name(server.get("name"), fallback="server")
-            params = build_server_params(server)
-
-            server_info, session, session_stack = await self._establish_session(
-                params,
-                ClientSessionParameters(
-                    read_timeout_seconds=timedelta(
-                        seconds=request_timeout_sec(server)
-                    )
-                ),
-                disconnected,
-                session_stack,
-                config_key=config_key,
-                auth=self._runtime_auth(server, disconnected),
+            server_info, session, session_stack = await self._initialize_connection(
+                server, stop_event, disconnected, session_stack,
             )
             alias_info = mcp_types.Implementation(
                 name=alias,
@@ -757,16 +807,16 @@ class ExternalMcpGroup:
                     await session_stack.aclose()
             except BaseException as error:
                 if connection is not None:
-                    # SDK 子任务的认证错误在任务组退出时重新抛出；资源栈仍已完成全部回收。
-                    if all(isinstance(item, (McpOAuthError, McpOAuthStorageError)) for item in flatten_exceptions(error)):
-                        connection.cleaned = True
+                    # SDK 子任务的请求错误在任务组退出时重新抛出；资源栈仍已完成全部回收。
+                    if _is_session_background_error(error):
+                        connection.cleaned = connection.cleanup_error is None
                     else:
                         connection.cleanup_error = external_status_detail_from_exception(error)
                 self._mark_failed(config_key, external_status_detail_from_exception(error))
                 raise
             else:
                 if connection is not None:
-                    connection.cleaned = True
+                    connection.cleaned = connection.cleanup_error is None
             finally:
                 await asyncio.gather(*waiters, return_exceptions=True)
 
@@ -776,7 +826,7 @@ class ExternalMcpGroup:
     ) -> None:
         """停止尚未发布或发布失败的连接所有者。"""
         connection.stop_event.set()
-        if not connection.ready.done() and not connection.task.done():
+        if not connection.ready.done() and not connection.task.done() and not connection.task.cancelling():
             connection.task.cancel()
 
         self._withdraw(connection.config_key)
