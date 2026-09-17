@@ -62,6 +62,7 @@ from infrastructure.mcp.settings import (
 )
 from infrastructure.mcp.stdio_diagnostics import capture_stdio_stderr
 from infrastructure.mcp.oauth_runtime import McpOAuthRuntimeAuth
+from infrastructure.mcp.tool_discovery import collect_tool_catalog
 from infrastructure.mcp.transport import (
     ObservedMcpReadStream,
     build_server_params,
@@ -302,7 +303,7 @@ class ExternalMcpGroup:
             return tools_temp, 0
 
         try:
-            tools = (await session.list_tools()).tools
+            tools = await collect_tool_catalog(session)
         except BaseException as exc:
             if should_reraise_external(exc):
                 raise
@@ -318,6 +319,8 @@ class ExternalMcpGroup:
             if is_mcp_tool_allowed(tool.name, rules):
                 # 对外展示的工具名会加服务前缀，原始名称保留给会话调用。
                 name = tool_name_hook(tool.name, server_info)
+                if name in tools_temp:
+                    raise ValueError("MCP tool names collide after normalization")
                 meta = dict(tool.meta or {})
                 meta["server"] = alias
 

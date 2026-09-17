@@ -672,8 +672,8 @@ async def test_external_mcp_filters_discovered_tools_before_registration() -> No
         def get_server_capabilities(self):
             return SimpleNamespace(tools=object())
 
-        async def list_tools(self):
-            return SimpleNamespace(tools=[
+        async def list_tools(self, *, params: mcp_types.PaginatedRequestParams | None = None):
+            return mcp_types.ListToolsResult(tools=[
                 mcp_types.Tool(name="get_bug", inputSchema={}),
                 mcp_types.Tool(name="delete_bug", inputSchema={}),
                 mcp_types.Tool(name="list_projects", inputSchema={}),
@@ -709,8 +709,8 @@ async def test_external_mcp_tool_collection_yields_to_event_loop() -> None:
         def get_server_capabilities(self):
             return SimpleNamespace(tools=object())
 
-        async def list_tools(self):
-            return SimpleNamespace(tools=[
+        async def list_tools(self, *, params: mcp_types.PaginatedRequestParams | None = None):
+            return mcp_types.ListToolsResult(tools=[
                 mcp_types.Tool(name=f"tool_{index}", inputSchema={})
                 for index in range(64)
             ])

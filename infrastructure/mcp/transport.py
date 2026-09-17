@@ -3,6 +3,7 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import shutil
 import socket
 import typing
@@ -117,6 +118,26 @@ class _ObservedHttpTransport(httpx.AsyncBaseTransport):
         await self._transport.aclose()
 
 
+async def _validate_http_redirect(response: httpx.Response) -> None:
+    """在 HTTPX 发起下一跳前校验来源，拒绝目标时不回显服务器提供的地址。"""
+    if not response.has_redirect_location:
+        return
+    original = response.request.url
+    try:
+        target = original.join(response.headers["location"])
+    except httpx.InvalidURL:
+        raise httpx.RemoteProtocolError("MCP HTTP redirect target is invalid") from None
+    if target.userinfo or (original.scheme, original.host, original.port) != (
+        target.scheme, target.host, target.port,
+    ):
+        raise httpx.RemoteProtocolError("MCP HTTP redirect to a different origin is not allowed")
+    if target.scheme == "http" and target.host != "localhost":
+        try:
+            ipaddress.ip_address(target.host)
+        except ValueError:
+            raise httpx.RemoteProtocolError("MCP HTTP redirects for hostnames require HTTPS") from None
+
+
 def external_http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
@@ -125,21 +146,19 @@ def external_http_client(
     disconnected: asyncio.Event | None = None,
 ) -> httpx.AsyncClient:
     """创建外部 HTTP/SSE MCP 服务使用的 HTTP 客户端。"""
-    kwargs: dict[str, typing.Any] = {
-        "follow_redirects": auth is None,
-        "timeout": timeout or httpx.Timeout(
+    return httpx.AsyncClient(
+        headers=headers,
+        auth=auth,
+        follow_redirects=auth is None,
+        max_redirects=10,
+        event_hooks={"response": [_validate_http_redirect]} if auth is None else None,
+        timeout=timeout or httpx.Timeout(
             DEFAULT_MCP_REQ_TIMEOUT_SEC,
             read=DEFAULT_MCP_SSE_TIMEOUT_SEC,
         ),
-        "trust_env": False,
-    }
-    if headers:
-        kwargs["headers"] = headers
-    if auth is not None:
-        kwargs["auth"] = auth
-    if disconnected is not None:
-        kwargs["transport"] = _ObservedHttpTransport(disconnected)
-    return httpx.AsyncClient(**kwargs)
+        trust_env=False,
+        transport=_ObservedHttpTransport(disconnected) if disconnected is not None else None,
+    )
 
 
 def _encoding_error_handler(

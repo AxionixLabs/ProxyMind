@@ -642,6 +642,7 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "settings.py",
         "stdio_diagnostics.py",
         "tool_catalog.py",
+        "tool_discovery.py",
         "tool_execution.py",
         "tool_invocation.py",
         "tool_results.py",
