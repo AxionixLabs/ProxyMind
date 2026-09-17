@@ -19,10 +19,12 @@ from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.shared.message import ServerMessageMetadata
 from pydantic import JsonValue
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import (
+    HTMLResponse,
     JSONResponse,
     Response,
 )
@@ -140,6 +142,36 @@ def create_server(name: str, state: FixtureState) -> Server[str, Request]:
         state.calls += 1
         call_count = state.calls
         state.record("tool.started", session_id=session_id, tool=name)
+        if state.mode == "elicitation":
+            context = server.request_context
+            client = context.session.client_params
+            state.record("elicitation.capable" if client is not None and client.capabilities.elicitation is not None else "elicitation.unsupported")
+
+            async def elicit(label: str) -> mcp_types.ElicitResult:
+                """使用正式 SDK 从当前工具请求发起双向交互，不保存回答正文。"""
+                params: mcp_types.ElicitRequestParams
+                if label.startswith("url:"):
+                    params = mcp_types.ElicitRequestURLParams(mode="url", message="Open the local acceptance page.",
+                        url=label[4:], elicitationId=str(uuid4()))
+                else:
+                    params = mcp_types.ElicitRequestFormParams(message=f"Provide ordinary acceptance information ({label}).", requestedSchema={
+                        "type": "object", "properties": {
+                            "name": {"type": "string", "title": "Name", "minLength": 1},
+                            "count": {"type": "integer", "title": "Count", "minimum": 1, "maximum": 5, "default": 2},
+                            "confirmed": {"type": "boolean", "title": "Confirmed", "default": False},
+                            "color": {"type": "string", "title": "Color", "enum": ["red", "blue"], "default": "blue"},
+                        }, "required": ["name"],
+                    })
+                state.record("elicitation.started", session_id=session_id, tool=name)
+                result = await context.session.send_request(
+                    mcp_types.ServerRequest(mcp_types.ElicitRequest(params=params)), mcp_types.ElicitResult,
+                    metadata=ServerMessageMetadata(related_request_id=context.request_id),
+                )
+                state.record("elicitation.completed", session_id=session_id, tool=result.action)
+                return result
+
+            responses = await asyncio.gather(*(elicit(label) for label in ("first", "second"))) if value == "parallel" else [await elicit(value)]
+            value = ";".join(response.model_dump_json(exclude_none=True) for response in responses)
         if state.mode == "disconnect":
             state.record("fault.injected", session_id=session_id, tool=name)
             os._exit(23)
@@ -236,12 +268,18 @@ async def run_remote(server: Server[str, Request], state: FixtureState) -> None:
             yield
 
     sse = SseServerTransport("/messages/")
+
+    async def elicitation_page(_request: Request) -> Response:
+        """记录显式同意后浏览器到达本机页面，不接收凭据或表单答案。"""
+        state.record("browser.opened")
+        return HTMLResponse("<h1>MCP elicitation acceptance</h1><p>Local browser navigation completed. You can close this tab.</p>")
+
     routes = (
         [Route("/sse", endpoint=SseEndpoint(server, sse), methods=["GET"]), Mount("/messages/", app=sse.handle_post_message)]
         if state.transport == "sse"
         else [Mount("/mcp", app=FaultHttpEndpoint(manager, state))]
     )
-    app = Starlette(routes=routes, lifespan=lifespan)
+    app = Starlette(routes=[*routes, Route("/elicitation-page", elicitation_page)], lifespan=lifespan)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen()
@@ -296,6 +334,7 @@ def main() -> None:
     parser.add_argument("--transport", choices=("stdio", "streamable_http", "sse"), default="stdio")
     parser.add_argument("--mode", choices=(
         "delayed-discovery",
+        "elicitation",
         "ready", "empty", "no-tools", "discovery-failure", "startup-failure",
         "handshake-timeout", "disconnect", "close-stall",
         "oversize-line", "oversize-unframed", "large-response", "http-recover",

@@ -42,15 +42,18 @@ from agent.domain.mcp_authorization import (
     authorization_accepted,
     authorization_failed,
 )
+from agent.domain.mcp_elicitation import McpInvocation
 from agent.domain.mcp_oauth import (
     McpOAuthBinding,
     McpOAuthError,
     McpOAuthStorageError,
 )
 from agent.ports.mcp_credentials import McpCredentialStore
+from agent.ports.mcp_elicitation import McpElicitationHandler
 from agent.ports.mcp_runtime import McpServiceSnapshot
 from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.errors import AppError
+from infrastructure.mcp.elicitation_channel import ElicitationChannel
 from infrastructure.mcp.external_status import (
     ExternalMcpStatus,
     external_status_detail_from_exception,
@@ -88,8 +91,10 @@ from infrastructure.mcp.values import (
     slugify_mcp_name,
     tool_name_hook,
 )
+from infrastructure.platform.browser import open_browser_url
 from observability import observe
 from observability.third_party import (
+    route_mcp_protocol_logs,
     route_session_termination_warnings,
     route_stdio_client_logs,
 )
@@ -153,6 +158,7 @@ class ExternalMcpGroup:
         catalog_cache: ToolCatalogCache | None = None,
         workspace: Path | None = None,
         can_publish_server: Callable[[NormalizedMcpServer], bool] | None = None,
+        elicitation: McpElicitationHandler | None = None,
     ) -> None:
         """初始化外部 MCP 工具索引和连接所有者集合。"""
         self.tools: dict[str, mcp_types.Tool] = {}
@@ -183,6 +189,8 @@ class ExternalMcpGroup:
         self._start_lock = asyncio.Lock()
         self._connect_limiter = asyncio.Semaphore(EXTERNAL_MCP_CONNECT_CONCURRENCY)
         self._stdio_limiter = asyncio.Semaphore(EXTERNAL_MCP_STDIO_CONCURRENCY)
+        self._elicitation = elicitation
+        self._elicitation_channels: dict[ClientSession, ElicitationChannel] = {}
 
     @property
     def started(self) -> bool:
@@ -403,9 +411,8 @@ class ExternalMcpGroup:
             if cancelled:
                 raise asyncio.CancelledError
 
-    @staticmethod
     async def _establish_session(
-        server_params: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
+        self, server_params: StdioServerParameters | SseServerParameters | StreamableHttpParameters,
         session_params: ClientSessionParameters,
         disconnected: asyncio.Event,
         session_stack: contextlib.AsyncExitStack,
@@ -414,6 +421,7 @@ class ExternalMcpGroup:
         auth: httpx.Auth | None,
     ) -> tuple[mcp_types.Implementation, ClientSession, contextlib.AsyncExitStack]:
         """在 owner 提供的栈内建立会话，半初始化失败也由同一 owner 负责清理。"""
+        session_stack.enter_context(route_mcp_protocol_logs())
         if isinstance(server_params, StdioServerParameters):
             session_stack.enter_context(route_stdio_client_logs())
             stderr_sink = await session_stack.enter_async_context(capture_stdio_stderr(
@@ -439,16 +447,21 @@ class ExternalMcpGroup:
                 terminate_on_close=server_params.terminate_on_close,
             )
             read, write, _ = await session_stack.enter_async_context(client)
+        channel = ElicitationChannel(read, write, server=config_key, handler=self._elicitation,
+            open_browser=open_browser_url, disconnected=disconnected)
+        session_stack.push_async_callback(channel.aclose)
         session = await session_stack.enter_async_context(ClientSession(
-            ObservedMcpReadStream(read, disconnected), write,
+            ObservedMcpReadStream(channel, disconnected), write,
             read_timeout_seconds=session_params.read_timeout_seconds,
             sampling_callback=session_params.sampling_callback,
-            elicitation_callback=session_params.elicitation_callback,
+            elicitation_callback=channel if self._elicitation is not None else None,
             list_roots_callback=session_params.list_roots_callback,
             logging_callback=session_params.logging_callback,
             message_handler=session_params.message_handler,
             client_info=session_params.client_info,
         ))
+        self._elicitation_channels[session] = channel
+        session_stack.callback(self._elicitation_channels.pop, session, None)
         result = await session.initialize()
         return result.serverInfo, session, session_stack
 
@@ -522,7 +535,8 @@ class ExternalMcpGroup:
         progress_callback: typing.Any = None,
         *,
         meta: dict[str, typing.Any] | None = None,
-        args: dict[str, typing.Any] | None = None
+        args: dict[str, typing.Any] | None = None,
+        invocation: McpInvocation | None = None,
     ) -> mcp_types.CallToolResult:
         """根据聚合后的工具名找到真实会话，并使用服务原始工具名发起调用。"""
         if self._closing or self._closed:
@@ -532,8 +546,20 @@ class ExternalMcpGroup:
         session_tool_name = self.tools[name].name
         connection = next((item for item in self._connections if item.ready.done() and not item.ready.cancelled()
                            and item.ready.exception() is None and item.ready.result().session is session), None)
+        channel = self._elicitation_channels.get(session)
+        scope = channel.invocation(invocation) if channel is not None else contextlib.nullcontext()
+        async with scope:
+            return await self._call_session(session, session_tool_name, arguments if args is None else args,
+                read_timeout_seconds, progress_callback, meta, connection, name)
+
+    async def _call_session(
+        self, session: ClientSession, tool_name: str, arguments: dict[str, ThawedJsonValue] | None,
+        read_timeout_seconds: timedelta | None, progress_callback: ProgressFnT | None,
+        meta: dict[str, ThawedJsonValue] | None, connection: _ExternalMcpConnection | None, name: str,
+    ) -> mcp_types.CallToolResult:
+        """在已绑定交互身份的范围内等待 SDK 或连接终态，不重放请求。"""
         call = asyncio.create_task(session.call_tool(
-            session_tool_name, arguments if args is None else args,
+            tool_name, arguments,
             read_timeout_seconds=read_timeout_seconds, progress_callback=progress_callback, meta=meta,
         ))
 
@@ -913,7 +939,7 @@ class ExternalMcpGroup:
     async def call_bound_tool(
         self, binding: _CatalogBinding, name: str, arguments: dict[str, ThawedJsonValue] | None,
         read_timeout_seconds: timedelta | None, progress_callback: ProgressFnT | None,
-        meta: dict[str, ThawedJsonValue] | None,
+        meta: dict[str, ThawedJsonValue] | None, invocation: McpInvocation | None,
     ) -> mcp_types.CallToolResult:
         """缓存调用先等待原启动，再核对完整实时版本，任何不匹配都不发送工具请求。"""
         startup = self._startup_tasks.get(binding.key)
@@ -930,11 +956,11 @@ class ExternalMcpGroup:
         if binding.cached and not await self._catalog_authorization_matches(binding.key, binding.generation):
             raise McpError(mcp_types.ErrorData(code=mcp_types.INVALID_REQUEST, message="MCP authorization changed; restart the service before retrying."))
         if not binding.cached:
-            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta)
+            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta, invocation=invocation)
         pending = self._cached_calls.get(binding.key)
         self._cached_calls[binding.key] = (binding.generation, pending[1] + 1 if pending else 1)
         try:
-            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta)
+            return await self.call_tool(name, arguments, read_timeout_seconds, progress_callback, meta=meta, invocation=invocation)
         except BaseException:
             # SDK 写队列可能已接收请求；异常后保留身份约束直到连接收束，禁止迟到请求借用新账号。
             self._uncertain_cached_calls.add(binding.key)
@@ -1155,6 +1181,7 @@ class ExternalMcpTools:
         read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None, *,
         meta: dict[str, ThawedJsonValue] | None = None,
+        invocation: McpInvocation | None = None,
     ) -> mcp_types.CallToolResult:
         """只调用本范围公开的原连接，不接受中途加入的工具。"""
         if not self._active:
@@ -1162,7 +1189,7 @@ class ExternalMcpTools:
         if name not in self._tools:
             raise KeyError(name)
         return await self._group.call_bound_tool(
-            self._bindings[name], name, arguments, read_timeout_seconds, progress_callback, meta,
+            self._bindings[name], name, arguments, read_timeout_seconds, progress_callback, meta, invocation,
         )
 
     async def call_hook_tool(

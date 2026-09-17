@@ -193,6 +193,7 @@ class ExternalMcpRuntime:
             can_publish=self._is_active, credential_store=self._credential_store,
             catalog_cache=self._catalog_cache, workspace=self._workspace,
             can_publish_server=self._can_publish_server,
+            elicitation=self._context.elicitation,
         )
 
     async def _refresh_authorization(self, key: str | None = None) -> None:

@@ -19,8 +19,14 @@ from agent.application.approvals.models import (
     ApprovalRequest,
     ApprovalRequestKey,
     ApprovalResolutionReason,
+    ElicitationQueueRequest,
 )
 from agent.application.approvals.presenter import ApprovalPresenterPort
+from agent.domain.mcp_elicitation import (
+    ElicitationRequest,
+    ElicitationResponse,
+)
+from agent.ports.mcp_elicitation import McpElicitationPresenter
 
 ApprovalSnapshotErrorHandler: typing.TypeAlias = typing.Callable[
     [BaseException, str, int],
@@ -33,10 +39,10 @@ DEFAULT_APPROVAL_QUEUE_LIMIT = 64
 @dataclass(slots=True)
 class _QueuedApproval(object):
     """保存协调器内部的一项未决审批。"""
-    request: ApprovalRequest
-    future: asyncio.Future[ApprovalOutcome]
+    request: ApprovalRequest | ElicitationQueueRequest
+    future: asyncio.Future[ApprovalOutcome | ElicitationResponse]
     waiters: int = 1
-    presentation_task: asyncio.Task[ApprovalDecisionValue] | None = None
+    presentation_task: asyncio.Task[ApprovalDecisionValue | ElicitationResponse] | None = None
 
 
 class ApprovalCoordinator:
@@ -70,9 +76,16 @@ class ApprovalCoordinator:
         """返回当前审批队列的不可变快照。"""
         return self._snapshot()
 
+    @property
+    def elicitation_supported(self) -> bool:
+        """仅在前端实际提供两种交互时声明 MCP 能力。"""
+        return isinstance(self._interaction, McpElicitationPresenter)
+
     @staticmethod
-    def _copy_request(request: ApprovalRequest) -> ApprovalRequest:
+    def _copy_request(request: ApprovalRequest | ElicitationQueueRequest) -> ApprovalRequest | ElicitationQueueRequest:
         """复制快照中的请求载荷，避免观察者修改内部队列。"""
+        if isinstance(request, ElicitationQueueRequest):
+            return request
         return ApprovalRequest(
             key=request.key,
             payload=copy.deepcopy(request.payload),
@@ -156,7 +169,7 @@ class ApprovalCoordinator:
     def _settle_entry(
         self,
         entry: _QueuedApproval,
-        outcome: ApprovalOutcome,
+        outcome: ApprovalOutcome | ElicitationResponse,
         *,
         cancel_presentation: bool = True,
     ) -> None:
@@ -165,6 +178,8 @@ class ApprovalCoordinator:
             return None
 
         self._remove_entry(entry)
+        if isinstance(entry.request, ElicitationQueueRequest) and isinstance(outcome, ApprovalOutcome):
+            outcome = ElicitationResponse("decline" if outcome.reason == "user" and outcome.decision == "decline" else "cancel")
         entry.future.set_result(outcome)
         if cancel_presentation:
             self._cancel_presentation(entry)
@@ -255,7 +270,7 @@ class ApprovalCoordinator:
         """按完整 key 或任一稳定协议 ID 查找未决请求。"""
         if isinstance(request, ApprovalRequestKey):
             entry = self._by_request_id.get(request.request_id)
-            if entry is not None and entry.request.key == request:
+            if entry is not None and isinstance(entry.request, ApprovalRequest) and entry.request.key == request:
                 return entry
             return None
         identity = self._text(request)
@@ -264,13 +279,22 @@ class ApprovalCoordinator:
         matches = tuple(
             entry
             for entry in self._by_request_id.values()
-            if identity in {
+            if isinstance(entry.request, ApprovalRequest) and identity in {
                 entry.request.key.request_id,
                 entry.request.key.approval_id,
                 entry.request.key.call_id,
             }
         )
         return matches[0] if len(matches) == 1 else None
+
+    async def _present_request(self, request: ApprovalRequest | ElicitationQueueRequest) -> ApprovalDecisionValue | ElicitationResponse:
+        """共用一个展示 worker，本地表单不转成工具审批载荷。"""
+        if isinstance(request, ElicitationQueueRequest):
+            presenter = self._interaction
+            if not isinstance(presenter, McpElicitationPresenter):
+                return ElicitationResponse("decline")
+            return await presenter.present_elicitation(request.elicitation)
+        return await self._interaction.present_approval(request)
 
     async def _run(self) -> None:
         """串行驱动当前审批展示并保持一个连续前端批次。"""
@@ -294,7 +318,7 @@ class ApprovalCoordinator:
                         return None
 
                     presentation = asyncio.create_task(
-                        self._interaction.present_approval(
+                        self._present_request(
                             self._copy_request(current.request)
                         ),
                         name="approval presentation",
@@ -328,6 +352,17 @@ class ApprovalCoordinator:
                 else:
                     async with self._lock:
                         if current.future.done():
+                            continue
+                        if isinstance(current.request, ElicitationQueueRequest):
+                            if not isinstance(decision, ElicitationResponse):
+                                self._fail_entry(current, ValueError("Invalid elicitation response"))
+                            else:
+                                self._settle_entry(current, decision, cancel_presentation=False)
+                            self._changed()
+                            continue
+                        if isinstance(decision, ElicitationResponse):
+                            self._fail_entry(current, ValueError("Invalid approval response"))
+                            self._changed()
                             continue
                         if decision not in current.request.decisions and decision != "cancel":
                             self._fail_entry(
@@ -436,6 +471,22 @@ class ApprovalCoordinator:
     ) -> ApprovalOutcome:
         """提交审批请求并返回带来源和收束原因的终态。"""
         request = self._normalize_request(approval)
+        outcome = await self._enqueue_request(request)
+        if not isinstance(outcome, ApprovalOutcome):
+            raise TypeError("Expected an approval outcome")
+        return outcome
+
+    async def request_elicitation(self, request: ElicitationRequest) -> ElicitationResponse:
+        """把本地输入交给既有队列，关闭、超载或非交互入口显式收束。"""
+        if not self.elicitation_supported:
+            return ElicitationResponse("decline")
+        outcome = await self._enqueue_request(ElicitationQueueRequest(request))
+        if isinstance(outcome, ElicitationResponse):
+            return outcome
+        return ElicitationResponse("cancel")
+
+    async def _enqueue_request(self, request: ApprovalRequest | ElicitationQueueRequest) -> ApprovalOutcome | ElicitationResponse:
+        """统一排队、去重、容量和调用方取消，不另建交互生命周期。"""
 
         async with self._lock:
             immediate = self._immediate_outcome()

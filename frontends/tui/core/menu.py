@@ -327,6 +327,8 @@ class TuiMenu(object):
         initial_query = (
             request.initial_query if self._has_text_input(request) else ""
         )
+        if request.text_input_max_length is not None:
+            initial_query = initial_query[:request.text_input_max_length]
         state = MenuState(
             request=request,
             future=future,
@@ -577,13 +579,13 @@ class TuiMenu(object):
             self._complete(state, None, ViewCompletion.CANCELLED)
 
     def _submit_text_input(self, state: MenuState) -> bool:
-        """提交当前文本输入视图中的非空值。"""
-        value = state.query.strip()
+        """按请求的空值和空白规则提交当前文本输入。"""
+        value = state.query if state.request.text_input_preserve_whitespace else state.query.strip()
         if (
             not self._has_text_input(state.request)
             or state.request.empty_accept_action
             is not MenuEmptyAcceptAction.SUBMIT_QUERY
-            or not value
+            or (not value and not state.request.text_input_allow_empty)
         ):
             return False
         result = (
@@ -601,6 +603,8 @@ class TuiMenu(object):
         cursor: int,
     ) -> None:
         """替换可编辑查询并把光标限制在有效边界。"""
+        if state.request.text_input_max_length is not None:
+            query = query[:state.request.text_input_max_length]
         state.query = query
         state.query_cursor = max(0, min(int(cursor), len(query)))
         self._normalize_filtered_state(state)
@@ -1057,6 +1061,8 @@ class TuiMenu(object):
 
     def _prepare_request(self, request: MenuRequest) -> MenuRequest:
         """解析运行时快捷键标签并清理菜单展示字段。"""
+        if request.text_input_max_length is not None and request.text_input_max_length < 1:
+            raise ValueError("Menu input limit must be positive")
         resolved = replace(
             request,
             footer_hint=self._resolve_footer_hint(request.footer_hint),

@@ -13,6 +13,7 @@ from agent.ports import (
     ToolRegistryPort,
 )
 from agent.domain.approvals import McpToolDescriptor
+from agent.domain.mcp_elicitation import McpInvocation
 from infrastructure.mcp.approval import prepare_mcp_approval_descriptor
 from infrastructure.mcp.external_status import should_reraise_external
 from infrastructure.mcp.values import truncate_text
@@ -181,7 +182,7 @@ class CompositeToolSession(McpSessionPort):
             )
 
         if self.external_group is not None and name in self.external_group.tools:
-            if not str(call_id or "").strip():
+            if call_id is None or not call_id.strip():
                 raise ValueError("external MCP call_id is required")
             if turn_context is None:
                 raise TypeError("external MCP turn context is required")
@@ -190,7 +191,9 @@ class CompositeToolSession(McpSessionPort):
                 payload,
                 read_timeout_seconds=read_timeout_seconds,
                 progress_callback=progress_callback,
-                meta=meta
+                meta=meta,
+                invocation=McpInvocation(turn_context.agent.root_session_id, turn_context.turn_id,
+                    call_id, turn_context.agent.agent_id, turn_context.permissions.approval_policy != "never"),
             )
 
         if self.service_session is not None:

@@ -29,12 +29,15 @@ FixtureMode = typing.Literal[
     "oversize-line", "oversize-unframed", "large-response", "http-recover",
     "http-exhausted", "http-unauthorized", "http-protocol-error", "http-call-failure",
     "delayed-discovery",
+    "elicitation",
 ]
 FixtureEvent = typing.Literal[
     "process.started", "process.closed", "listening", "session.opened",
     "session.closed", "initialized", "tools.listed", "tool.started",
     "tool.completed", "fault.injected",
     "initialize.received", "request.completed",
+    "elicitation.started", "elicitation.completed", "elicitation.capable", "elicitation.unsupported",
+    "browser.opened",
 ]
 
 

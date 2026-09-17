@@ -320,6 +320,7 @@ class ApplicationHost:
             start_activity=self.activity.start_external_mcp,
             stop_activity=self.activity.stop,
             await_cleanup=self.lifecycle.await_cleanup,
+            elicitation=legacy_approval_coordinator if legacy_approval_coordinator.elicitation_supported else None,
         )
         external_runtime_factory = (
             (lambda: mcp_runtime_builder(mcp_runtime_context))

@@ -161,6 +161,9 @@ class MenuRequest(object):
     searchable: bool = False
     text_input_mode: MenuTextInputMode = MenuTextInputMode.NONE
     text_input_max_rows: int = 1
+    text_input_max_length: int | None = None
+    text_input_allow_empty: bool = False
+    text_input_preserve_whitespace: bool = False
     text_input_result_factory: typing.Callable[[str], Hashable] | None = None
     initial_query: str = ""
     text_input_gutter: str = ""

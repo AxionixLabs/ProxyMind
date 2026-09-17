@@ -52,6 +52,9 @@ def sanitize_menu_request(request: MenuRequest) -> MenuRequest:
         searchable=request.searchable,
         text_input_mode=sanitize_text_input_mode(request.text_input_mode),
         text_input_max_rows=max(1, int(request.text_input_max_rows)),
+        text_input_max_length=request.text_input_max_length,
+        text_input_allow_empty=request.text_input_allow_empty,
+        text_input_preserve_whitespace=request.text_input_preserve_whitespace,
         text_input_result_factory=request.text_input_result_factory,
         initial_query=(
             sanitize_terminal_text(request.initial_query)

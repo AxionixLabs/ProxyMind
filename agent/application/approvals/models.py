@@ -6,6 +6,7 @@ import time
 import typing
 from dataclasses import dataclass
 
+from agent.domain.mcp_elicitation import ElicitationRequest
 from protocol.schema.tool_approval import (
     ToolApprovalDecision,
     ToolApprovalKind,
@@ -24,7 +25,7 @@ ApprovalDecisionSource = typing.Literal[
     "auto_review",
 ]
 
-ApprovalRequestKind: typing.TypeAlias = ToolApprovalKind
+ApprovalRequestKind: typing.TypeAlias = ToolApprovalKind | typing.Literal["mcp_elicitation"]
 
 ApprovalResolutionReason = typing.Literal[
     "user",
@@ -129,9 +130,23 @@ class ApprovalOutcome(object):
 
 
 @dataclass(frozen=True, slots=True)
+class ElicitationQueueRequest:
+    """借用已有队列展示本地输入请求，不通过审批核心、策略 reviewer 或 grant 存储。"""
+
+    elicitation: ElicitationRequest
+
+    @property
+    def key(self) -> ApprovalRequestKey:
+        """提供仅供展示队列定位和取消的本地身份。"""
+        request = self.elicitation
+        return ApprovalRequestKey(request.request_id, request.request_id,
+            request.invocation.call_id, request.server, "mcp_elicitation")
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalQueueSnapshot(object):
     """提供审批队列的不可变可观察快照。"""
-    current: ApprovalRequest | None
+    current: ApprovalRequest | ElicitationQueueRequest | None
     pending: tuple[ApprovalRequestKey, ...]
     revision: int
     coordinator_id: str = ""

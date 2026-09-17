@@ -21,6 +21,7 @@ from agent.application.turns.context import (
     TurnContext,
 )
 from agent.domain.approvals import McpApprovalAction
+from agent.domain.mcp_elicitation import McpInvocation
 from agent.domain.policies import (
     PermissionSettings,
     preset_permissions,
@@ -163,6 +164,10 @@ async def test_prompt_mode_approves_before_external_mcp_execution() -> None:
     assert approval.actions[0].descriptor.tool_name == "lookup"
     assert approval.presentations[0]["arguments"] == {"query": "approval"}
     external.call_tool.assert_awaited_once()
+    assert external.call_tool.await_args.kwargs["invocation"] == McpInvocation(
+        invocation.turn.agent.root_session_id, invocation.turn.turn_id, invocation.call_id,
+        invocation.turn.agent.agent_id,
+    )
     presentation.emit.assert_awaited_once()
 
 
@@ -204,6 +209,9 @@ async def test_subagent_mcp_approval_projects_trusted_source_identity() -> None:
     assert approval.presentations[0]["agent_type"] == "worker"
     assert approval.presentations[0]["agent_depth"] == 1
     external.call_tool.assert_awaited_once()
+    identity = external.call_tool.await_args.kwargs["invocation"]
+    assert identity.agent_id == "agent-worker" and identity.call_id == child_invocation.call_id
+    assert identity.session_id == agent.root_session_id
 
 
 @pytest.mark.anyio
@@ -233,6 +241,7 @@ async def test_full_access_auto_approves_mcp_when_policy_is_never() -> None:
     assert outcome.result.ok is True
     assert approval.actions == []
     external.call_tool.assert_awaited_once()
+    assert not external.call_tool.await_args.kwargs["invocation"].allow_elicitation
 
 
 @pytest.mark.anyio

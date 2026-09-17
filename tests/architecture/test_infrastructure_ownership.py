@@ -625,6 +625,8 @@ def test_external_mcp_infrastructure_has_responsibility_modules() -> None:
         "approval.py",
         "approval_policy.py",
         "composite_session.py",
+        "elicitation_channel.py",
+        "elicitation_schema.py",
         "errors.py",
         "external_group.py",
         "external_runtime.py",

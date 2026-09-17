@@ -10,6 +10,7 @@ from collections.abc import (
 from dataclasses import dataclass
 from datetime import timedelta
 
+from agent.domain.mcp_elicitation import McpInvocation
 from .mcp_session import McpSessionPort
 
 if typing.TYPE_CHECKING:
@@ -90,6 +91,7 @@ class ExternalToolGroupPort(typing.Protocol):
         progress_callback: "ProgressFnT | None" = None,
         *,
         meta: dict[str, typing.Any] | None = None,
+        invocation: McpInvocation | None = None,
     ) -> "mcp_types.CallToolResult":
         """调用已登记的外部 MCP 工具。"""
         ...

@@ -5,9 +5,18 @@ import asyncio
 import contextlib
 import typing
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    replace,
+)
 from functools import partial
 from pathlib import Path
+
+from agent.domain.mcp_elicitation import (
+    ElicitationRequest,
+    ElicitationResponse,
+)
+from frontends.tui.features.mcp_elicitation import present_elicitation
 
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.eventloop.utils import call_soon_threadsafe
@@ -2552,6 +2561,31 @@ class TuiRuntime(object):
         finally:
             if owns_session:
                 await self.end_approval_session()
+
+    async def present_elicitation(self, request: ElicitationRequest) -> ElicitationResponse:
+        """借用同一审批批次的活动暂停及菜单表面，只清理当前交互创建的视图。"""
+        if self._closing:
+            return ElicitationResponse("cancel")
+        view_id = "mcp-elicitation"
+
+        async def select(menu: MenuRequest) -> str | None:
+            """串行队列复用固定视图标识和显示代数，避免保留每次请求的菜单身份。"""
+            future = self.screen.menu.push(replace(menu, view_id=view_id))
+            self.screen.bottom_pane.activate("menu")
+            try:
+                value = await future
+                if value is None or isinstance(value, str):
+                    return value
+                raise ValueError("Invalid elicitation menu value")
+            finally:
+                self.screen.menu.dismiss_view_by_id(view_id)
+                if self._approval_session_active:
+                    self.screen.bottom_pane.activate("approval")
+
+        try:
+            return await present_elicitation(request, select)
+        finally:
+            self.screen.menu.dismiss_view_by_id(view_id)
 
     async def begin_approval_session(self) -> None:
         """暂停运行活动并激活连续审批表面。"""

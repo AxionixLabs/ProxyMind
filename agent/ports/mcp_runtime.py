@@ -13,6 +13,7 @@ from dataclasses import (
 from pathlib import Path
 
 from agent.domain.mcp_authorization import McpAuthorizationStatus
+from agent.ports.mcp_elicitation import McpElicitationHandler
 from .tool_runtime import ExternalToolGroupPort
 
 __all__ = (
@@ -245,6 +246,7 @@ class McpRuntimeContext:
     ]
     stop_activity: McpActivityStopper
     await_cleanup: Callable[[Awaitable[None]], Awaitable[None]]
+    elicitation: McpElicitationHandler | None = None
 
     def __post_init__(self) -> None:
         """拒绝缺失的生命周期依赖。"""
