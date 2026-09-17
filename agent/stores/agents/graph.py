@@ -20,6 +20,14 @@ from agent.domain.agents import (
     FINAL_AGENT_STATUSES,
 )
 from agent.domain.policies import PermissionSettings
+from agent.ports.session_deletion import (
+    LocalDeletionTarget,
+    SessionDeletionConflict,
+)
+from agent.stores.sessions.retirement import (
+    key_guard_sql,
+    retire_keys,
+)
 from observability import observe_exception
 from protocol.schema.permissions import (
     normalize_approval_policy,
@@ -285,6 +293,33 @@ class AgentGraphStore:
         finally:
             connection.close()
 
+    def delete_sessions(self, targets: tuple[LocalDeletionTarget, ...]) -> None:
+        """原子封锁目标根身份并删除包含子代理记录和邮箱的快照。"""
+        connection = self._connect()
+        try:
+            self._init_schema(connection)
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                identities = tuple(target.sid for target in targets)
+                coordinates = {(target.cid, target.sid) for target in targets}
+                for identity in identities:
+                    row = connection.execute(
+                        f"SELECT payload FROM {TABLE_AGENT_GRAPH_CHECKPOINTS} WHERE root_session_id = ?",
+                        (identity,),
+                    ).fetchone()
+                    if row is not None:
+                        checkpoint = _checkpoint_from_payload(json.loads(row[0]))
+                        if any((record.thread.cid, record.thread.sid) not in coordinates
+                               for record in checkpoint.records):
+                            raise SessionDeletionConflict("agent graph contains undeleted child sessions")
+                retire_keys(connection, "remote_sid", identities)
+                connection.executemany(
+                    f"DELETE FROM {TABLE_AGENT_GRAPH_CHECKPOINTS} WHERE root_session_id = ?",
+                    ((identity,) for identity in identities),
+                )
+        finally:
+            connection.close()
+
     def _connect(self) -> sqlite3.Connection:
         """建立执行树存储连接。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +345,9 @@ class AgentGraphStore:
         if columns and columns != expected:
             connection.execute(f"DROP TABLE {TABLE_AGENT_GRAPH_CHECKPOINTS}")
         connection.executescript(SCHEMA_SQL)
+        connection.executescript(key_guard_sql(
+            TABLE_AGENT_GRAPH_CHECKPOINTS, "root_session_id", "remote_sid",
+        ))
 
     def _prune_expired(
         self,

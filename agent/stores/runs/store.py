@@ -41,6 +41,14 @@ from agent.protocol.json_value import (
     ThawedJsonValue,
     thaw_json,
 )
+from agent.ports.session_deletion import (
+    LocalDeletionTarget,
+    SessionDeletionConflict,
+)
+from agent.stores.sessions.retirement import (
+    retire_coordinates,
+    retire_keys,
+)
 from .records import (
     encode_json,
     outbox_update,
@@ -200,6 +208,43 @@ class SQLiteRunStore:
             normalized_kind,
         )
 
+    def delete_sessions(self, targets: tuple[LocalDeletionTarget, ...]) -> None:
+        """在同一事务中捕获远端映射、封锁身份并按外键顺序清理 Run。"""
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                retire_coordinates(connection, targets)
+                identities = {identity for target in targets for identity in target.local_session_ids}
+                coordinates = {(target.cid, target.sid) for target in targets}
+                bindings: dict[str, set[tuple[str, str]]] = {}
+                for row in connection.execute("SELECT * FROM run_snapshots"):
+                    command = snapshot_from_row(row).command
+                    binding = remote_turn_binding(command)
+                    if binding is not None:
+                        bindings.setdefault(command.session_id, set()).add((binding.cid, binding.sid))
+                for row in connection.execute(
+                    "SELECT s.session_id, r.cid, r.sid FROM run_snapshots s "
+                    "JOIN run_remote_requests r ON r.run_id = s.run_id",
+                ):
+                    bindings.setdefault(str(row[0]), set()).add((str(row[1]), str(row[2])))
+                identities.update(identity for identity, owners in bindings.items() if owners & coordinates)
+                for identity in identities:
+                    if bindings.get(identity, set()) - coordinates:
+                        raise SessionDeletionConflict("local run session spans undeleted remote sessions")
+                retire_keys(connection, "local_session", tuple(identities))
+                for identity in identities:
+                    run_ids = tuple(str(row[0]) for row in connection.execute(
+                        "SELECT run_id FROM run_snapshots WHERE session_id = ?", (identity,),
+                    ))
+                    retire_keys(connection, "run", run_ids)
+                    for table in ("run_remote_requests", "run_outbox", "run_facts", "run_events", "run_snapshots"):
+                        connection.executemany(f"DELETE FROM {table} WHERE run_id = ?",
+                                               ((run_id,) for run_id in run_ids))
+                    connection.execute("DELETE FROM run_events WHERE session_id = ?", (identity,))
+        finally:
+            connection.close()
+
     def _connect(self) -> sqlite3.Connection:
         """建立启用外键、WAL 和 FULL 同步的连接并校验 schema 版本。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,6 +307,12 @@ class SQLiteRunStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            binding = remote_turn_binding(command)
+            if binding is not None and connection.execute(
+                "SELECT 1 FROM retired_session_coordinates WHERE cid = ? AND sid = ?",
+                (binding.cid, binding.sid),
+            ).fetchone() is not None:
+                raise RunPersistenceConflict("remote session has been deleted")
             row = connection.execute(
                 "SELECT * FROM run_snapshots WHERE run_id = ?",
                 (command.run_id,),

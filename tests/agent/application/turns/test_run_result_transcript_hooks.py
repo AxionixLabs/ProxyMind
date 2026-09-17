@@ -439,7 +439,7 @@ def _host(
     if effect_journal is None:
         effect_directory = tempfile.TemporaryDirectory()
         effect_journal = open_effect_journal(
-            Path(effect_directory.name) / "effects.db"
+            Path(effect_directory.name) / "effects.db", cid="cid_test", sid="sid_test",
         )
     class _SessionContext:
         """实现 TurnSessionContextPort 的测试替身。"""

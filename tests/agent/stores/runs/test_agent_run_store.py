@@ -161,7 +161,7 @@ async def test_run_store_commits_event_snapshot_outbox_and_final_facts(
     assert outbox[0:2] == ("committed", 1)
     assert len(outbox[2]) == 64
     assert outbox[3] == "manual"
-    assert schema_version == 3
+    assert schema_version == 4
 
 
 @pytest.mark.anyio
@@ -220,7 +220,7 @@ async def test_run_store_upgrades_v1_database_with_remote_request_table(
         table = connection.execute(
             "SELECT name FROM sqlite_master WHERE name='run_remote_requests'"
         ).fetchone()
-    assert version == 3
+    assert version == 4
     assert table == ("run_remote_requests",)
 
 
@@ -259,7 +259,7 @@ async def test_run_store_upgrades_v2_remote_request_discriminator(
         request_kind = connection.execute(
             "SELECT request_kind FROM run_remote_requests"
         ).fetchone()
-    assert version == 3
+    assert version == 4
     assert "request_kind" in columns
     assert request_kind == ("mind_chat",)
 

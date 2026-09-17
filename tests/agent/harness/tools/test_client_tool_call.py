@@ -427,7 +427,7 @@ async def test_committed_local_effect_reuses_outcome_without_hooks_or_display(
         )
 
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid-test", sid="sid-test")
     runner, ports = _runner(
         coordinator,
         effect_journal=journal,
@@ -482,7 +482,7 @@ async def test_custom_operation_uses_same_durable_effect_boundary(
     coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
     runner, _ports = _runner(
         coordinator,
-        effect_journal=open_effect_journal(tmp_path / "effects.db"),
+        effect_journal=open_effect_journal(tmp_path / "effects.db", cid="cid-test", sid="sid-test"),
     )
     operation = Mock()
 

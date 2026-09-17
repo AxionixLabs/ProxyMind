@@ -5,6 +5,12 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
+from agent.ports.session_deletion import LocalDeletionTarget
+from agent.stores.sessions.retirement import (
+    key_guard_sql,
+    retire_keys,
+)
+
 from agent.domain.approvals import (
     ActionFingerprint,
     AmendmentOperation,
@@ -21,7 +27,7 @@ from agent.domain.approvals import (
     ApprovalResolutionReason,
 )
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS approval_facts (
     session_id TEXT NOT NULL,
@@ -42,6 +48,8 @@ CREATE TABLE IF NOT EXISTS approval_facts (
     PRIMARY KEY (session_id, run_id, approval_id, action_id)
 );
 """
+
+_SCHEMA_SQL += key_guard_sql("approval_facts", "session_id", "approval_session")
 
 
 class SQLiteApprovalFactStore:
@@ -94,6 +102,20 @@ class SQLiteApprovalFactStore:
     async def find(self, identity: ApprovalIdentity) -> ApprovalFact | None:
         """按完整审批身份读取事实。"""
         return await asyncio.to_thread(self._find, identity)
+
+    def delete_sessions(self, targets: tuple[LocalDeletionTarget, ...]) -> None:
+        """原子封锁会话审批身份并清理事实，保留共享授权配置。"""
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                identities = tuple(identity for target in targets
+                                   for identity in (target.sid, *target.local_session_ids))
+                retire_keys(connection, "approval_session", identities)
+                connection.executemany("DELETE FROM approval_facts WHERE session_id = ?",
+                                       ((identity,) for identity in identities))
+        finally:
+            connection.close()
 
     def _connect(self) -> sqlite3.Connection:
         """建立审批事实连接并初始化 schema。"""

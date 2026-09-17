@@ -26,14 +26,14 @@ def _effect(
 @pytest.mark.anyio
 async def test_tool_result_journal_preserves_raw_text_and_first_payload(tmp_path):
     path = tmp_path / "effects.db"
-    journal = open_effect_journal(path)
+    journal = open_effect_journal(path, cid="cid", sid="sid")
     raw = {"text": "中文\x00😀"}
     payload = {"result": {"text": "中文␀😀"}}
     await journal.save_tool_result("cid", "sid", "call", payload, raw)
     await journal.save_tool_result("cid", "sid", "call", payload, {"text": "projected replay"})
     with pytest.raises(ValueError, match="conflicts"):
         await journal.save_tool_result("cid", "sid", "call", {"different": True}, raw)
-    resumed = open_effect_journal(path)
+    resumed = open_effect_journal(path, cid="cid", sid="sid")
     assert await resumed.load_tool_result("cid", "sid", "call") == payload
     assert await resumed.load_tool_result("cid", "other", "call") is None
     with sqlite3.connect(path) as connection:
@@ -43,7 +43,7 @@ async def test_tool_result_journal_preserves_raw_text_and_first_payload(tmp_path
 
 @pytest.mark.anyio
 async def test_effect_journal_reuses_committed_result(tmp_path: Path) -> None:
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid", sid="sid")
     effect = _effect()
 
     assert (await journal.begin(effect)).action == "execute"
@@ -58,7 +58,7 @@ async def test_effect_journal_reuses_committed_result(tmp_path: Path) -> None:
 async def test_effect_journal_never_replays_uncertain_manual_effect(
     tmp_path: Path,
 ) -> None:
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid", sid="sid")
     effect = _effect()
 
     assert (await journal.begin(effect)).action == "execute"
@@ -67,7 +67,7 @@ async def test_effect_journal_never_replays_uncertain_manual_effect(
 
 @pytest.mark.anyio
 async def test_effect_journal_inspection_does_not_claim_execution(tmp_path: Path) -> None:
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid", sid="sid")
     effect = _effect()
 
     assert (await journal.inspect(effect)).action == "execute"
@@ -78,7 +78,7 @@ async def test_effect_journal_inspection_does_not_claim_execution(tmp_path: Path
 
 @pytest.mark.anyio
 async def test_effect_journal_rejects_fingerprint_conflict(tmp_path: Path) -> None:
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid", sid="sid")
     await journal.begin(_effect())
 
     with pytest.raises(ValueError, match="fingerprint conflicts"):
@@ -90,7 +90,7 @@ async def test_effect_journal_preserves_candidate_result_for_reconciliation(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "effects.db"
-    journal = open_effect_journal(db_path)
+    journal = open_effect_journal(db_path, cid="cid", sid="sid")
     effect = _effect()
     candidate = {"ok": True, "text": "applied"}
     await journal.begin(effect)
@@ -116,7 +116,7 @@ async def test_effect_journal_exposes_stored_reconciliation_result(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "effects.db"
-    journal = open_effect_journal(db_path)
+    journal = open_effect_journal(db_path, cid="cid", sid="sid")
     effect = _effect()
     server_result = {
         "request_id": "effect-result-test",
@@ -147,7 +147,7 @@ async def test_mark_reconciled_wraps_storage_failures(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid", sid="sid")
 
     def fail(_effect_id: str) -> None:
         raise sqlite3.OperationalError("database is unavailable")

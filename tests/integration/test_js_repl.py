@@ -1392,7 +1392,7 @@ async def test_js_repl_nested_shell_stays_inside_javascript_trace_after_approval
             tool_started=AsyncMock(),
             tool_completed=AsyncMock(),
         ),
-        effect_journal=open_effect_journal(tmp_path / "effects.db"),
+        effect_journal=open_effect_journal(tmp_path / "effects.db", cid="cid_nested_trace", sid="sid_nested_trace"),
     )
 
     try:

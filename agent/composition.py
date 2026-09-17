@@ -60,9 +60,9 @@ def open_turn_application(
     )
 
 
-def open_effect_journal(db_path: str | Path) -> ExecutionJournal:
+def open_effect_journal(db_path: str | Path, *, cid: str, sid: str) -> ExecutionJournal:
     """使用同一 SQLite 文件组合本地效果和工具结果的持久端口。"""
-    return LocalEffectJournal(db_path)
+    return LocalEffectJournal(db_path, cid=cid, sid=sid)
 
 
 def open_model_capability() -> ModelCapability:

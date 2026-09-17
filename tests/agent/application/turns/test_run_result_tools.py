@@ -487,7 +487,7 @@ def _client_result_fields(
 
 def _open_effect_journal(db_path: Path):
     """让流测试使用隔离的本地效果账本。"""
-    return open_effect_journal(db_path)
+    return open_effect_journal(db_path, cid="cid_test", sid="sid_test")
 
 
 def _host(
@@ -518,7 +518,7 @@ def _host(
     if effect_journal is None:
         effect_directory = tempfile.TemporaryDirectory()
         effect_journal = open_effect_journal(
-            Path(effect_directory.name) / "effects.db"
+            Path(effect_directory.name) / "effects.db", cid="cid_test", sid="sid_test",
         )
     class _SessionContext:
         """实现 TurnSessionContextPort 的测试替身。"""
@@ -627,13 +627,18 @@ async def _run_stream(
     terminal_ready: asyncio.Event | None = None,
     keep_open: bool = False,
 ) -> tuple[RunResult, SimpleNamespace]:
+    tool_delivered = asyncio.Event()
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
             for payload in events:
+                if payload.get("type") == "tool.call":
+                    tool_delivered.clear()
                 if payload.get("type") == "turn.completed" and terminal_ready is not None:
                     await terminal_ready.wait()
                 for batched_payload in _batched_stream_payloads(payload):
                     yield parse_stream_event(batched_payload)
+                if payload.get("type") == "tool.call":
+                    await asyncio.wait_for(tool_delivered.wait(), timeout=3)
             if keep_open:
                 await asyncio.Event().wait()
     else:
@@ -852,7 +857,10 @@ async def _run_stream(
 
         async def post_tool_result(self, *args, **kwargs):
             """把工具结果命令测试替身连接到当前协议请求替身。"""
-            return await stream.post_tool_result(*args, **kwargs)
+            try:
+                return await stream.post_tool_result(*args, **kwargs)
+            finally:
+                tool_delivered.set()
 
         async def get_tool_result_status(self, **kwargs):
             """把工具状态查询测试替身连接到当前协议请求替身。"""
@@ -1384,6 +1392,7 @@ async def test_stream_retries_unknown_ack_with_same_request_id(monkeypatch) -> N
                 "tool_result_ack_invalid",
                 "tool result acknowledgement is invalid",
                 status_code=200,
+                retryable=True,
             )
         terminal_ready.set()
         return {}

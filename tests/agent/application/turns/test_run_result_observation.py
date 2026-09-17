@@ -500,7 +500,7 @@ def _host(
     if effect_journal is None:
         effect_directory = tempfile.TemporaryDirectory()
         effect_journal = open_effect_journal(
-            Path(effect_directory.name) / "effects.db"
+            Path(effect_directory.name) / "effects.db", cid="cid_test", sid="sid_test",
         )
     class _SessionContext:
         """实现 TurnSessionContextPort 的测试替身。"""
@@ -606,10 +606,13 @@ async def _run_stream(
     output_control: _OutputControl | None = None,
     observe_only: bool = False,
     observation_replay_target_seq: int | None = None,
+    terminal_ready: asyncio.Event | None = None,
 ) -> tuple[RunResult, SimpleNamespace]:
     if stream_factory is None:
         async def stream_chat(*_args, **_kwargs):
             for payload in events:
+                if payload.get("type") == "turn.completed" and terminal_ready is not None:
+                    await asyncio.wait_for(terminal_ready.wait(), timeout=3)
                 for batched_payload in _batched_stream_payloads(payload):
                     yield parse_stream_event(batched_payload)
     else:
@@ -1078,6 +1081,7 @@ async def test_observed_replay_takes_over_unresolved_client_tool_after_catch_up(
     monkeypatch,
 ) -> None:
     execution_started = asyncio.Event()
+    terminal_ready = asyncio.Event()
 
     async def execute(_runner, invocation, *, use_coding_trace, display=True):
         _ = use_coding_trace, display
@@ -1093,7 +1097,11 @@ async def test_observed_replay_takes_over_unresolved_client_tool_after_catch_up(
             )
         )
 
-    post_result = AsyncMock(return_value={})
+    async def accept_result(*_args, **_kwargs):
+        terminal_ready.set()
+        return {}
+
+    post_result = AsyncMock(side_effect=accept_result)
     get_status = AsyncMock(return_value={
         "name": "test_tool",
         "tool_status": "waiting_result",
@@ -1124,6 +1132,7 @@ async def test_observed_replay_takes_over_unresolved_client_tool_after_catch_up(
         ],
         observe_only=True,
         observation_replay_target_seq=3,
+        terminal_ready=terminal_ready,
     )
 
     assert result.status == "completed"

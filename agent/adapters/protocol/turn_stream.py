@@ -330,7 +330,7 @@ async def stream_turn(
                 call_id=call_id,
             )
 
-        execution_journal = effect_journal_factory()
+        execution_journal = effect_journal_factory(cid=turn_context.cid, sid=turn_context.sid)
         client_tool_runner = ClientToolCallRunner(
             session=session,
             output_control=output_control,

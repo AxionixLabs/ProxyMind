@@ -18,10 +18,23 @@ from agent.protocol.json_value import (
     freeze_json,
     thaw_object,
 )
+from agent.ports.session_deletion import (
+    LocalDeletionTarget,
+    SessionDeletionConflict,
+)
+from agent.stores.sessions.retirement import (
+    coordinate_guard_sql,
+    key_guard_sql,
+    retire_coordinates,
+    retire_keys,
+)
+from protocol.schema.identifiers import valid_session_ids
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS local_effects (
     effect_id TEXT PRIMARY KEY,
+    cid TEXT,
+    sid TEXT,
     fingerprint TEXT NOT NULL,
     replay TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -40,15 +53,19 @@ CREATE TABLE IF NOT EXISTS local_tool_results (
 );
 """
 
-EFFECT_STORE_SCHEMA_VERSION: typing.Final = 2
+EFFECT_STORE_SCHEMA_VERSION: typing.Final = 3
 
 
 class LocalEffectJournal:
     """持久记录本地效果证据和工具结果，两个身份空间分别原子去重。"""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, cid: str, sid: str) -> None:
         """绑定本地效果和工具结果共用的执行账本文件。"""
         self.db_path = Path(db_path).expanduser()
+        if not cid or not sid or cid != cid.strip() or sid != sid.strip():
+            raise ValueError("effect journal requires explicit session coordinates")
+        self.cid = cid
+        self.sid = sid
 
     async def save_tool_result(
         self,
@@ -161,6 +178,29 @@ class LocalEffectJournal:
                 "failed to persist reconciled local effect"
             ) from error
 
+    def delete_sessions(self, targets: tuple[LocalDeletionTarget, ...]) -> None:
+        """删除明确归属的效果和交付证据，旧账本归属不全时保留记录并报告冲突。"""
+        connection = self._connect()
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                if connection.execute(
+                    "SELECT 1 FROM local_effects WHERE cid IS NULL OR sid IS NULL LIMIT 1",
+                ).fetchone() is not None:
+                    raise SessionDeletionConflict("legacy effect ownership is unresolved")
+                retire_coordinates(connection, targets)
+                for target in targets:
+                    identities = tuple(str(row[0]) for row in connection.execute(
+                        "SELECT effect_id FROM local_effects WHERE cid = ? AND sid = ?",
+                        (target.cid, target.sid),
+                    ))
+                    retire_keys(connection, "effect", identities)
+                    for table in ("local_effects", "local_tool_results"):
+                        connection.execute(f"DELETE FROM {table} WHERE cid = ? AND sid = ?",
+                                           (target.cid, target.sid))
+        finally:
+            connection.close()
+
     def _connect(self) -> sqlite3.Connection:
         """建立启用 WAL 的连接并校验效果账本 schema 版本。"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -175,11 +215,61 @@ class LocalEffectJournal:
             connection.close()
             raise RuntimeError("effect store schema is newer than this client")
         connection.executescript(_SCHEMA_SQL)
+        try:
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(local_effects)")}
+                if "cid" not in columns:
+                    connection.execute("ALTER TABLE local_effects ADD COLUMN cid TEXT")
+                    connection.execute("ALTER TABLE local_effects ADD COLUMN sid TEXT")
+                if current_version < EFFECT_STORE_SCHEMA_VERSION:
+                    self._migrate_ownership(connection)
+            connection.executescript(
+                coordinate_guard_sql("local_effects")
+                + coordinate_guard_sql("local_tool_results")
+                + key_guard_sql("local_effects", "effect_id", "effect")
+                + """
+                CREATE TRIGGER IF NOT EXISTS effect_owner_required_insert
+                BEFORE INSERT ON local_effects WHEN NEW.cid IS NULL OR NEW.sid IS NULL
+                BEGIN SELECT RAISE(ABORT, 'effect session ownership is required'); END;
+                CREATE TRIGGER IF NOT EXISTS effect_owner_required_update
+                BEFORE UPDATE ON local_effects WHEN NEW.cid IS NULL OR NEW.sid IS NULL
+                BEGIN SELECT RAISE(ABORT, 'effect session ownership is required'); END;
+                """
+            )
+        except BaseException:
+            connection.close()
+            raise
         if current_version < EFFECT_STORE_SCHEMA_VERSION:
             connection.execute(
                 f"PRAGMA user_version={EFFECT_STORE_SCHEMA_VERSION}"
             )
         return connection
+
+    @staticmethod
+    def _migrate_ownership(connection: sqlite3.Connection) -> None:
+        """仅从旧账本已保存的正式核对结果提取归属，无证据的行保持未归属。"""
+        for row in connection.execute("SELECT effect_id, result_payload FROM local_effects WHERE cid IS NULL"):
+            if row["result_payload"] is None:
+                continue
+            payload = json.loads(row["result_payload"])
+            result = payload.get("reconciliation_result_payload") if isinstance(payload, dict) else None
+            if not isinstance(result, dict):
+                continue
+            cid, sid = result.get("cid"), result.get("sid")
+            if isinstance(cid, str) and isinstance(sid, str) and valid_session_ids(cid, sid):
+                connection.execute("UPDATE local_effects SET cid = ?, sid = ? WHERE effect_id = ?",
+                                   (cid, sid, row["effect_id"]))
+
+    def _check_owner(self, connection: sqlite3.Connection, effect_id: str) -> None:
+        """拒绝已退役会话、跨会话效果和没有归属证明的旧效果。"""
+        if connection.execute("SELECT 1 FROM retired_session_coordinates WHERE cid = ? AND sid = ?",
+                              (self.cid, self.sid)).fetchone() is not None:
+            raise SessionDeletionConflict("session has been deleted")
+        row = connection.execute("SELECT cid, sid FROM local_effects WHERE effect_id = ?",
+                                 (effect_id,)).fetchone()
+        if row is not None and (row["cid"], row["sid"]) != (self.cid, self.sid):
+            raise SessionDeletionConflict("local effect session ownership conflicts")
 
     def _begin(self, effect: EffectIntent) -> EffectJournalDecision:
         """在同步事务中决定效果的下一步动作。"""
@@ -188,15 +278,18 @@ class LocalEffectJournal:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            self._check_owner(connection, effect.effect_id)
             connection.execute(
                 """
                 INSERT OR IGNORE INTO local_effects (
-                    effect_id, fingerprint, replay, status,
+                    effect_id, cid, sid, fingerprint, replay, status,
                     created_at_ms, updated_at_ms
-                ) VALUES (?, ?, ?, 'prepared', ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'prepared', ?, ?)
                 """,
                 (
                     effect.effect_id,
+                    self.cid,
+                    self.sid,
                     effect.fingerprint,
                     effect.replay,
                     now_ms,
@@ -260,6 +353,7 @@ class LocalEffectJournal:
         _validate_effect(effect)
         connection = self._connect()
         try:
+            self._check_owner(connection, effect.effect_id)
             row = connection.execute(
                 "SELECT * FROM local_effects WHERE effect_id = ?",
                 (effect.effect_id,),
@@ -303,6 +397,8 @@ class LocalEffectJournal:
         connection = self._connect()
         try:
             with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                self._check_owner(connection, effect.effect_id)
                 cursor = connection.execute(
                     """
                     UPDATE local_effects
@@ -343,6 +439,8 @@ class LocalEffectJournal:
         connection = self._connect()
         try:
             with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                self._check_owner(connection, effect.effect_id)
                 cursor = connection.execute(
                     """
                     UPDATE local_effects
@@ -371,6 +469,7 @@ class LocalEffectJournal:
         """在同步连接中读取已提交或有确定候选的核对结果。"""
         connection = self._connect()
         try:
+            self._check_owner(connection, effect_id)
             row = connection.execute(
                 """
                 SELECT status, result_payload
@@ -401,6 +500,8 @@ class LocalEffectJournal:
         connection = self._connect()
         try:
             with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                self._check_owner(connection, effect_id)
                 cursor = connection.execute(
                     """
                     UPDATE local_effects

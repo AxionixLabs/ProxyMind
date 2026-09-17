@@ -71,7 +71,7 @@ def delivery(client, journal, post):
 
 async def child(args):
     record = json.loads(sys.stdin.buffer.read())
-    journal = open_effect_journal(record["journal"])
+    journal = open_effect_journal(record["journal"], cid=record["cid"], sid=record["sid"])
     client = MindChatProtocolClient()
     if args.child == "persist":
         shell = (
@@ -246,7 +246,7 @@ async def verify(args):
                     record = {"cid": cid, "sid": sid, "call_id": call.call_id,
                               "arguments": dict(call.arguments), "journal": str(journal_path)}
                     await run_child("persist", record, args.profile)
-                    saved = await open_effect_journal(journal_path).load_tool_result(cid, sid, call.call_id)
+                    saved = await open_effect_journal(journal_path, cid=cid, sid=sid).load_tool_result(cid, sid, call.call_id)
                     assert "中文␀😀" in saved["result"]["text"]
                     assert "NUL represented" in saved["result"]["text"]
                     await verify_invalid_input(config, saved)

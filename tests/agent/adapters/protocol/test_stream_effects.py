@@ -49,7 +49,7 @@ async def test_explicit_permanent_error_is_never_reposted(code):
 
 @pytest.mark.anyio
 async def test_replay_does_not_confirm_a_different_authoritative_receipt(tmp_path):
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid-test", sid="sid-test")
     post = AsyncMock()
     await _deliver(_delivery(post_result=post, result_journal=journal))
     resumed = _delivery(
@@ -69,14 +69,14 @@ async def test_replay_does_not_confirm_a_different_authoritative_receipt(tmp_pat
 async def test_restart_delivers_saved_result_without_executing_tool(tmp_path):
     journal_path = tmp_path / "effects.db"
     first_post = AsyncMock(side_effect=ToolResultRequestError("rejected", "not accepted", retryable=False))
-    first = _delivery(post_result=first_post, result_journal=open_effect_journal(journal_path))
+    first = _delivery(post_result=first_post, result_journal=open_effect_journal(journal_path, cid="cid-test", sid="sid-test"))
     with pytest.raises(ToolResultRequestError):
         await _deliver(first)
     assert first_post.await_count == 1
     resumed_post = AsyncMock()
     resumed = _delivery(
         post_result=resumed_post,
-        result_journal=open_effect_journal(journal_path),
+        result_journal=open_effect_journal(journal_path, cid="cid-test", sid="sid-test"),
         get_status=AsyncMock(return_value={
             "name": "test_tool", "tool_status": "waiting_result", "result_received": False,
         }),
@@ -102,7 +102,7 @@ async def test_tool_result_persistence_failure_prevents_network_delivery(tmp_pat
 async def test_cancellation_waits_for_completed_result_to_be_saved(tmp_path):
     entered = asyncio.Event()
     release = asyncio.Event()
-    journal = open_effect_journal(tmp_path / "effects.db")
+    journal = open_effect_journal(tmp_path / "effects.db", cid="cid-test", sid="sid-test")
 
     async def save(*args):
         entered.set()

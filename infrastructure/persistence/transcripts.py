@@ -3,6 +3,7 @@
 
 import json
 import typing
+from contextlib import AbstractContextManager
 from datetime import (
     datetime,
     timezone
@@ -10,11 +11,19 @@ from datetime import (
 from pathlib import Path
 
 from agent.domain.transcripts import TranscriptEntry
+from agent.ports.session_deletion import TranscriptDeletionLease
 from agent.ports.transcript import (
     TranscriptActor,
     TranscriptSink
 )
 from infrastructure.config.runtime_paths import sessions_dir
+from infrastructure.persistence.transcript_deletion import (
+    lock_transcripts,
+    require_live_transcript,
+    transcript_lease,
+    validate_transcript_path,
+)
+from infrastructure.platform.file_lock import FileLease
 from metadata import const
 from observability import observe_exception
 from protocol.schema.identifiers import SID_RE
@@ -145,6 +154,7 @@ class TranscriptWriter(TranscriptSink):
         self.turn_id = str(turn_id or "").strip() or None
 
         self._file: typing.TextIO | None = None
+        self._lease: FileLease | None = None
 
     def open(self) -> None:
         """打开追加写入文件，失败时禁用当前记录器。"""
@@ -152,15 +162,19 @@ class TranscriptWriter(TranscriptSink):
             return None
 
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._lease = transcript_lease(self.path, exclusive=False)
+            require_live_transcript(self.path)
             self._file = self.path.open(
                 "a",
                 encoding=const.CHARSET,
                 buffering=1,
                 newline="",
             )
-        except OSError as error:
+        except (OSError, ValueError) as error:
             self._file = None
+            if self._lease is not None:
+                self._lease.close()
+                self._lease = None
             observe_exception(
                 "transcript.open.failed",
                 error,
@@ -232,6 +246,9 @@ class TranscriptWriter(TranscriptSink):
                     path=str(self.path),
                 )
             self._file = None
+            if self._lease is not None:
+                self._lease.close()
+                self._lease = None
 
 
 class ConversationTranscriptStore:
@@ -265,7 +282,24 @@ class ConversationTranscriptStore:
         created_at = _session_datetime(session_id)
         directory = self.root / created_at.strftime("%Y/%m/%d")
 
-        return directory / f"session-{session_id}.jsonl"
+        path = directory / f"session-{session_id}.jsonl"
+        validate_transcript_path(path)
+        if not path.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError("transcript path escapes the session directory")
+        return path
+
+    def deletion_identity(self, session_ids: tuple[str, ...]) -> str:
+        """冻结实际目录及日期路径，防止恢复时根目录或时区变化造成漏删。"""
+        return json.dumps(sorted(str(self._session_path(sid).resolve()) for sid in session_ids))
+
+    def lock_sessions(
+        self, session_ids: tuple[str, ...],
+    ) -> AbstractContextManager[TranscriptDeletionLease]:
+        """校验全部会话标识和实际路径后提供跨进程独占清理边界。"""
+        paths = tuple(self._session_path(session_id) for session_id in session_ids)
+        if len(set(paths)) != len(paths):
+            raise ValueError("duplicate transcript deletion target")
+        return lock_transcripts(paths)
 
     def path_for_session(self, session_id: str) -> str:
         """返回会话固定使用的记录路径，失败时返回空路径。"""
@@ -274,10 +308,12 @@ class ConversationTranscriptStore:
         try:
             path = self._session_path(normalized)
 
-            directory = path.parent
-            directory.mkdir(parents=True, exist_ok=True)
-
-            path.touch(exist_ok=True)
+            lease = transcript_lease(path, exclusive=False)
+            try:
+                require_live_transcript(path)
+                path.touch(exist_ok=True)
+            finally:
+                lease.close()
 
             return str(path)
 

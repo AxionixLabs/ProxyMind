@@ -10,7 +10,12 @@ import typing
 from pathlib import Path
 
 from agent.domain.workspaces import workspace_path_key
+from agent.ports.session_deletion import LocalDeletionTarget
 from agent.protocol.context_usage import ContextUsageRecord
+from agent.stores.sessions.retirement import (
+    coordinate_guard_sql,
+    retire_coordinates,
+)
 from protocol.schema.identifiers import valid_session_ids
 
 TABLE_SESSION_CURSORS = "conversation_session_cursors"
@@ -79,6 +84,10 @@ CREATE TABLE IF NOT EXISTS {TABLE_PENDING_FORKS} (
 CREATE INDEX IF NOT EXISTS idx_conversation_pending_forks_expires
 ON {TABLE_PENDING_FORKS} (expires_at);
 """
+
+SCHEMA_SQL += "".join(coordinate_guard_sql(table) for table in (
+    TABLE_SESSION_CURSORS, TABLE_CONTEXT_USAGE, TABLE_PENDING_FORKS,
+))
 
 
 class ConversationHistoryStore(object):
@@ -648,6 +657,21 @@ class ConversationHistoryStore(object):
         if updated is None:
             raise sqlite3.DatabaseError("session status was not persisted")
         return _row_to_dict(updated)
+
+    def delete_sessions(self, targets: tuple[LocalDeletionTarget, ...]) -> None:
+        """原子封锁会话并清理游标、用量缓存及尚未完成的 fork。"""
+        conn = self._connect()
+        try:
+            self._init_schema(conn)
+            with conn:
+                conn.execute("BEGIN IMMEDIATE")
+                retire_coordinates(conn, targets)
+                for target in targets:
+                    for table in (TABLE_PENDING_FORKS, TABLE_CONTEXT_USAGE, TABLE_SESSION_CURSORS):
+                        conn.execute(f"DELETE FROM {table} WHERE cid = ? AND sid = ?",
+                                     (target.cid, target.sid))
+        finally:
+            conn.close()
 
     def _connect(self) -> sqlite3.Connection:
         """建立历史库连接。"""

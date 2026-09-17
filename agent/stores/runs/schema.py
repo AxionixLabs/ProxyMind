@@ -3,10 +3,15 @@
 
 import typing
 
-RUN_STORE_SCHEMA_VERSION: typing.Final = 3
+from agent.stores.sessions.retirement import (
+    coordinate_guard_sql,
+    key_guard_sql,
+)
+
+RUN_STORE_SCHEMA_VERSION: typing.Final = 4
 RUN_SNAPSHOT_VERSION: typing.Final = 1
 
-RUN_STORE_SCHEMA_SQL: typing.Final = """
+RUN_STORE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS run_events (
     run_id TEXT NOT NULL,
     sequence INTEGER NOT NULL,
@@ -85,6 +90,13 @@ CREATE TABLE IF NOT EXISTS run_facts (
     FOREIGN KEY (run_id) REFERENCES run_snapshots(run_id)
 );
 """
+
+RUN_STORE_SCHEMA_SQL += "".join(key_guard_sql(table, "session_id", "local_session")
+                              for table in ("run_events", "run_snapshots", "run_outbox"))
+RUN_STORE_SCHEMA_SQL += "".join(key_guard_sql(table, "run_id", "run") for table in (
+    "run_events", "run_snapshots", "run_outbox", "run_facts", "run_remote_requests",
+))
+RUN_STORE_SCHEMA_SQL += coordinate_guard_sql("run_remote_requests")
 
 
 if __name__ == '__main__':

@@ -540,8 +540,8 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         turn_source=source,
         event_projection=projector,
         protocol_client=protocol_client,
-        effect_journal_factory=lambda: open_effect_journal(
-            tmp_path / "review-effects.db"
+        effect_journal_factory=lambda **coordinates: open_effect_journal(
+            tmp_path / "review-effects.db", **coordinates,
         ),
         tool_execution=McpToolExecutionAdapter(),
         session_factory=session_factory,

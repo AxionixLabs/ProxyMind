@@ -2,10 +2,7 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from collections.abc import (
-    Callable,
-    Mapping,
-)
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from agent.domain import (
@@ -344,10 +341,12 @@ class ExecutionJournal(EffectJournal, ToolResultJournal, typing.Protocol):
     """组合本地执行证据的两个窄端口，由进程组合根提供同一持久资源。"""
 
 
-EffectJournalFactory: typing.TypeAlias = Callable[
-    [],
-    ExecutionJournal,
-]
+class EffectJournalFactory(typing.Protocol):
+    """为一次远端会话创建绑定归属的执行账本，实现方不得跨会话复用绑定。"""
+
+    def __call__(self, *, cid: str, sid: str) -> ExecutionJournal:
+        """使用明确的线上坐标构造无长期连接的账本。"""
+        ...
 
 
 if __name__ == '__main__':
