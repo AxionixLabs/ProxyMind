@@ -35,6 +35,11 @@ async def _edit_field(field: ElicitationField, current: FormValue | None, select
     error = ""
     text = _value_text(current)
     selected = set(current) if isinstance(current, tuple) else set()
+    selected_index = 0
+    if field.kind == "boolean" and isinstance(current, bool):
+        selected_index = 0 if current else 1
+    elif isinstance(current, str) and field.choices:
+        selected_index = next((index for index, (value, _label) in enumerate(field.choices) if value == current), 0)
     constraints = [field.description, f"Type: {field.kind}"]
     if field.kind == "string":
         constraints.append(f"Length: {field.min_length}–{field.max_length}")
@@ -63,11 +68,13 @@ async def _edit_field(field: ElicitationField, current: FormValue | None, select
             body=tuple(constraints),
             status=error,
             options=options,
+            selected=selected_index,
             text_input_mode=(
                 MenuTextInputMode.NONE if options else MenuTextInputMode.MULTILINE if field.kind == "string" else MenuTextInputMode.SINGLE_LINE
             ),
             initial_query=text,
             text_input_max_length=4096,
+            text_input_max_rows=4 if field.kind == "string" else 1,
             text_input_allow_empty=True,
             text_input_preserve_whitespace=field.kind == "string",
             empty_accept_action=MenuEmptyAcceptAction.CANCEL if options else MenuEmptyAcceptAction.SUBMIT_QUERY,
@@ -81,7 +88,8 @@ async def _edit_field(field: ElicitationField, current: FormValue | None, select
         if options and result == "unset":
             return None
         if field.kind == "array" and result.startswith("choice:"):
-            value = field.choices[int(result.partition(":")[2])][0]
+            selected_index = int(result.partition(":")[2])
+            value = field.choices[selected_index][0]
             if value in selected:
                 selected.remove(value)
             else:

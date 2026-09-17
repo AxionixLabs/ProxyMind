@@ -153,6 +153,16 @@ def create_server(name: str, state: FixtureState) -> Server[str, Request]:
                 if label.startswith("url:"):
                     params = mcp_types.ElicitRequestURLParams(mode="url", message="Open the local acceptance page.",
                         url=label[4:], elicitationId=str(uuid4()))
+                elif label == "ui-matrix":
+                    params = mcp_types.ElicitRequestFormParams(message="菜单验收：保留中文和多行输入，选择排查范围，检查数值范围。", requestedSchema={
+                        "type": "object", "properties": {
+                            "notes": {"type": "string", "title": "Notes / 排查说明", "description": "普通信息；支持中文和多行。", "default": "原始值"},
+                            "tags": {"type": "array", "title": "Tags / 排查范围", "items": {"enum": ["backend", "frontend", "storage"]}, "minItems": 1, "maxItems": 2},
+                            "ratio": {"type": "number", "title": "Ratio", "minimum": 0, "maximum": 1, "default": 0.5},
+                            "empty": {"type": "string", "title": "Empty", "default": "clear this"},
+                            "long": {"type": "string", "title": "Long field label / 需要完整核对的长字段名称", "default": "界面预览" * 55},
+                        }, "required": ["notes", "tags", "empty"],
+                    })
                 else:
                     params = mcp_types.ElicitRequestFormParams(message=f"Provide ordinary acceptance information ({label}).", requestedSchema={
                         "type": "object", "properties": {

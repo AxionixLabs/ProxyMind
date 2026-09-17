@@ -578,13 +578,13 @@ class TuiRuntime(object):
         if coordinator is not None:
             coordinator.cancel_preview()
 
-    def _native_scrollback_deferred(self) -> bool:
-        """判断当前运行状态是否禁止提交原生终端滚屏。"""
+    def _native_scrollback_deferred(self, reflow: bool = False) -> bool:
+        """暂缓菜单内的新滚屏提交，但允许尺寸变化时重建已有画面。"""
         return bool(
             self._modal_depth > 0
             or self.foreground_active
             or self.screen.startup_gate_active
-            or self.screen.menu.active
+            or (self.screen.menu.active and not reflow)
             or self.screen.resume_picker.active
         )
 

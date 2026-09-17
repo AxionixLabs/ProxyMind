@@ -31,6 +31,11 @@ from agent.ports import (
 )
 from frontends.tui.adapters.output import TuiOutputControl
 from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.contracts.menu import (
+    MenuEmptyAcceptAction,
+    MenuRequest,
+    MenuTextInputMode,
+)
 from frontends.tui.core.document import (
     TranscriptBlock,
     TuiBlockKind,
@@ -300,6 +305,53 @@ async def test_width_resize_reflows_native_scrollback_from_document() -> None:
                 assert visible == ""
                 assert runtime.viewport._reflowed_geometry == (24, 10)
             finally:
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("with_history", [False, True])
+async def test_resize_rebuilds_active_menu_without_losing_input(with_history: bool) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        terminal_size = Size(rows=24, columns=80)
+        with patch.object(runtime.screen.application.output, "get_size", side_effect=lambda: terminal_size):
+            await runtime.open()
+            menu = None
+            try:
+                if with_history:
+                    runtime.append_block(_block("retained transcript\n" * 40), kind="assistant")
+                    await runtime.viewport.settle_scrollback()
+                menu = asyncio.create_task(runtime.select_menu(MenuRequest(
+                    title="Long field", text_input_mode=MenuTextInputMode.MULTILINE,
+                    text_input_max_rows=4, initial_query="界面预览" * 55,
+                    empty_accept_action=MenuEmptyAcceptAction.SUBMIT_QUERY,
+                )))
+                async with asyncio.timeout(3):
+                    while not runtime.screen.menu.active:
+                        await asyncio.sleep(0.005)
+                with patch.object(runtime.screen, "clear_terminal_for_resize_replay") as clear_history, patch.object(
+                    runtime.screen.application.output, "erase_screen",
+                ) as clear_visible:
+                    terminal_size = Size(rows=22, columns=44)
+                    runtime.viewport.observe_terminal_geometry(44, 22)
+                    async with asyncio.timeout(3):
+                        while runtime.viewport._reflowed_geometry != (44, 22):
+                            await asyncio.sleep(0.005)
+                assert runtime.screen.menu.active
+                assert runtime.screen.menu.state.query == "界面预览" * 55
+                assert not menu.done()
+                if with_history:
+                    clear_history.assert_called_once_with()
+                    assert "retained transcript" in _transcript_text(runtime.document)
+                else:
+                    clear_history.assert_not_called()
+                    clear_visible.assert_called_once_with()
+                pipe_input.send_text("\r")
+                assert await asyncio.wait_for(menu, 3) == "界面预览" * 55
+            finally:
+                if menu is not None:
+                    menu.cancel()
+                    await asyncio.gather(menu, return_exceptions=True)
                 await runtime.close()
 
 

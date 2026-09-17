@@ -21,6 +21,11 @@ from frontends.interaction.contracts import PromptContext
 from frontends.terminal.progress import create_terminal_progress
 from frontends.tui.adapters.input import create_tui_input
 from frontends.tui.adapters.session import create_tui_output_session
+from frontends.tui.contracts.menu import (
+    MenuEmptyAcceptAction,
+    MenuRequest,
+    MenuTextInputMode,
+)
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
@@ -515,6 +520,34 @@ async def _run_sync_failure(
     raise RuntimeError("injected PTY render failure")
 
 
+async def _run_menu_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """在输入菜单中缩窄真实终端，验证重排不丢失输入或提前完成请求。"""
+    text = "界面预览" * 55
+    task = asyncio.create_task(runtime.select_menu(MenuRequest(
+        title="RESIZE MENU FIELD",
+        body=("Type: string",),
+        text_input_mode=MenuTextInputMode.MULTILINE,
+        text_input_max_rows=4,
+        empty_accept_action=MenuEmptyAcceptAction.SUBMIT_QUERY,
+        initial_query=text,
+    )))
+    try:
+        await _wait_until(lambda: runtime.screen.menu.active, "input menu")
+        await _checkpoint(facts, "menu_wide")
+        expected_width = 43 if sys.platform == "win32" else 44
+        await _wait_until(
+            lambda: runtime.viewport._reflowed_geometry == (expected_width, 22),
+            "menu resize transaction",
+        )
+        assert runtime.screen.menu.state.query == text and not task.done()
+        await _checkpoint(facts, "menu_narrow")
+        assert await asyncio.wait_for(task, 10) == text
+        await _checkpoint(facts, "menu_done")
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 async def _run(scenario: str, facts_path: Path) -> None:
     """在原生终端中运行指定渲染与生命周期场景。"""
     reset_sinks()
@@ -542,6 +575,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_operations(runtime, facts)
         elif scenario == "resize":
             await _run_resize(runtime, facts)
+        elif scenario == "menu_resize":
+            await _run_menu_resize(runtime, facts)
         elif scenario == "overlay":
             await _run_overlay(runtime, facts)
         elif scenario in {"sync_cancel", "sync_exception"}:

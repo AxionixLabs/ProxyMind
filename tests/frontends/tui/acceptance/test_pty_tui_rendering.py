@@ -386,6 +386,28 @@ def test_resize_storm_reflows_stream_at_final_geometry(tmp_path: Path) -> None:
     )
 
 
+def test_input_menu_resize_clears_old_heading_and_preserves_submission(tmp_path: Path) -> None:
+    facts_path = tmp_path / "facts.json"
+    with _spawn_render_scenario("menu_resize", facts_path, size=TerminalSize(rows=28, columns=100)) as terminal:
+        _wait_for_stage(facts_path, "menu_wide")
+        terminal.wait_for_screen_text("RESIZE MENU FIELD")
+        terminal.resize(TerminalSize(rows=22, columns=44))
+        terminal.write_user_text("\x1b[D")
+        _acknowledge(facts_path, "menu_wide")
+        _wait_for_stage(facts_path, "menu_narrow")
+        time.sleep(0.1)
+        text = terminal.screen.snapshot().visible_text
+        assert text.count("RESIZE MENU FIELD") == 1
+        assert text.count("Type: string") == 1
+        terminal.write_user_text("\r")
+        _acknowledge(facts_path, "menu_narrow")
+        _wait_for_stage(facts_path, "menu_done")
+        time.sleep(0.1)
+        assert "RESIZE MENU FIELD" not in terminal.screen.snapshot().visible_text
+        _acknowledge(facts_path, "menu_done")
+        assert terminal.wait_for_exit(timeout=10) == 0
+
+
 def test_transcript_overlay_preserves_scroll_during_resize(
     tmp_path: Path,
 ) -> None:

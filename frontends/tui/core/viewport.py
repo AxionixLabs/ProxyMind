@@ -52,7 +52,7 @@ class TuiTranscriptViewport(object):
         *,
         document: TuiDocument,
         is_application_active: typing.Callable[[], bool],
-        is_scrollback_deferred: typing.Callable[[], bool],
+        is_scrollback_deferred: typing.Callable[[bool], bool],
         is_full_screen_overlay_active: typing.Callable[[], bool],
         is_closing: typing.Callable[[], bool],
         get_application: typing.Callable[[], Application[None]],
@@ -335,10 +335,10 @@ class TuiTranscriptViewport(object):
         self.observe_terminal_geometry(*current)
         self._invalidate()
 
-    def _should_defer_scrollback(self) -> bool:
+    def _should_defer_scrollback(self, *, reflow: bool = False) -> bool:
         """判断当前交互状态是否要求延迟原生滚屏提交。"""
         return bool(
-            self._is_scrollback_deferred()
+            self._is_scrollback_deferred(reflow)
             or self._is_full_screen_overlay_active()
             or self.view_row is not None
         )
@@ -951,7 +951,7 @@ class TuiTranscriptViewport(object):
             or not self._reflow_required
         ):
             return None
-        if self._should_defer_scrollback():
+        if self._should_defer_scrollback(reflow=True):
             return None
 
         had_native_scrollback = bool(
@@ -970,16 +970,11 @@ class TuiTranscriptViewport(object):
         notice_available = bool(self._restored_history_notice_fragments(
             width=target_geometry[0]
         ))
-        if not had_native_scrollback and not notice_available:
-            self._complete_scrollback_reflow(target_geometry)
-            self._schedule_scrollback_recheck(target_geometry)
-            return None
-
         await self._cancel_scrollback_task()
         if (
             generation != self._reflow_generation
             or target_geometry != self._observed_geometry
-            or self._should_defer_scrollback()
+            or self._should_defer_scrollback(reflow=True)
         ):
             return None
 
@@ -993,7 +988,7 @@ class TuiTranscriptViewport(object):
                 if (
                     generation != self._reflow_generation
                     or target_geometry != self._observed_geometry
-                    or self._should_defer_scrollback()
+                    or self._should_defer_scrollback(reflow=True)
                 ):
                     return None
 
@@ -1009,7 +1004,15 @@ class TuiTranscriptViewport(object):
                     )
                     self.view_row = None
 
-                    self._clear_terminal_for_resize_replay()
+                    if had_native_scrollback or notice_available:
+                        self._clear_terminal_for_resize_replay()
+                    else:
+                        # 终端重排会移动内联菜单的起点；相对擦除不能清除旧标题。
+                        # 尚无本应用滚屏时只重绘可见区，不清除宿主滚屏缓冲。
+                        output = self._get_application().output
+                        output.erase_screen()
+                        output.cursor_goto(0, 0)
+                        output.flush()
 
                     line_count = self._scrollback_prefix_line_count()
                     if line_count > 0 or notice_available:

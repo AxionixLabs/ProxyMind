@@ -52,6 +52,21 @@ async def test_array_enum_and_optional_boolean_can_be_reviewed_and_unset():
     response = await present_elicitation(request, select)
     assert dict(response.content) == {"colors": ("blue",)}
     assert select.await_args_list[2].args[0].status
+    assert select.await_args_list[3].args[0].selected == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field,current,expected", [
+    (ElicitationField("ok", "Confirmed", "", "boolean", True, default=False), "false", 1),
+    (ElicitationField("ok", "Confirmed", "", "boolean", True, default=True), "true", 0),
+    (ElicitationField("color", "Color", "", "string", True, default="blue", choices=(("red", "Red"), ("blue", "Blue"))), "choice:1", 1),
+])
+async def test_field_initial_selection_preserves_current_value(field, current, expected):
+    select = AsyncMock(side_effect=["field:0", current, "accept"])
+    response = await present_elicitation(form((field,)), select)
+    menu = select.await_args_list[1].args[0]
+    assert menu.selected == expected
+    assert dict(response.content) == {field.name: field.default}
 
 
 @pytest.mark.anyio
@@ -83,6 +98,7 @@ async def test_form_strings_preserve_empty_whitespace_and_multiline_values(value
     assert dict(response.content) == {"text": value}
     menu = select.await_args_list[1].args[0]
     assert menu.text_input_allow_empty and menu.text_input_preserve_whitespace
+    assert menu.text_input_max_rows == 4
     if not value:
         assert select.await_args_list[2].args[0].options[0].detail == '""'
 

@@ -149,6 +149,14 @@ stdio 服务，完整等待 3.17 秒，0.1 秒可选预算时约 0.53 秒返回�
 报告位于 `build/mcp-maturity-phase6-20260917/ACCEPTANCE.md`。
 此阶段未调用模型或 AppServer，也未将本机服务结果计为 Sentry、Linux 或 macOS 验收。
 
+菜单功能与样式补充验收通过：Windows 原生 ConPTY 从源码执行生产前端，覆盖 80×28、
+44×22、36×18 和无颜色模式，保存 108 份终端画面。四组共 36 次工具调用、8 个会话关闭，
+校验中文多行、空字符串、范围错误、单选/多选、方向键、取消恢复、浏览器确认及窗口缩放。
+修复多行显示、布尔/枚举默认焦点、多选焦点和缩放后的可见残影，并补充原生 PTY 回归。
+入口为 `python -m tests.manual.mcp_elicitation_ui_acceptance --directory <新目录>`，
+支持 `--columns`、`--rows`、`--no-color`；报告与实际单元格图位于
+`build/mcp-menu-ui-20260917/ACCEPTANCE.md`。此补充验收仍限定本机 MCP 服务和当前菜单场景。
+
 ## 阶段七：回归、真机与交付
 
 - [ ] 每阶段先跑受影响的定向测试，复核错误脱敏、类型契约、取消和 owner 关闭。
