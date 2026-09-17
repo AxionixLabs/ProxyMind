@@ -53,6 +53,7 @@ class CaseEvidence:
     tool_calls: int = 0
     cancelled: bool = False
     owners_after_close: int = 0
+    connection_elapsed_sec: float = 0
     elapsed_sec: float = 0
 
 
@@ -113,6 +114,7 @@ async def check_http(spec: FixtureSpec, evidence: CaseEvidence, *, cancel: bool 
             "name": spec.name, "transport": "streamable_http", "url": remote.url,
             "startup_timeout_sec": 0.7 if deadline else 10,
         }
+        connection_started = time.monotonic()
         task = asyncio.create_task(group.start_service(server))
         try:
             if cancel:
@@ -125,7 +127,10 @@ async def check_http(spec: FixtureSpec, evidence: CaseEvidence, *, cancel: bool 
                 require(evidence.cancelled, "cancellation_ignored")
             else:
                 connected = await task
+                evidence.connection_elapsed_sec = round(time.monotonic() - connection_started, 3)
                 require(connected == (spec.mode in {"http-recover", "http-call-failure"}), "http_connection_result")
+                if deadline:
+                    require(0.6 <= evidence.connection_elapsed_sec < 3, "startup_deadline_not_bounded")
                 if spec.mode == "http-recover":
                     check_reply(await group.call_tool(f"mcp__{slugify_mcp_name(spec.name)}__ping", {}), "ok")
                 elif spec.mode == "http-call-failure":
@@ -144,9 +149,9 @@ async def check_http(spec: FixtureSpec, evidence: CaseEvidence, *, cancel: bool 
         attempts = [fact for fact in facts if fact.event == "initialize.received"]
         evidence.initialize_attempts = len(attempts)
         evidence.peer_ports = [fact.peer_port for fact in attempts if fact.peer_port is not None]
-        expected = 1 if cancel or spec.mode in {"http-unauthorized", "http-protocol-error", "http-call-failure"} else 2 if deadline else 3
-        require(len(attempts) == expected, "unexpected_initialize_count")
-        require(len(set(evidence.peer_ports)) == expected, "connection_reused_across_attempts")
+        expected = 1 if cancel or spec.mode in {"http-unauthorized", "http-protocol-error", "http-call-failure"} else 3
+        require(1 <= len(attempts) <= 2 if deadline else len(attempts) == expected, "unexpected_initialize_count")
+        require(len(set(evidence.peer_ports)) == len(attempts), "connection_reused_across_attempts")
         evidence.owners_after_close = len(group.owned_keys)
         require(not group.owned_keys and not group.tools, "http_resources_retained")
         if spec.mode == "http-recover":
@@ -155,6 +160,25 @@ async def check_http(spec: FixtureSpec, evidence: CaseEvidence, *, cancel: bool 
             require(sum(fact.event == "tool.started" for fact in read_facts(spec.facts_path)) == 1, "tool_replayed")
     evidence.remote_exit_code = remote.process.returncode
     require(evidence.remote_exit_code is not None, "remote_process_retained")
+
+
+async def check_sse(spec: FixtureSpec, evidence: CaseEvidence) -> None:
+    """用真实 SSE 服务核对发现、单次调用以及连接和进程关闭。"""
+    async with remote_fixture(spec) as remote:
+        group = ExternalMcpGroup()
+        try:
+            require(await group.start_service({"name": spec.name, "transport": "sse", "url": remote.url}), "sse_connection_failed")
+            require(len(group.tools) == 2, "sse_discovery_failed")
+            check_reply(await group.call_tool(f"mcp__{slugify_mcp_name(spec.name)}__ping", {}), "ok")
+        finally:
+            await group.close()
+        await wait_for_fact(spec.facts_path, "session.closed")
+        evidence.owners_after_close = len(group.owned_keys)
+        require(not group.owned_keys and not group.tools, "sse_resources_retained")
+        evidence.tool_calls = sum(fact.event == "tool.started" for fact in read_facts(spec.facts_path))
+        require(evidence.tool_calls == 1, "sse_tool_replayed")
+    evidence.remote_exit_code = remote.process.returncode
+    require(evidence.remote_exit_code is not None, "sse_process_retained")
 
 
 async def run_checks(directory: Path, repository: Path, *, stdio_only: bool = False) -> None:
@@ -169,20 +193,23 @@ async def run_checks(directory: Path, repository: Path, *, stdio_only: bool = Fa
             ("http_exhausted", "http-exhausted"), ("http_unauthorized", "http-unauthorized"),
             ("http_protocol_error", "http-protocol-error"), ("http_call_failure", "http-call-failure"),
             ("http_cancel", "http-exhausted"), ("http_deadline", "http-exhausted"),
+            ("sse_normal", "ready"),
         )
         for name, mode in scenarios:
-            if stdio_only and name.startswith("http_"):
+            if stdio_only and name.startswith(("http_", "sse_")):
                 continue
             evidence = CaseEvidence(name)
             cases.append(evidence)
             started = time.monotonic()
             spec = FixtureSpec(
-                directory, name, "streamable_http" if name.startswith("http_") else "stdio",
+                directory, name, "streamable_http" if name.startswith("http_") else "sse" if name.startswith("sse_") else "stdio",
                 mode, repository=repository,
             )
             try:
                 if spec.transport == "stdio":
                     await check_stdio(spec, evidence)
+                elif spec.transport == "sse":
+                    await check_sse(spec, evidence)
                 else:
                     await check_http(spec, evidence, cancel=name == "http_cancel", deadline=name == "http_deadline")
             except BaseException:

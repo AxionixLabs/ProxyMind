@@ -4,6 +4,7 @@
 
 import argparse
 import asyncio
+import httpx
 import json
 import math
 import platform
@@ -19,11 +20,15 @@ from datetime import (
 )
 from importlib.metadata import version
 from pathlib import Path
-
 from mcp.shared.exceptions import McpError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+)
 
 from agent.domain.mcp_oauth import (
     McpOAuthCredentialRecord,
+    McpOAuthCredentialSnapshot,
     McpOAuthError,
     McpOAuthStorageError,
     McpOAuthTarget,
@@ -40,7 +45,7 @@ from infrastructure.mcp.settings import normalize_mcp_servers
 from metadata import const
 
 
-Mode = typing.Literal["call", "wait-expiry", "observe-logout", "logged-out"]
+Mode = typing.Literal["call", "wait-expiry", "observe-logout", "logged-out", "revoke"]
 
 
 class LiveCheckError(RuntimeError):
@@ -50,6 +55,7 @@ class LiveCheckError(RuntimeError):
         "logout_boundary_failed", "connection_failed", "readonly_tool_missing",
         "readonly_call_failed", "refresh_evidence_missing", "resources_not_closed",
         "logged_out_boundary_failed",
+        "revocation_metadata_invalid", "revocation_failed", "revocation_boundary_failed",
     ]) -> None:
         """保存预定义失败步骤。"""
         self.code = code
@@ -86,10 +92,61 @@ class LiveReport:
     call_succeeded: bool = False
     refresh_committed: bool = False
     logout_observed: bool = False
+    server_revocation_observed: bool = False
     tools_after: int = 0
     authorization_error: str | None = None
     resources_closed: bool = False
     error_code: str | None = None
+
+
+class RevocationMetadata(BaseModel):
+    """校验验收使用的授权服务器撤销入口，不保存其他服务器载荷。"""
+
+    model_config = ConfigDict(extra="ignore", strict=True, hide_input_in_errors=True)
+    issuer: str
+    revocation_endpoint: str
+
+
+async def revoke_credential(snapshot: McpOAuthCredentialSnapshot, client: httpx.AsyncClient) -> None:
+    """仅向已登录 issuer 同源的正式撤销端点发送隔离验收凭据。"""
+    token = snapshot.token
+    if token is None:
+        raise McpOAuthError("login_required")
+    issuer = httpx.URL(snapshot.issuer)
+    if issuer.scheme != "https" or issuer.userinfo or issuer.query or issuer.fragment:
+        raise LiveCheckError("revocation_metadata_invalid")
+    metadata_url = issuer.copy_with(path="/.well-known/oauth-authorization-server" + issuer.path.rstrip("/"))
+    response = await client.get(metadata_url, follow_redirects=False)
+    if response.status_code != 200:
+        raise LiveCheckError("revocation_metadata_invalid")
+    metadata = RevocationMetadata.model_validate_json(response.content)
+    endpoint = httpx.URL(metadata.revocation_endpoint)
+    if (
+        metadata.issuer.rstrip("/") != snapshot.issuer.rstrip("/")
+        or (endpoint.scheme, endpoint.host, endpoint.port) != (issuer.scheme, issuer.host, issuer.port)
+        or endpoint.userinfo or endpoint.fragment or endpoint.query
+    ):
+        raise LiveCheckError("revocation_metadata_invalid")
+    response = await client.post(endpoint, data={
+        "token": token.refresh_token or token.access_token,
+        "token_type_hint": "refresh_token" if token.refresh_token else "access_token",
+        "client_id": snapshot.client.client_id,
+    }, follow_redirects=False)
+    if response.status_code != 200:
+        raise LiveCheckError("revocation_failed")
+
+
+async def observe_revocation(group: ExternalMcpGroup, snapshot: McpOAuthCredentialSnapshot, tool: str) -> None:
+    """撤销本轮隔离授权后核对真实请求被拒绝且工具撤下。"""
+    async with httpx.AsyncClient(timeout=15, trust_env=False) as client:
+        await revoke_credential(snapshot, client)
+    try:
+        await group.call_tool(tool, {"name": "find_releases", "arguments": {}})
+    except McpError:
+        await asyncio.sleep(0)
+        if not group.tools and group.service_snapshots[0].authorization.error in {"login_required", "reauthorization_required"}:
+            return
+    raise LiveCheckError("revocation_boundary_failed")
 
 
 def credential_evidence(record: McpOAuthCredentialRecord) -> CredentialEvidence:
@@ -226,6 +283,11 @@ async def run_live(
         if mode == "observe-logout":
             await observe_logout(group, store, target, tool, timeout)
             report.logout_observed = True
+        if mode == "revoke":
+            if after_call.snapshot is None:
+                raise LiveCheckError("revocation_boundary_failed")
+            await observe_revocation(group, after_call.snapshot, tool)
+            report.server_revocation_observed = True
         report.status = "passed"
     finally:
         report.tools_after = len(group.tools)

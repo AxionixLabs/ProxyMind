@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
+import httpx
 import json
+import pytest
 import sys
+from urllib.parse import parse_qs
 from dataclasses import (
     asdict,
     replace,
@@ -13,7 +16,6 @@ from unittest.mock import (
     patch,
 )
 
-import pytest
 from mcp.types import CallToolResult
 
 from agent.domain.mcp_oauth import (
@@ -33,6 +35,7 @@ from tests.manual.mcp_oauth_sentry import (
     credential_evidence,
     main,
     refresh_committed,
+    revoke_credential,
     run_live,
 )
 
@@ -81,6 +84,61 @@ def test_report_projection_does_not_include_identity_or_credential_material() ->
     assert "private-" not in serialized
     assert "example" not in serialized
     assert "callback" not in serialized
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("invalid", [None, "issuer", "origin", "userinfo", "redirect"])
+async def test_revocation_uses_only_verified_same_origin_endpoint(invalid: str | None) -> None:
+    calls: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            if invalid == "redirect":
+                return httpx.Response(302, headers={"Location": "https://other.example/metadata"})
+            return httpx.Response(200, json={
+                "issuer": "https://other.example" if invalid == "issuer" else "https://issuer.example",
+                "revocation_endpoint": (
+                    "https://other.example/revoke" if invalid == "origin"
+                    else "https://user@issuer.example/revoke" if invalid == "userinfo"
+                    else "https://issuer.example/revoke"
+                ),
+            })
+        assert str(request.url) == "https://issuer.example/revoke"
+        assert parse_qs(request.content.decode()) == {
+            "token": ["private-refresh"], "token_type_hint": ["refresh_token"],
+            "client_id": ["private-client-identity"],
+        }
+        return httpx.Response(200)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        if invalid is None:
+            await revoke_credential(snapshot(), client)
+        else:
+            with pytest.raises(LiveCheckError, match="revocation_metadata_invalid"):
+                await revoke_credential(snapshot(), client)
+    assert len(calls) == (2 if invalid is None else 1)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status_code", [302, 400])
+async def test_revocation_refusal_fails_without_following_redirect(status_code: int) -> None:
+    calls: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={
+                "issuer": "https://issuer.example",
+                "revocation_endpoint": "https://issuer.example/revoke",
+            })
+        assert str(request.url) == "https://issuer.example/revoke"
+        return httpx.Response(status_code, headers={"Location": "https://other.example/revoke"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), follow_redirects=True) as client:
+        with pytest.raises(LiveCheckError, match="revocation_failed"):
+            await revoke_credential(snapshot(), client)
+    assert len(calls) == 2
 
 
 @pytest.mark.anyio
