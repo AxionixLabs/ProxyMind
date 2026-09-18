@@ -350,6 +350,7 @@ class TerminalScreen:
             raise ValueError("terminal history must be positive")
         self._condition = threading.Condition(threading.RLock())
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._pending_keyboard_restore = b""
         self._screen = pyte.HistoryScreen(
             size.columns,
             size.rows,
@@ -359,10 +360,14 @@ class TerminalScreen:
 
     def feed(self, data: bytes) -> None:
         """增量解析原始 UTF-8 与 VT 控制序列。"""
-        text = self._decoder.decode(data)
-        if not text:
-            return
         with self._condition:
+            # pyte 不识别 Kitty 的 CSI < u，会把末尾 u 误写入画布；原始字节及模式记录仍保留。
+            restore = b"\x1b[<u"
+            pending = (self._pending_keyboard_restore + data).replace(restore, b"")
+            retained = next((size for size in range(len(restore) - 1, 0, -1)
+                             if pending.endswith(restore[:size])), 0)
+            self._pending_keyboard_restore = pending[-retained:] if retained else b""
+            text = self._decoder.decode(pending[:-retained] if retained else pending)
             self._stream.feed(text)
             self._condition.notify_all()
 

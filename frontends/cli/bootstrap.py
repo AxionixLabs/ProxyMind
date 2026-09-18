@@ -947,7 +947,7 @@ async def finalize_application(
     output_mode: OutputMode,
     completed: bool
 ) -> None:
-    """接收会话结束前冻结的事实，完成资源收尾后消费适用的恢复提示。"""
+    """接收会话结束前冻结的事实，完成资源收尾后输出一次退出摘要。"""
     observe(
         "app.shutdown.start",
         output_mode=output_mode,

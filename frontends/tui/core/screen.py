@@ -1731,7 +1731,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.invalidate()
 
     def print_exit_summary(self, snapshot: SessionExitSnapshot) -> None:
-        """在 Application 停止后向终端打印会话恢复提示。"""
+        """在 Application 停止后向终端打印冻结的用量与会话状态。"""
         fragments = exit_summary_fragments(snapshot)
         if not fragments:
             return

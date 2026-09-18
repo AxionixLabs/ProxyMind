@@ -160,6 +160,7 @@ def test_root_command_completion_order_is_stable() -> None:
     ("value", "expected"),
     (
         ("/q", "/quit"),
+        ("/exit", "/quit"),
         ("quit", "/quit"),
         ("/MCP STATUS", "/mcp status"),
         ("/model gpt-test", "/model"),
@@ -496,7 +497,7 @@ def test_non_surface_inputs_commit_directly(value) -> None:
 
 
 def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
-    assert command_names("quit") == frozenset({"/quit", "/q", "quit", "exit"})
+    assert command_names("quit") == frozenset({"/quit", "/q", "/exit", "quit", "exit"})
     assert parameterized_command_texts() == ("/model ",)
     assert stream_command_policy("hello") is None
     assert stream_command_policy("$review") is None
@@ -1106,6 +1107,8 @@ async def test_delete_command_submits_once_and_exits_after_complete(monkeypatch)
     assert delete_current.await_args.args[:2] == ("cid-delete", "sid-delete")
     assert delete_current.await_args.args[2].startswith("delete_")
     lifecycle.request_stop.assert_called_once_with()
+    dispatcher.runtime.begin_operation_status.assert_not_awaited()
+    assert foreground.start.call_args.kwargs.get("activity_kind") is None
 
 
 @pytest.mark.anyio

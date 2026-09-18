@@ -42,11 +42,11 @@ def test_exit_summary_renders_as_plain_terminal_text() -> None:
     stdout = StringIO()
     runtime = TuiRuntime(output_obj=PlainTextOutput(stdout))
 
-    runtime.print_exit_summary(SessionExitSnapshot("cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, False))
+    runtime.print_exit_summary(SessionExitSnapshot("cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, True))
 
     assert stdout.getvalue() == (
-        "\r\n■ To continue this session, run "
-        "mind resume sid_test_1_abcdef\r\n"
+        "\r\n■ To continue this session, run:\r\n"
+        "  mind resume sid_test_1_abcdef\r\n"
     )
 
 
@@ -68,7 +68,13 @@ def test_exit_summary_never_resumes_unavailable_session(disposition):
         "delete_pending" if disposition == "pending_delete" else None,
     )
     runtime.print_exit_summary(snapshot)
-    assert stdout.getvalue() == ""
+    assert "mind resume" not in stdout.getvalue()
+    if disposition == "deleted":
+        assert stdout.getvalue() == ""
+    elif disposition == "archived":
+        assert "Session archived: sid_test_1_abcdef" in stdout.getvalue()
+    else:
+        assert "  /delete recover delete_pending" in stdout.getvalue()
 
 
 def test_exit_summary_writes_codex_cyan_command_to_terminal() -> None:

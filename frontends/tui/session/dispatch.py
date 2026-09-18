@@ -1476,12 +1476,6 @@ class TuiCommandDispatcher(object):
 
         async def execute() -> SessionDeletionResult:
             """在生命周期入口内再次核验身份，恢复不重发删除请求。"""
-            await self.runtime.begin_operation_status(lambda: {
-                "summary": "Recovering session deletion..." if recovery else "Deleting session...",
-                "done": False,
-                "detail_limit": 0,
-                "items": [{"name": "Delete", "state": "running"}],
-            })
             if recovery:
                 return await conversation.recover_delete(request_id)
             if target is None:
@@ -1536,7 +1530,6 @@ class TuiCommandDispatcher(object):
         self.foreground_tasks.start(
             "Delete session",
             execute,
-            activity_kind="operation",
             on_succeeded=finish,
             on_failed=lambda error: self._present(failure_text_block(
                 "Deletion did not complete. Check the saved request with "

@@ -938,7 +938,7 @@ class TuiRuntime(object):
         self.submissions.bind_pending_attachment_check(check)
 
     def print_exit_summary(self, snapshot: SessionExitSnapshot) -> None:
-        """在 TUI 释放终端后打印会话恢复提示。"""
+        """在 TUI 释放终端后打印冻结的用量与会话状态。"""
         if self.active:
             raise RuntimeError("TUI exit summary requires a closed Application")
         self.screen.print_exit_summary(snapshot)

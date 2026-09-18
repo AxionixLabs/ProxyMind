@@ -254,7 +254,7 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "quit", "/quit", "Exit session",
-        aliases=("/q", "quit", "exit"),
+        aliases=("/q", "/exit", "quit", "exit"),
         stream_policy="interrupt",
     ),
 )

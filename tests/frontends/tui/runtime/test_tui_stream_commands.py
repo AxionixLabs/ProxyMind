@@ -761,8 +761,10 @@ async def test_stream_interactive_panel_closes_before_queued_model_turn(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("exit_command", ["/quit", "/q", "/exit", "quit", "exit", "/shutdown"])
 async def test_quit_during_stream_barrier_cancels_background_startup(
     monkeypatch,
+    exit_command,
 ) -> None:
     runtime = TuiRuntime()
     task_event = asyncio.Event()
@@ -843,13 +845,14 @@ async def test_quit_during_stream_barrier_cancels_background_startup(
             break
         await asyncio.sleep(0)
 
-    runtime.screen.input.buffer.text = "/quit"
+    runtime.screen.input.buffer.text = exit_command
     runtime.submissions.accept_input(runtime.screen.input.buffer)
     await asyncio.wait_for(run_task, timeout=1.0)
 
     assert task_event.is_set()
     assert link_cancelled.is_set()
     assert not runtime.foreground_active
+    assert host.service_runtime.request_termination_on_close.call_count == (1 if exit_command == "/shutdown" else 0)
 
 
 @pytest.mark.anyio

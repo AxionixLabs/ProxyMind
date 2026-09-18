@@ -625,16 +625,49 @@ def build_tui_style_transformation(
 
 
 def exit_summary_fragments(snapshot: SessionExitSnapshot) -> tuple[tuple[str, str], ...]:
-    """生成 TUI 释放终端后的会话恢复提示。"""
-    if snapshot.disposition != "recoverable":
-        return ()
-    command = f"{const.APP_NAME} resume {snapshot.sid}"
+    """将冻结的会话事实格式化为退出后的用量及恢复指引。"""
+    fragments: list[tuple[str, str]] = []
 
-    return (
-        (prompt_style(MUTED_STYLE), "■ "),
-        (prompt_style(BODY_STYLE), "To continue this session, run "),
-        (prompt_style(TERMINAL_CYAN_STYLE), command),
-    )
+    def notice(text: str, command: str | None = None) -> None:
+        """追加带方格的正文及可选的独立命令行。"""
+        if fragments:
+            fragments.append(("", "\n"))
+        fragments.extend((
+            (prompt_style(MUTED_STYLE), "■ "),
+            (prompt_style(BODY_STYLE), text),
+        ))
+        if command is not None:
+            fragments.extend((("", "\n  "), (prompt_style(TERMINAL_CYAN_STYLE), command)))
+
+    record = snapshot.record
+    usage = record.total_token_usage if record is not None else None
+    if usage is not None and usage.is_complete and usage.total_tokens > 0:
+        input_tokens = usage.input_tokens
+        cached_tokens = usage.cached_input_tokens
+        output_tokens = usage.output_tokens
+        if input_tokens is not None and cached_tokens is not None and output_tokens is not None:
+            uncached_input = input_tokens - cached_tokens
+            label = "Token usage:" if snapshot.remote_stop_confirmed else "Token usage so far:"
+            text = f"{label} total={uncached_input + output_tokens:,} input={uncached_input:,}"
+            if cached_tokens:
+                text += f" (+ {cached_tokens:,} cached)"
+            text += f" output={output_tokens:,}"
+            if usage.reasoning_output_tokens:
+                text += f" (reasoning {usage.reasoning_output_tokens:,})"
+            notice(text)
+
+    if not snapshot.remote_stop_confirmed and snapshot.disposition != "deleted":
+        notice("Remote work may still be running.")
+    if snapshot.disposition == "recoverable":
+        notice("To continue this session, run:", f"{const.APP_NAME} resume {snapshot.sid}")
+    elif snapshot.disposition == "archived":
+        notice(f"Session archived: {snapshot.sid}")
+    elif snapshot.disposition == "pending_delete":
+        notice(
+            "Session deletion is pending. In a new session, run:",
+            f"/delete recover {snapshot.deletion_request_id}",
+        )
+    return tuple(fragments)
 
 
 def styled_block_fragments(

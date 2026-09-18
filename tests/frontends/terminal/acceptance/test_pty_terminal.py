@@ -19,6 +19,17 @@ from tests.pty import spawn_terminal
 pytestmark = pytest.mark.pty_acceptance
 
 
+@pytest.mark.parametrize("chunk_size", [1, 2, 3, 4, 5, 128])
+def test_screen_keyboard_restore_does_not_leave_text_or_move_cursor(chunk_size):
+    screen = TerminalScreen(TerminalSize(rows=4, columns=40))
+    data = "history\r\n\x1b[<u■ Token usage\r\n\x1b[36m  resume\x1b[0m".encode("utf-8")
+    for start in range(0, len(data), chunk_size):
+        screen.feed(data[start:start + chunk_size])
+    snapshot = screen.snapshot()
+    assert [line.rstrip() for line in snapshot.visible_lines] == ["history", "■ Token usage", "  resume", ""]
+    assert snapshot.cursor.row == 2 and snapshot.cursor.column == 8
+
+
 def test_terminal_environment_replaces_host_identity() -> None:
     """验证验收子进程不会继承宿主终端身份或颜色覆盖。"""
     base = {

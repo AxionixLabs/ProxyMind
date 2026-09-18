@@ -364,7 +364,7 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
                 },
             }
 
-        async def start(self, servers, status=None):
+        async def start(self, servers, status=None, *, allow_background=False):
             start_called()
             entered.set()
             await release.wait()
@@ -411,12 +411,12 @@ async def test_external_mcp_concurrent_start_waits_for_first_start(
     runtime = ExternalMcpRuntime(_mcp_runtime_context(host))
     first = asyncio.create_task(runtime.start())
     second = asyncio.create_task(runtime.start())
-    await entered.wait()
-
-    assert not second.done()
-
-    release.set()
-    await asyncio.gather(first, second)
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        assert not second.done()
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
 
     assert start_called.call_count == 1
     assert runtime.group is not None
@@ -449,7 +449,7 @@ async def test_external_mcp_without_ready_connections_can_retry(monkeypatch) -> 
         def __init__(self, **_kwargs) -> None:
             pass
 
-        async def start(self, _servers, status=None):
+        async def start(self, _servers, status=None, *, allow_background=False):
             start_called()
             if status is not None:
                 status.finish()

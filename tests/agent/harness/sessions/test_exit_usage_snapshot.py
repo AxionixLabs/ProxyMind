@@ -277,6 +277,7 @@ def test_independent_client_processes_restore_and_delete_real_usage_storage(
     assert deleted["snapshot"]["record"] == resumed["snapshot"]["record"]
     assert deleted["snapshot"]["record"]["total_token_usage"]["cached_input_tokens"] == 14_976
     assert deleted["snapshot"]["disposition"] == "deleted"
+    assert deleted["rendered"] == "\r\n■ Token usage: total=2,701 input=2,687 (+ 14,976 cached) output=14 (reasoning 4)\r\n"
     assert "resume" not in deleted["rendered"]
     assert not deleted["history_exists"] and not deleted["cache_exists"] and not deleted["transcript_exists"]
     assert run("verify_deleted") == {"deleted": True, "pending": 0}
