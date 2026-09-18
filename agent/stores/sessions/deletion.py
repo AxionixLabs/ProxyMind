@@ -8,6 +8,7 @@ from contextlib import closing
 from agent.application.config.session_identity import derive_local_session_id
 from agent.ports.session_deletion import (
     LocalDeletionPlan,
+    LocalDeletionRecord,
     LocalDeletionTarget,
     SessionDeletionConflict,
     TranscriptDeletionStore,
@@ -96,6 +97,40 @@ class SQLiteSessionDeletionStore:
                 plans.append(plan)
             return tuple(plans)
 
+    def lookup(self, request_id: str) -> LocalDeletionRecord | None:
+        """读取同一请求的持久事实，不依据当前会话重建根身份。"""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT plan, layout, completed FROM session_deletions WHERE request_id = ?",
+                (normalize_request_id(request_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            plan = _decode_plan(str(row[0]))
+            if row[1] != self._layout(plan):
+                raise SessionDeletionConflict("deletion storage paths changed since the original request")
+            return LocalDeletionRecord(plan, bool(row[2]))
+
+    def rejected(self, plan: LocalDeletionPlan) -> None:
+        """释放服务端明确拒绝且范围一致的未完成意图，保留已完成事实。"""
+        normalized = _normalize_plan(plan)
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                "DELETE FROM session_deletions WHERE request_id = ? AND plan = ? AND layout = ? AND completed = 0",
+                (plan.request_id, _encode_plan(normalized), self._layout(normalized)),
+            )
+
+    def for_session(self, cid: str, sid: str) -> LocalDeletionRecord | None:
+        """查找占有指定线上身份的原始删除事实。"""
+        with closing(self._connect()) as connection:
+            for row in connection.execute("SELECT plan, layout, completed FROM session_deletions"):
+                plan = _decode_plan(str(row[0]))
+                if any((target.cid, target.sid) == (cid, sid) for target in plan.targets):
+                    if row[1] != self._layout(plan):
+                        raise SessionDeletionConflict("deletion storage paths changed since the original request")
+                    return LocalDeletionRecord(plan, bool(row[2]))
+        return None
+
     def _layout(self, plan: LocalDeletionPlan) -> str:
         """保存参与清理的实际存储位置，拒绝切换目录后错误地报告旧目录已清理。"""
         return json.dumps({
@@ -129,6 +164,13 @@ class SQLiteSessionDeletionStore:
         """原子登记待完成计划并校验重复请求范围不可改变。"""
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            identities = {(target.cid, target.sid) for target in plan.targets}
+            for row in connection.execute(
+                "SELECT plan FROM session_deletions WHERE request_id != ?", (plan.request_id,),
+            ):
+                existing = _decode_plan(str(row[0]))
+                if identities.intersection((target.cid, target.sid) for target in existing.targets):
+                    raise SessionDeletionConflict("session already belongs to a deletion request")
             connection.execute(
                 "INSERT OR IGNORE INTO session_deletions (request_id, plan, layout) VALUES (?, ?, ?)",
                 (plan.request_id, encoded, layout),
@@ -162,12 +204,15 @@ def _normalize_plan(plan: LocalDeletionPlan) -> LocalDeletionPlan:
         identities.update(derive_local_session_id(source, {"cid": target.cid, "sid": target.sid})
                           for source in ("cli", "tui"))
         targets.append(LocalDeletionTarget(target.cid, target.sid, tuple(sorted(identities))))
-    return LocalDeletionPlan(plan.request_id, tuple(sorted(targets, key=lambda target: (target.cid, target.sid))))
+    root = next((target for target in targets if (target.cid, target.sid) == (plan.root.cid, plan.root.sid)), None)
+    if root is None:
+        raise ValueError("deletion root must be in the target set")
+    return LocalDeletionPlan(plan.request_id, tuple(sorted(targets, key=lambda target: (target.cid, target.sid))), root)
 
 
 def _encode_plan(plan: LocalDeletionPlan) -> str:
     """只编码恢复所需身份，不复制会话正文、配置或凭据。"""
-    return json.dumps({"request_id": plan.request_id, "targets": [
+    return json.dumps({"request_id": plan.request_id, "root": {"cid": plan.root.cid, "sid": plan.root.sid}, "targets": [
         {"cid": target.cid, "sid": target.sid, "local_session_ids": list(target.local_session_ids)}
         for target in plan.targets
     ]}, sort_keys=True, separators=(",", ":"))
@@ -176,7 +221,7 @@ def _encode_plan(plan: LocalDeletionPlan) -> str:
 def _decode_plan(encoded: str) -> LocalDeletionPlan:
     """在持久边界严格验证 JSON 后构造具名删除计划。"""
     value = json.loads(encoded)
-    if not isinstance(value, dict) or set(value) != {"request_id", "targets"}:
+    if not isinstance(value, dict) or set(value) != {"request_id", "root", "targets"}:
         raise ValueError("invalid persisted deletion plan")
     request_id, rows = value["request_id"], value["targets"]
     if not isinstance(request_id, str) or not isinstance(rows, list):
@@ -194,7 +239,13 @@ def _decode_plan(encoded: str) -> LocalDeletionPlan:
                 raise ValueError("invalid persisted local session identity")
             local_ids.append(identity)
         targets.append(LocalDeletionTarget(cid, sid, tuple(local_ids)))
-    plan = _normalize_plan(LocalDeletionPlan(request_id, tuple(targets)))
+    root = value["root"]
+    if (not isinstance(root, dict) or set(root) != {"cid", "sid"}
+            or not isinstance(root["cid"], str) or not isinstance(root["sid"], str)):
+        raise ValueError("invalid persisted deletion root")
+    plan = _normalize_plan(LocalDeletionPlan(
+        request_id, tuple(targets), LocalDeletionTarget(root["cid"], root["sid"], ()),
+    ))
     if _encode_plan(plan) != encoded:
         raise ValueError("persisted deletion plan is not canonical")
     return plan

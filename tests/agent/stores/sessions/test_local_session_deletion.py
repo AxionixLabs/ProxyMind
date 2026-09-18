@@ -37,8 +37,8 @@ def test_deletes_complete_target_set_and_preserves_control(tmp_path):
     assert rows(tmp_path) == {table: count // 3 for table, count in before.items()}
     assert backend.pending() == ()
     backend.delete(plan)
-    # A second request and already missing files remain a safe no-op for this exact scope.
-    backend.delete(replace(plan, request_id="delete_repeat_acceptance"))
+    with pytest.raises(SessionDeletionConflict, match="already belongs"):
+        backend.delete(replace(plan, request_id="delete_repeat_acceptance"))
     assert rows(tmp_path) == {table: count // 3 for table, count in before.items()}
     assert backend.history.find_session(control.sid) is not None
     transcripts = ConversationTranscriptStore(tmp_path / "sessions")
@@ -48,6 +48,23 @@ def test_deletes_complete_target_set_and_preserves_control(tmp_path):
         assert backend.graphs.load(owner.sid) is None
         assert transcripts.existing_path_for_session(owner.sid) == ""
         assert transcripts.path_for_session(owner.sid) == ""
+
+
+def test_prepared_root_survives_reordering_and_rejection_releases_claim(tmp_path):
+    plan, _ = seeded(tmp_path)
+    backend = store(tmp_path, plan.root)
+    backend.prepare(plan)
+    record = backend.lookup(plan.request_id)
+    assert record is not None and not record.complete
+    assert record.plan.root.cid == plan.root.cid
+    assert record.plan.root.sid == plan.root.sid
+    with pytest.raises(SessionDeletionConflict, match="already belongs"):
+        backend.prepare(replace(plan, request_id="delete_second_intent"))
+    backend.rejected(plan)
+    assert backend.pending() == ()
+    assert backend.for_session(plan.root.cid, plan.root.sid) is None
+    backend.prepare(replace(plan, request_id="delete_second_intent"))
+    assert len(backend.pending()) == 1
 
 
 def test_late_store_and_transcript_writes_are_rejected(tmp_path):
@@ -158,7 +175,7 @@ def test_rejects_changed_scope_and_invalid_targets(tmp_path):
 def test_missing_target_is_idempotent_and_cannot_be_created_later(tmp_path):
     owner = target()
     backend = store(tmp_path, owner)
-    plan = LocalDeletionPlan("delete_missing_session", (owner,))
+    plan = LocalDeletionPlan("delete_missing_session", (owner,), owner)
     backend.delete(plan)
     backend.delete(plan)
     assert set(rows(tmp_path).values()) == {0}
@@ -292,7 +309,7 @@ def test_queued_run_binding_is_deleted_before_remote_request_exists(tmp_path):
     event = RunEvent.create(sequence=1, session_id=request.session_id, run_id=request.run_id,
                             kind="run_queued", payload={"status": "queued"}, causation_id=request.command_id)
     asyncio.run(backend.runs.append_event(request, event))
-    backend.delete(LocalDeletionPlan("delete_queued_run", (owner,)))
+    backend.delete(LocalDeletionPlan("delete_queued_run", (owner,), owner))
     assert asyncio.run(backend.runs.load_events(request.run_id)) == ()
     late = command(owner, suffix="_late", local_session_id="another-custom-session")
     late_event = RunEvent.create(sequence=1, session_id=late.session_id, run_id=late.run_id,

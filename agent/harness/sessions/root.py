@@ -79,7 +79,7 @@ SubagentShutdown: typing.TypeAlias = Callable[
     Awaitable[tuple[AgentSnapshot, ...]],
 ]
 SessionCleanup: typing.TypeAlias = Callable[[str], Awaitable[None]]
-SessionRuntimeClose: typing.TypeAlias = Callable[[str], Awaitable[None]]
+SessionRuntimeClose: typing.TypeAlias = Callable[[str, str], Awaitable[None]]
 CommandHookCleanup: typing.TypeAlias = Callable[[str], None]
 EventSessionClose: typing.TypeAlias = Callable[[str, str], Awaitable[None]]
 CleanupValue = typing.TypeVar("CleanupValue")
@@ -119,11 +119,7 @@ def _validate_deletion_receipt(
         raise SessionDeletionRemoteError(outcome="unknown", code="invalid_receipt")
 
 
-def _request_from_plan(
-    plan: LocalDeletionPlan,
-    *,
-    root_identity: tuple[str, str] | None = None,
-) -> RemoteDeletionRequest:
+def _request_from_plan(plan: LocalDeletionPlan) -> RemoteDeletionRequest:
     """从持久计划恢复原始远端删除范围。"""
     targets = tuple(
         RemoteDeletionTarget(target.cid, target.sid)
@@ -131,10 +127,7 @@ def _request_from_plan(
     )
     if not targets:
         raise SessionDeletionConflict("deletion plan has no targets")
-    root = next(
-        (target for target in targets if root_identity == (target.cid, target.sid)),
-        targets[0],
-    )
+    root = RemoteDeletionTarget(plan.root.cid, plan.root.sid)
     return RemoteDeletionRequest(
         request_id=plan.request_id,
         root=root,
@@ -198,7 +191,7 @@ class RootConversationSession:
         self._session_deletion_store = session_deletion_store
         self._session_deletion_remote = session_deletion_remote
         self._session_runtime_close = session_runtime_close
-        self._session_deletion_lock = asyncio.Lock()
+        self._session_mutation_lock = asyncio.Lock()
         self._deleted_identity: tuple[str, str] | None = None
         self._state = ConversationState()
         self._lifecycle_id = 0
@@ -342,7 +335,8 @@ class RootConversationSession:
                 remote_target.sid,
                 tuple(sorted(local_ids)),
             ))
-        return LocalDeletionPlan(request.request_id, tuple(targets))
+        root = next(target for target in targets if (target.cid, target.sid) == (request.root.cid, request.root.sid))
+        return LocalDeletionPlan(request.request_id, tuple(targets), root)
 
     def _session_hook_context(self, *, cid: str, sid: str) -> HookExecutionContext:
         """构建根会话生命周期事件使用的固定上下文。"""
@@ -504,10 +498,12 @@ class RootConversationSession:
 
         for snapshot in subagent_snapshots:
             await self._hook_session_cleanup(snapshot.thread.sid)
-            with contextlib.suppress(Exception):
-                await self._javascript_session_cleanup(snapshot.thread.sid)
-        with contextlib.suppress(Exception):
-            await self._javascript_session_cleanup(sid)
+        for cleanup_sid in (*[snapshot.thread.sid for snapshot in subagent_snapshots], sid):
+            if reason == "deleted":
+                await self._javascript_session_cleanup(cleanup_sid)
+            else:
+                with contextlib.suppress(Exception):
+                    await self._javascript_session_cleanup(cleanup_sid)
 
         self._command_hook_cleanup(sid)
         await self._session_lifecycle.end(
@@ -621,15 +617,32 @@ class RootConversationSession:
         title: str = "",
         source: str = "begin",
     ) -> ConversationTurn:
+        """串行验证删除门禁并初始化新轮次身份。"""
+        async with self._session_mutation_lock:
+            await self._assert_session_available(cid or self.cid, sid or self.sid)
+            return await self._begin_turn(cid, sid, title=title, source=source)
+
+    async def _assert_session_available(self, cid: str | None, sid: str | None) -> None:
+        """拒绝复用待对账或已删除身份；允许无关会话正常运行。"""
+        if not cid or not sid:
+            return
+        if self._deleted_identity == (cid, sid):
+            raise SessionDeletionConflict("deleted session cannot be used")
+        store = self._session_deletion_store
+        if store is not None:
+            record = await asyncio.to_thread(store.for_session, cid, sid)
+            if record is not None:
+                raise SessionDeletionConflict(
+                    f"Session deletion requires recovery: /delete recover {record.plan.request_id}"
+                )
+
+    async def _begin_turn(
+        self, cid: str | None, sid: str | None, *, title: str, source: str,
+    ) -> ConversationTurn:
         """为新轮次初始化或续用当前会话标识。"""
         previous_identity = (self._state.cid, self._state.sid)
         external_cid = str(cid or "").strip()
         external_sid = str(sid or "").strip()
-        if self._deleted_identity is not None and (
-            not external_cid
-            or (external_cid, external_sid) == self._deleted_identity
-        ):
-            raise SessionDeletionConflict("deleted session cannot accept new turns")
         if external_cid or external_sid:
             if not valid_session_ids(external_cid, external_sid):
                 raise ValueError("valid cid and sid are required")
@@ -641,7 +654,7 @@ class RootConversationSession:
                 or external_sid != self._state.sid
             )
             ):
-                await self.end(reason="switch")
+                await self._end(reason="switch")
                 self._lifecycle_id += 1
                 self._assistant_reply_snapshot = None
 
@@ -682,8 +695,13 @@ class RootConversationSession:
         source: str = "reset",
         title: str = "",
     ) -> dict[str, str]:
+        """串行结束当前生命周期并为新会话生成独立身份。"""
+        async with self._session_mutation_lock:
+            return await self._reset(reason=reason, source=source, title=title)
+
+    async def _reset(self, *, reason: str, source: str, title: str) -> dict[str, str]:
         """结束当前生命周期并开始一个新的模型对话。"""
-        await self.end(reason="reset")
+        await self._end(reason="reset")
         metadata = self._state.reset(reason=reason)
         self._activate_context_usage(metadata["cid"], metadata["sid"], initial=True)
         self._lifecycle_id += 1
@@ -737,6 +755,15 @@ class RootConversationSession:
         source: str = "bind",
         workspace_change: WorkspaceChangePort | None = None,
     ) -> dict[str, str] | None:
+        """在会话切换锁内检查持久删除事实后绑定坐标。"""
+        async with self._session_mutation_lock:
+            await self._assert_session_available(cid, sid)
+            return await self._bind(cid, sid, source=source, workspace_change=workspace_change)
+
+    async def _bind(
+        self, cid: str, sid: str, *, source: str,
+        workspace_change: WorkspaceChangePort | None,
+    ) -> dict[str, str] | None:
         """把当前运行绑定到一组已存在的远端会话标识。"""
         if not valid_session_ids(cid, sid):
             observe(
@@ -767,7 +794,7 @@ class RootConversationSession:
             return metadata
 
         assistant_reply = _last_copyable_assistant_reply(self._history.read_transcript(sid))
-        await self.end(reason="switch")
+        await self._end(reason="switch")
         if workspace_change is not None:
             workspace_change.commit()
         self._state = ConversationState(
@@ -791,6 +818,14 @@ class RootConversationSession:
         return metadata
 
     async def end(self, *, reason: SessionEndReason) -> None:
+        """等待删除或身份切换收束后结束当前生命周期。"""
+        recovery = self._compaction_recovery_task
+        if recovery is not None:
+            recovery.cancel()
+        async with self._session_mutation_lock:
+            await self._end(reason=reason)
+
+    async def _end(self, *, reason: SessionEndReason) -> None:
         """结束当前已绑定的根会话生命周期。"""
         recovery = self._compaction_recovery_task
         if recovery is not None:
@@ -801,7 +836,7 @@ class RootConversationSession:
         self._context_usage.close(clear_listeners=reason == "exit")
         cid = str(self._state.cid or "").strip()
         sid = str(self._state.sid or "").strip()
-        if not self._state.session_bound or not valid_session_ids(cid, sid):
+        if self.session_retired or not self._state.session_bound or not valid_session_ids(cid, sid):
             return None
 
         transcript_path = self._transcript_path_for(sid)
@@ -822,107 +857,7 @@ class RootConversationSession:
 
     async def delete_current(self, request_id: str) -> SessionDeletionResult:
         """协调当前根会话的远端删除、资源收束和本地幂等清理。"""
-        async with self._session_deletion_lock:
-            cid = str(self._state.cid or "").strip()
-            sid = str(self._state.sid or "").strip()
-            if not self._state.session_bound or not valid_session_ids(cid, sid):
-                return SessionDeletionResult("new_unbound", request_id=request_id)
-            if self._deleted_identity == (cid, sid):
-                return SessionDeletionResult("already_deleted", request_id=request_id)
-            remote = self._session_deletion_remote
-            store = self._session_deletion_store
-            if remote is None or store is None:
-                return SessionDeletionResult(
-                    "local_failed", request_id=request_id, code="deletion_unavailable",
-                )
-
-            snapshots = await self._subagent_shutdown(sid)
-            request = self._deletion_request(request_id, cid, sid, snapshots)
-            plan = self._deletion_plan(request, snapshots)
-            try:
-                receipt = await remote.delete(request)
-                _validate_deletion_receipt(request, receipt)
-            except asyncio.CancelledError:
-                try:
-                    store.prepare(plan)
-                except Exception as prepare_error:
-                    observe_exception(
-                        "session.deletion.prepare.cancelled.failed",
-                        prepare_error,
-                        level="ERROR",
-                        cid=cid,
-                        sid=sid,
-                    )
-                raise
-            except SessionDeletionRemoteError as error:
-                if error.outcome == "unknown":
-                    try:
-                        await self._await_cleanup(asyncio.to_thread(store.prepare, plan))
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as prepare_error:
-                        observe_exception(
-                            "session.deletion.prepare.failed",
-                            prepare_error,
-                            level="ERROR",
-                            cid=cid,
-                            sid=sid,
-                        )
-                        return SessionDeletionResult(
-                            "local_failed", request_id=request_id, code="prepare_failed",
-                        )
-                    return SessionDeletionResult(
-                        "unknown", request_id=request_id, code=error.code,
-                    )
-                return SessionDeletionResult(
-                    "rejected", request_id=request_id, code=error.code,
-                )
-
-            self._deleted_identity = (cid, sid)
-            try:
-                await self._await_cleanup(asyncio.to_thread(store.prepare, plan))
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                observe_exception(
-                    "session.deletion.prepare.failed",
-                    error,
-                    level="ERROR",
-                    cid=cid,
-                    sid=sid,
-                )
-                return SessionDeletionResult(
-                    "local_failed", request_id=request_id, code="prepare_failed",
-                )
-
-            transcript_path = self._transcript_path_for(sid)
-            transcript = self._transcript_factory(transcript_path, session_id=sid)
-            if self._session_runtime_close is not None:
-                await self._session_runtime_close(sid)
-            await self._finish_end(
-                reason="deleted",
-                cid=cid,
-                sid=sid,
-                transcript_path=transcript_path,
-                transcript=transcript,
-                subagent_snapshots=snapshots,
-            )
-            try:
-                await self._await_cleanup(asyncio.to_thread(store.delete, plan))
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                observe_exception(
-                    "session.deletion.local_cleanup.failed",
-                    error,
-                    level="ERROR",
-                    cid=cid,
-                    sid=sid,
-                )
-                return SessionDeletionResult(
-                    "local_failed", request_id=request_id, code="local_cleanup_failed",
-                )
-            return SessionDeletionResult("deleted", request_id=request_id)
+        return await self.delete_session(str(self.cid or ""), str(self.sid or ""), request_id)
 
     async def delete_session(
         self,
@@ -931,63 +866,118 @@ class RootConversationSession:
         request_id: str,
     ) -> SessionDeletionResult:
         """按身份进入删除边界，拒绝误删非当前根会话。"""
-        if not valid_session_ids(cid, sid):
-            return SessionDeletionResult("new_unbound", request_id=request_id)
-        if self._deleted_identity == (cid, sid):
-            return SessionDeletionResult("already_deleted", request_id=request_id)
-        if (self.cid, self.sid) != (cid, sid):
-            return SessionDeletionResult("not_current", request_id=request_id)
-        return await self.delete_current(request_id)
+        async with self._session_mutation_lock:
+            if not valid_session_ids(cid, sid) or not self.session_bound:
+                return SessionDeletionResult("new_unbound", request_id=request_id)
+            if (self.cid, self.sid) != (cid, sid):
+                return SessionDeletionResult("not_current", request_id=request_id)
+            remote, store = self._session_deletion_remote, self._session_deletion_store
+            if remote is None or store is None:
+                return SessionDeletionResult("local_failed", request_id=request_id, code="deletion_unavailable")
+            existing = await asyncio.to_thread(store.for_session, cid, sid)
+            if existing is not None:
+                if existing.complete:
+                    return await self._recover_delete(existing.plan.request_id)
+                return SessionDeletionResult(
+                    "unknown", request_id=existing.plan.request_id, code="recovery_required",
+                )
+            snapshots = await self._subagent_shutdown(sid)
+            request = self._deletion_request(request_id, cid, sid, snapshots)
+            plan = self._deletion_plan(request, snapshots)
+            try:
+                # 先落盘再发请求；取消、断连及进程崩溃都只能恢复同一身份。
+                await self._await_cleanup(asyncio.to_thread(store.prepare, plan))
+            except Exception as error:
+                observe_exception("session.deletion.prepare.failed", error, request_id=request_id)
+                return SessionDeletionResult("local_failed", request_id=request_id, code="prepare_failed")
+            try:
+                receipt = await remote.delete(request)
+                _validate_deletion_receipt(request, receipt)
+            except SessionDeletionRemoteError as error:
+                if error.outcome == "rejected":
+                    await self._await_cleanup(asyncio.to_thread(store.rejected, plan))
+                return SessionDeletionResult(error.outcome, request_id=request_id, code=error.code)
+            return await self._complete_deletion(plan, snapshots=snapshots)
 
     async def recover_delete(self, request_id: str) -> SessionDeletionResult:
         """查询尚未确定的原请求，并在完成后继续本地清理。"""
-        async with self._session_deletion_lock:
-            store = self._session_deletion_store
-            remote = self._session_deletion_remote
-            if store is None or remote is None:
-                return SessionDeletionResult(
-                    "local_failed", request_id=request_id, code="deletion_unavailable",
+        async with self._session_mutation_lock:
+            return await self._recover_delete(request_id)
+
+    async def _recover_delete(self, request_id: str) -> SessionDeletionResult:
+        """仅查询持久意图，缺失回执不重提也不释放原身份。"""
+        store, remote = self._session_deletion_store, self._session_deletion_remote
+        if store is None or remote is None:
+            return SessionDeletionResult("local_failed", request_id=request_id, code="deletion_unavailable")
+        record = await asyncio.to_thread(store.lookup, request_id)
+        if record is None:
+            return SessionDeletionResult("unknown", request_id=request_id, code="request_not_found")
+        plan = record.plan
+        if record.complete:
+            if (self.cid, self.sid) == (plan.root.cid, plan.root.sid):
+                self._deleted_identity = (plan.root.cid, plan.root.sid)
+            return SessionDeletionResult("deleted", request_id=request_id, remote_deleted=True)
+        request = _request_from_plan(plan)
+        try:
+            receipt = await remote.recover(request)
+            _validate_deletion_receipt(request, receipt)
+        except SessionDeletionRemoteError as error:
+            return SessionDeletionResult("unknown", request_id=request_id, code=error.code)
+        return await self._complete_deletion(plan)
+
+    async def _complete_deletion(
+        self, plan: LocalDeletionPlan, *, snapshots: tuple[AgentSnapshot, ...] | None = None,
+    ) -> SessionDeletionResult:
+        """远端确认后收束原目标资源，再幂等清理；失败保留完整意图。"""
+        store = self._session_deletion_store
+        if store is None:
+            raise RuntimeError("session deletion store is required")
+        cid, sid = plan.root.cid, plan.root.sid
+        is_current = (self.cid, self.sid) == (cid, sid)
+        if is_current:
+            self._deleted_identity = (cid, sid)
+        try:
+            if snapshots is None:
+                snapshots = await self._subagent_shutdown(sid)
+            expected = {(target.cid, target.sid) for target in plan.targets}
+            if any((snapshot.thread.cid, snapshot.thread.sid) not in expected for snapshot in snapshots):
+                raise SessionDeletionConflict("deletion scope changed during recovery")
+            if self._session_runtime_close is not None:
+                await self._session_runtime_close(cid, sid)
+            if is_current:
+                recovery = self._compaction_recovery_task
+                if recovery is not None:
+                    recovery.cancel()
+                    await asyncio.gather(recovery, return_exceptions=True)
+                self._pending_compactions.clear()
+                self._context_usage.close()
+                path = self._transcript_path_for(sid)
+                await self._finish_end(
+                    reason="deleted", cid=cid, sid=sid, transcript_path=path,
+                    transcript=self._transcript_factory(path, session_id=sid),
+                    subagent_snapshots=snapshots,
                 )
-            pending_plans = await asyncio.to_thread(store.pending)
-            pending = tuple(
-                item for item in pending_plans if item.request_id == request_id
+            else:
+                for target in plan.targets:
+                    await self._hook_session_cleanup(target.sid)
+                    await self._javascript_session_cleanup(target.sid)
+                    self._command_hook_cleanup(target.sid)
+                    await self._event_session_close(target.cid, target.sid)
+            await self._await_cleanup(asyncio.to_thread(store.delete, plan))
+        except Exception as error:
+            observe_exception("session.deletion.local_cleanup.failed", error, request_id=plan.request_id)
+            return SessionDeletionResult(
+                "local_failed", request_id=plan.request_id, code="local_cleanup_failed", remote_deleted=True,
             )
-            if not pending:
-                return SessionDeletionResult(
-                    "unknown", request_id=request_id, code="request_not_found",
-                )
-            plan = pending[0]
-            current_identity = (
-                (str(self._state.cid or "").strip(), str(self._state.sid or "").strip())
-                if self._state.session_bound
-                else None
-            )
-            request = _request_from_plan(plan, root_identity=current_identity)
-            try:
-                receipt = await remote.recover(request)
-                _validate_deletion_receipt(request, receipt)
-            except SessionDeletionRemoteError as error:
-                return SessionDeletionResult(
-                    error.outcome, request_id=request_id, code=error.code,
-                )
-            try:
-                await self._await_cleanup(asyncio.to_thread(store.delete, plan))
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                observe_exception(
-                    "session.deletion.local_cleanup.failed",
-                    error,
-                    level="ERROR",
-                    request_id=request_id,
-                )
-                return SessionDeletionResult(
-                    "local_failed", request_id=request_id, code="local_cleanup_failed",
-                )
-            self._deleted_identity = (plan.targets[0].cid, plan.targets[0].sid)
-            return SessionDeletionResult("deleted", request_id=request_id)
+        return SessionDeletionResult("deleted", request_id=plan.request_id, remote_deleted=True)
 
     async def archive_current(self) -> dict[str, typing.Any]:
+        """在身份切换锁内验证删除门禁并归档。"""
+        async with self._session_mutation_lock:
+            await self._assert_session_available(self.cid, self.sid)
+            return await self._archive_current()
+
+    async def _archive_current(self) -> dict[str, typing.Any]:
         """归档当前根会话并结束其生命周期。"""
         cid = str(self._state.cid or "").strip()
         sid = str(self._state.sid or "").strip()
@@ -996,7 +986,7 @@ class RootConversationSession:
 
         archived = self._history.archive(cid=cid, sid=sid)
         try:
-            await self.end(reason="archive")
+            await self._end(reason="archive")
         except BaseException:
             try:
                 self._history.unarchive(cid=cid, sid=sid)

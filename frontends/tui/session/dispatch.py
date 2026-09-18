@@ -27,7 +27,10 @@ from infrastructure.config.store import ConfigStoreError
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.platform.git_review import WorkspaceReviewGitService
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
-from protocol.schema.identifiers import new_request_id
+from protocol.schema.identifiers import (
+    new_request_id,
+    normalize_request_id,
+)
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
 from frontends.tui.features.resume import resume_history_session
@@ -1172,8 +1175,21 @@ class TuiCommandDispatcher(object):
             self.host.lifecycle.request_stop()
             return DispatchAction.EXIT
 
-        if matches_command(command, "delete"):
-            return await self._delete_current_session()
+        resolved = resolve_tui_command(command)
+        if resolved is not None and resolved.key == "delete":
+            argument = self._command_argument(prompt_text)
+            if not argument:
+                return await self._delete_current_session()
+            parts = argument.split()
+            if len(parts) == 2 and parts[0] == "recover":
+                try:
+                    request_id = normalize_request_id(parts[1])
+                except ValueError:
+                    self._present(failure_text_block("Invalid deletion request ID."))
+                    return DispatchAction.HANDLED
+                return await self._wait_for_deletion(request_id, recovery=True)
+            self._present(failure_text_block("Usage: /delete [recover <request_id>]"))
+            return DispatchAction.HANDLED
 
         new_command = resolve_tui_command(command)
         if new_command is not None and new_command.key == "new":
@@ -1449,14 +1465,37 @@ class TuiCommandDispatcher(object):
             self._present()
             return DispatchAction.HANDLED
 
-        request_id = new_request_id("delete")
+        return await self._wait_for_deletion(new_request_id("delete"), target=target)
+
+    async def _wait_for_deletion(
+        self, request_id: str, *, target: tuple[str, str] | None = None, recovery: bool = False,
+    ) -> DispatchAction:
+        """等待冻结目标的删除或原请求对账，并展示真实完成边界。"""
+        conversation = self.host.conversation
         results: list[SessionDeletionResult] = []
+
+        async def execute() -> SessionDeletionResult:
+            """在生命周期入口内再次核验身份，恢复不重发删除请求。"""
+            await self.runtime.begin_operation_status(lambda: {
+                "summary": "Recovering session deletion..." if recovery else "Deleting session...",
+                "done": False,
+                "detail_limit": 0,
+                "items": [{"name": "Delete", "state": "running"}],
+            })
+            if recovery:
+                return await conversation.recover_delete(request_id)
+            if target is None:
+                raise ValueError("deletion target is required")
+            return await conversation.delete_session(*target, request_id)
 
         def finish(result: SessionDeletionResult) -> None:
             """呈现删除终态并在完整成功时退出。"""
             results.append(result)
             if result.status == "deleted":
-                self.host.lifecycle.request_stop()
+                if not recovery or conversation.session_retired:
+                    self.host.lifecycle.request_stop()
+                else:
+                    self._present(text_block("Session deletion recovered. The current session is unchanged.", BODY_STYLE))
                 return None
             if result.status == "rejected":
                 message = (
@@ -1465,15 +1504,17 @@ class TuiCommandDispatcher(object):
                 )
             elif result.status == "unknown":
                 message = (
-                    "Deletion outcome is unknown. Keep request "
-                    f"{result.request_id or request_id} for recovery; "
-                    "do not retry with a new request yet."
+                    "Deletion outcome is unknown. Recover with "
+                    f"/delete recover {result.request_id or request_id}"
                 )
             elif result.status == "local_failed":
                 message = (
                     "The server deleted the session, but local cleanup "
-                    "did not finish. Restart to retry cleanup for request "
-                    f"{result.request_id or request_id}."
+                    "did not finish. Recover with "
+                    f"/delete recover {result.request_id or request_id}"
+                ) if result.remote_deleted else (
+                    "Deletion could not be prepared locally; remote deletion is not confirmed. "
+                    f"Use /delete recover {result.request_id or request_id} to check the saved request."
                 )
             elif result.status == "new_unbound":
                 message = "No active session is available to delete."
@@ -1494,19 +1535,20 @@ class TuiCommandDispatcher(object):
 
         self.foreground_tasks.start(
             "Delete session",
-            lambda: conversation.delete_current(request_id),
+            execute,
             activity_kind="operation",
             on_succeeded=finish,
             on_failed=lambda error: self._present(failure_text_block(
-                f"Failed to delete current session: {error}",
+                "Deletion did not complete. Check the saved request with "
+                f"/delete recover {request_id}",
             )),
             on_cancelled=lambda: self._present(failure_text_block(
                 "Deletion was interrupted; the remote outcome is unknown. "
-                f"Keep request {request_id} for recovery.",
+                f"Recover with /delete recover {request_id}",
             )),
         )
         await self.foreground_tasks.wait()
-        if results and results[-1].status == "deleted":
+        if results and results[-1].complete and (not recovery or conversation.session_retired):
             return DispatchAction.EXIT
         return DispatchAction.HANDLED
 

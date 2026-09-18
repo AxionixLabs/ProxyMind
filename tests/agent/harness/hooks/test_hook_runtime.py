@@ -328,6 +328,30 @@ def test_runtime_reports_matching_hooks() -> None:
     assert not runtime.has_matching("PostToolUse", "shell_command")
 
 
+@pytest.mark.anyio
+async def test_deleted_session_retries_cleanup_without_replaying_hook() -> None:
+    definitions = _definitions({"SessionEnd": [_hook("audit", matcher="other")]})
+    runner = _CommandRunner()
+    runtime = HookRuntime(definitions, command_runner=runner)
+    context = _scope(runtime).context
+    attempts = []
+
+    async def cleanup(session_id):
+        attempts.append(session_id)
+        if len(attempts) == 1:
+            raise OSError("resource close failed")
+
+    gateway = SessionLifecycleGateway(
+        scope_factory=lambda event_context: HookExecutionScope(context=event_context, dispatcher=runtime),
+        cleanup_session=cleanup,
+    )
+    with pytest.raises(OSError, match="resource close failed"):
+        await gateway.end(9, context, reason="deleted", transcript_path="", last_assistant_message="")
+    assert await gateway.end(9, context, reason="deleted", transcript_path="", last_assistant_message="") is False
+    assert attempts == [context.session_id, context.session_id]
+    assert len(runner.calls) == 1
+
+
 def test_tool_matcher_uses_exact_names_and_alias_candidates() -> None:
     definitions = _definitions({
         "PreToolUse": [

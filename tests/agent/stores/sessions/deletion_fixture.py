@@ -176,4 +176,4 @@ def seeded(directory: Path) -> tuple[LocalDeletionPlan, LocalDeletionTarget]:
         root.sid, 2, time.time_ns() // 1_000_000,
         records=(AgentGraphRecord(thread=thread, status="completed"),), mailbox=mailbox.snapshot(),
     ))
-    return LocalDeletionPlan("delete_storage_acceptance", targets), control
+    return LocalDeletionPlan("delete_storage_acceptance", targets, targets[0]), control

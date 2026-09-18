@@ -19,6 +19,7 @@ from frontends.tui.core.menu import (
     TuiMenu,
 )
 from frontends.tui.core.keymap import TuiRuntimeKeymap
+from frontends.tui.features.conversation import confirm_delete_session
 from frontends.tui.core.models import (
     CLOSE_MENU_FOOTER_HINT,
     MenuColumnWidthMode,
@@ -325,29 +326,9 @@ async def test_delete_confirmation_renders_warning_and_default_cancel() -> None:
         focus_input=lambda: None,
         get_width=lambda: 100,
     )
-    task = asyncio.create_task(menu.request(MenuRequest(
-        title="Delete this session?",
-        body=(
-            f"Permanently delete this session and all child sessions, "
-            f"then exit {const.APP_DESC}",
-            "Session: cid-delete/sid-delete",
-            "This action cannot be undone.",
-        ),
-        footer_hint="Press enter to confirm or esc to go back",
-        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
-        options=(
-            MenuOption(
-                False,
-                "No, don't delete",
-                "Return to the current session",
-            ),
-            MenuOption(
-                True,
-                "Yes, delete and exit",
-                "Delete this session and its children",
-            ),
-        ),
-    )))
+    task = asyncio.create_task(confirm_delete_session(
+        SimpleNamespace(select_menu=menu.request), cid="cid-delete", sid="sid-delete",
+    ))
     await asyncio.sleep(0)
 
     assert [
@@ -355,13 +336,10 @@ async def test_delete_confirmation_renders_warning_and_default_cancel() -> None:
         for line in _fragments_text(menu.fragments()).splitlines()
     ] == [
         "  Delete this session?",
-        f"  Permanently delete this session and all child sessions, "
-        f"then exit {const.APP_DESC}",
-        "  Session: cid-delete/sid-delete",
-        "  This action cannot be undone.",
+        "  Cannot be undone. Subagent threads will also be deleted.",
         "",
-        "› 1. No, don't delete      Return to the current session",
-        "  2. Yes, delete and exit  Delete this session and its children",
+        "› 1. No, keep this session  Return to the current session",
+        "  2. Yes, delete and exit   Permanently delete this session now",
         "",
         "  Press enter to confirm or esc to go back",
     ]

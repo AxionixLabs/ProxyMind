@@ -94,7 +94,7 @@ def _conversation(
             if archive_current is not None
             else AsyncMock()
         ),
-        delete_current=(
+        delete_session=(
             delete_current
             if delete_current is not None
             else AsyncMock()
@@ -1007,19 +1007,14 @@ async def test_delete_confirmation_matches_codex_menu_contract() -> None:
 
     request = runtime.select_menu.await_args.args[0]
     assert request.title == "Delete this session?"
-    assert request.status == "Delete the current session and exit."
-    assert request.body == (
-        f"Permanently delete this session and all child sessions, "
-        f"then exit {const.APP_DESC}",
-        "Session: cid-delete/sid-delete",
-        "This action cannot be undone.",
-    )
+    assert request.status == ""
+    assert request.body == ("Cannot be undone. Subagent threads will also be deleted.",)
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert request.selected == 0
     assert request.description_layout is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
     assert [(option.value, option.label, option.detail) for option in request.options] == [
-        (False, "No, don't delete", "Return to the current session"),
-        (True, "Yes, delete and exit", "Delete this session and its children"),
+        (False, "No, keep this session", "Return to the current session"),
+        (True, "Yes, delete and exit", "Permanently delete this session now"),
     ]
 
 
@@ -1099,7 +1094,7 @@ async def test_delete_command_submits_once_and_exits_after_complete(monkeypatch)
     )
     dispatcher = TuiCommandDispatcher(
         host,
-        SimpleNamespace(),
+        SimpleNamespace(begin_operation_status=AsyncMock()),
         SimpleNamespace(),
         foreground,
     )
@@ -1108,7 +1103,8 @@ async def test_delete_command_submits_once_and_exits_after_complete(monkeypatch)
 
     assert action is DispatchAction.EXIT
     delete_current.assert_awaited_once()
-    assert delete_current.await_args.args[0].startswith("delete_")
+    assert delete_current.await_args.args[:2] == ("cid-delete", "sid-delete")
+    assert delete_current.await_args.args[2].startswith("delete_")
     lifecycle.request_stop.assert_called_once_with()
 
 
@@ -1151,6 +1147,7 @@ async def test_delete_command_rechecks_identity_after_confirmation(monkeypatch) 
 
     assert action is DispatchAction.HANDLED
     delete_current.assert_not_awaited()
+
     output_text = "".join(
         text
         for view in views
@@ -1158,6 +1155,47 @@ async def test_delete_command_rechecks_identity_after_confirmation(monkeypatch) 
         for _style, text in view.renderable.fragments
     )
     assert "session changed while confirmation was open" in output_text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("value", ("/delete wrong", "/delete recover", "/delete recover bad/id", "/delete recover id extra"))
+async def test_delete_recovery_rejects_invalid_arguments_without_requests(value) -> None:
+    host = SimpleNamespace(frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())))
+    foreground = SimpleNamespace(start=Mock())
+    dispatcher = TuiCommandDispatcher(host, SimpleNamespace(), SimpleNamespace(), foreground)
+    assert await dispatcher.dispatch(value) is DispatchAction.HANDLED
+    foreground.start.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("retired", (True, False))
+async def test_delete_recovery_uses_saved_request_and_only_exits_retired_current(retired) -> None:
+    conversation = SimpleNamespace(
+        recover_delete=AsyncMock(return_value=SessionDeletionResult("deleted", request_id="delete_saved", remote_deleted=True)),
+        delete_session=AsyncMock(), session_retired=retired,
+    )
+    host = SimpleNamespace(
+        conversation=conversation, lifecycle=SimpleNamespace(request_stop=Mock()),
+        frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())),
+    )
+    callbacks, factories = [], []
+
+    async def wait():
+        callbacks[0](await factories[0]())
+
+    foreground = SimpleNamespace(
+        start=Mock(side_effect=lambda _name, factory, **kwargs: (
+            factories.append(factory), callbacks.append(kwargs["on_succeeded"]),
+        )), wait=wait,
+    )
+    dispatcher = TuiCommandDispatcher(
+        host, SimpleNamespace(begin_operation_status=AsyncMock()), SimpleNamespace(), foreground,
+    )
+    action = await dispatcher.dispatch("/delete recover delete_saved")
+    assert action is (DispatchAction.EXIT if retired else DispatchAction.HANDLED)
+    conversation.recover_delete.assert_awaited_once_with("delete_saved")
+    conversation.delete_session.assert_not_awaited()
+    assert host.lifecycle.request_stop.call_count == int(retired)
 
 
 @pytest.mark.anyio

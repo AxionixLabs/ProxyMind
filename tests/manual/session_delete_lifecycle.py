@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 from agent.adapters.protocol.session_deletion import ProtocolSessionDeletionAdapter
 from agent.ports.session_deletion import (
+    LocalDeletionRecord,
     RemoteDeletionRequest,
     RemoteDeletionTarget,
     SessionDeletionRemoteError,
@@ -147,6 +148,21 @@ class _MemoryStore:
 
     def pending(self):
         return tuple(self.pending_plans)
+
+    def lookup(self, request_id):
+        for plan in self.pending_plans + self.deleted:
+            if plan.request_id == request_id:
+                return LocalDeletionRecord(plan, plan in self.deleted)
+        return None
+
+    def for_session(self, cid, sid):
+        for plan in self.pending_plans + self.deleted:
+            if any((target.cid, target.sid) == (cid, sid) for target in plan.targets):
+                return LocalDeletionRecord(plan, plan in self.deleted)
+        return None
+
+    def rejected(self, plan):
+        self.pending_plans.remove(plan)
 
 
 def _request() -> RemoteDeletionRequest:

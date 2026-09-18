@@ -168,26 +168,21 @@ async def confirm_delete_session(
     """显示当前会话删除确认菜单并返回用户是否确认。"""
     selected = await runtime.select_menu(MenuRequest(
         title="Delete this session?",
-        status="Delete the current session and exit.",
-        body=(
-            f"Permanently delete this session and all child sessions, "
-            f"then exit {const.APP_DESC}",
-            f"Session: {cid}/{sid}",
-            "This action cannot be undone.",
-        ),
-        view_id="conversation:delete-confirm",
+        body=("Cannot be undone. Subagent threads will also be deleted.",),
+        body_wrap=True,
+        view_id=f"conversation:delete-confirm:{cid}:{sid}",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
         description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=(
             MenuOption(
                 value=False,
-                label="No, don't delete",
+                label="No, keep this session",
                 detail="Return to the current session",
             ),
             MenuOption(
                 value=True,
                 label="Yes, delete and exit",
-                detail="Delete this session and its children",
+                detail="Permanently delete this session now",
             ),
         ),
         selected=0,

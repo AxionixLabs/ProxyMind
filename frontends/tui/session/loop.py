@@ -452,10 +452,10 @@ async def run_tui_loop(
     )
     if callable(bind_runtime_close) and durable_runtime:
         bind_runtime_close(
-            lambda sid: turn_application.retire_session(
+            lambda cid, sid: turn_application.retire_session(
                 derive_local_session_id(
                     "tui",
-                    {"cid": conversation.cid, "sid": sid},
+                    {"cid": cid, "sid": sid},
                 )
             )
         )

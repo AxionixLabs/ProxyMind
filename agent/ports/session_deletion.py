@@ -17,10 +17,19 @@ class LocalDeletionTarget:
 
 @dataclass(frozen=True, slots=True)
 class LocalDeletionPlan:
-    """保存清理期间不可改变的目标集合；调用方负责先确认远端删除和关闭运行资源。"""
+    """在发送前保存不可变根身份与目标集合，调用方确认远端并关闭资源后才执行清理。"""
 
     request_id: str
     targets: tuple[LocalDeletionTarget, ...]
+    root: LocalDeletionTarget
+
+
+@dataclass(frozen=True, slots=True)
+class LocalDeletionRecord:
+    """保存原始删除范围及本地完成事实，恢复方不能用排序或当前会话推断根身份。"""
+
+    plan: LocalDeletionPlan
+    complete: bool
 
 
 class SessionDeletionConflict(ValueError):
@@ -105,6 +114,7 @@ class SessionDeletionResult:
     ]
     request_id: str = ""
     code: str = ""
+    remote_deleted: bool = False
 
     @property
     def complete(self) -> bool:
@@ -146,7 +156,19 @@ class SessionDeletionStore(typing.Protocol):
         ...
 
     def prepare(self, plan: LocalDeletionPlan) -> None:
-        """先持久化待完成计划，供远端未知结果后的恢复查询使用。"""
+        """首次网络请求前原子登记计划，拒绝与其他请求重叠的目标。"""
+        ...
+
+    def rejected(self, plan: LocalDeletionPlan) -> None:
+        """仅在首次提交明确被拒绝后释放原计划，不能用于查询失败或未知结果。"""
+        ...
+
+    def lookup(self, request_id: str) -> LocalDeletionRecord | None:
+        """读取原始计划及本地完成事实；实现方校验存储位置和身份。"""
+        ...
+
+    def for_session(self, cid: str, sid: str) -> LocalDeletionRecord | None:
+        """读取包含指定身份的原始意图，跨进程调用不得创建新的删除身份。"""
         ...
 
     def pending(self) -> tuple[LocalDeletionPlan, ...]:

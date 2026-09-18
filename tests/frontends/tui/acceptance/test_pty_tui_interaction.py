@@ -1029,12 +1029,7 @@ def test_delete_confirmation_matches_native_tty_menu_layout_and_keys(
     with _spawn_tui(scenario, facts_path, size=size, terminal=terminal) as pty:
         _wait_for_tui_ready(pty, scenario)
         pty.wait_for_screen_text("Delete this session?")
-        pty.wait_for_screen_text(
-            "Permanently delete this session"
-            if size.columns >= 44
-            else "Permanently delete this sessio",
-        )
-        pty.wait_for_screen_text("This action cannot be undone.")
+        pty.wait_for_screen_text("Cannot be undone.")
         _wait_for_stage(facts_path, "delete_menu_open")
         pty.write_user(b"\x1b[B")
         _wait_for_stage(facts_path, "delete_menu_moved")

@@ -57,6 +57,8 @@ class SessionLifecycleGateway:
 
         async with self._lock:
             if lifecycle_id == self._ended_lifecycle_id:
+                if normalized_reason == "deleted":
+                    await self._cleanup_session(context.session_id)
                 return False
 
             try:
@@ -91,16 +93,18 @@ class SessionLifecycleGateway:
                     reason=normalized_reason,
                 )
             finally:
+                self._ended_lifecycle_id = lifecycle_id
                 try:
                     await self._cleanup_session(context.session_id)
                 except Exception as error:
+                    if normalized_reason == "deleted":
+                        raise
                     observe_exception(
                         "hooks.session_cleanup.failed",
                         error,
                         level="WARNING",
                         session_id=context.session_id,
                     )
-                self._ended_lifecycle_id = lifecycle_id
 
             observe(
                 "session.ended",

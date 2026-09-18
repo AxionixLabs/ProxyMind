@@ -249,7 +249,7 @@ class RootConversationPort(typing.Protocol):
         """结束当前根会话生命周期。"""
         ...
 
-    def bind_session_runtime_close(self, callback: typing.Callable[[str], typing.Awaitable[None]]) -> None:
+    def bind_session_runtime_close(self, callback: typing.Callable[[str, str], typing.Awaitable[None]]) -> None:
         """绑定前端 Turn owner 的永久会话封锁回调。"""
         ...
 

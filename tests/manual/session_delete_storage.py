@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,7 +41,7 @@ def load_fixture(directory: Path):
     """读取本轮独立目录中的冻结目标和对照身份。"""
     data = json.loads((directory / "fixture.json").read_text(encoding="utf-8"))
     targets = tuple(LocalDeletionTarget(row["cid"], row["sid"], ()) for row in data["targets"])
-    return LocalDeletionPlan(data["request_id"], targets), data
+    return LocalDeletionPlan(data["request_id"], targets, targets[0]), data
 
 
 def child(mode: str, directory: Path) -> None:
@@ -49,7 +50,27 @@ def child(mode: str, directory: Path) -> None:
     owner = plan.targets[0]
     backend = store(directory, owner)
     transcripts = ConversationTranscriptStore(directory / "sessions")
-    if mode == "hold":
+    if mode == "claim":
+        emit("claim-ready")
+        request_id = sys.stdin.readline().strip()
+        candidate = replace(plan, request_id=request_id)
+        try:
+            backend.prepare(candidate)
+        except SessionDeletionConflict:
+            emit("claim-rejected", request_id=request_id)
+        else:
+            emit("claim-accepted", request_id=request_id)
+    elif mode == "concurrent-retry":
+        saved = backend.pending()[0]
+        emit("recovery-ready")
+        assert sys.stdin.readline().strip() == "recover"
+        try:
+            backend.delete(saved)
+        except OSError:
+            emit("recovery-contended", request_id=saved.request_id)
+        else:
+            emit("recovery-completed", request_id=saved.request_id)
+    elif mode == "hold":
         path = transcripts.existing_path_for_session(owner.sid)
         writer = transcripts.writer(path, session_id=owner.sid)
         writer.open()
@@ -101,6 +122,8 @@ def child(mode: str, directory: Path) -> None:
                 return
         raise AssertionError("competing writer never observed the deletion fence")
     elif mode == "late":
+        checkpoint = backend.graphs.load(owner.sid)
+        assert checkpoint is not None
         old = sqlite3.connect(directory / "history.db")
         row = old.execute("SELECT * FROM conversation_session_cursors WHERE cid = ? AND sid = ?",
                           (owner.cid, owner.sid)).fetchone()
@@ -123,6 +146,10 @@ def child(mode: str, directory: Path) -> None:
         finally:
             old.close()
         operations = {
+            "queued-agent-snapshot": lambda: backend.graphs.save(checkpoint),
+            "pending-fork": lambda: backend.history.get_or_create_fork_request(
+                cid=owner.cid, sid=owner.sid, request_id="fork_late_process",
+            ),
             "effect": lambda: asyncio.run(backend.effects.begin(effect(owner, suffix="_late"))),
             "tool-result": lambda: asyncio.run(backend.effects.save_tool_result(owner.cid, owner.sid, "late", {}, {})),
             "approval": lambda: asyncio.run(backend.approvals.record_requested(approval(owner))),
@@ -136,10 +163,11 @@ def child(mode: str, directory: Path) -> None:
             else:
                 raise AssertionError(f"{name} resurrected a deleted session")
         writer.open()
-        writer.append("late-write")
+        writer.append("hook.completed", payload={"late": True})
+        writer.append("session.ended", payload={"reason": "exit"})
         writer.close()
         assert not Path(path).exists()
-        assert len(rejected) == 5
+        assert len(rejected) == 7
         emit("late-writes-rejected", rejected=rejected, transcript_absent=True)
     elif mode == "verify":
         actual = rows(directory)
@@ -240,6 +268,52 @@ def scenario(directory: Path, *, interrupted: bool):
     return evidence
 
 
+def claims_scenario(directory: Path):
+    """验证两个独立进程只有一个删除身份获准，并可并发恢复同一计划。"""
+    directory.mkdir(parents=True, exist_ok=False)
+    plan, control = seeded(directory)
+    (directory / "fixture.json").write_text(json.dumps({
+        "request_id": plan.request_id,
+        "targets": [{"cid": target.cid, "sid": target.sid} for target in plan.targets],
+        "control": {"cid": control.cid, "sid": control.sid}, "before": rows(directory),
+    }), encoding="utf-8")
+    (directory / "config.toml").write_text("shared_configuration = true\n", encoding="utf-8")
+    evidence = []
+    processes = []
+    try:
+        for _ in range(2):
+            process = start("claim", directory)
+            processes.append(process)
+            evidence.append(ready(process))
+        for index, process in enumerate(processes):
+            assert process.stdin is not None
+            process.stdin.write(f"delete_claim_{index}\n")
+            process.stdin.flush()
+        for process in processes:
+            evidence.extend(finish(process))
+        assert [item["event"] for item in evidence].count("claim-accepted") == 1
+        assert [item["event"] for item in evidence].count("claim-rejected") == 1
+        assert len(store(directory, plan.root).pending()) == 1
+        recoveries = [start("concurrent-retry", directory) for _ in range(2)]
+        processes.extend(recoveries)
+        for process in recoveries:
+            evidence.append(ready(process))
+        for process in recoveries:
+            assert process.stdin is not None
+            process.stdin.write("recover\n")
+            process.stdin.flush()
+        for process in recoveries:
+            evidence.extend(finish(process))
+        assert any(item["event"] == "recovery-completed" for item in evidence)
+        evidence.extend(finish(start("verify", directory)))
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+    return evidence
+
+
 def main() -> None:
     """保存本轮独立进程、退出码与真实存储断言的验收报告。"""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -253,7 +327,8 @@ def main() -> None:
     directory.mkdir(parents=True, exist_ok=True)
     report = {"platform": sys.platform, "python": sys.version, "source": True,
               "concurrency": scenario(directory / "concurrency", interrupted=False),
-              "crash_recovery": scenario(directory / "crash-recovery", interrupted=True)}
+              "crash_recovery": scenario(directory / "crash-recovery", interrupted=True),
+              "claims_recovery": claims_scenario(directory / "claims-recovery")}
     (directory / "acceptance.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({"passed": True, "report": str(directory / "acceptance.json")}))
 

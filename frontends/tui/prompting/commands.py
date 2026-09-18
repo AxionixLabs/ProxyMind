@@ -114,6 +114,8 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
     ),
     TuiCommandSpec(
         "delete", "/delete", "Delete and exit",
+        accepts_arguments=True,
+        surface_on_bare=True,
     ),
     TuiCommandSpec(
         "fork", "/fork", "Fork conversation",

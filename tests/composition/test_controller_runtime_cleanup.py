@@ -612,8 +612,8 @@ async def test_root_session_archive_migrates_then_ends_current_session() -> None
         turn_count=1,
     ))
     events = []
-    session.end = AsyncMock(
-        side_effect=lambda **_kwargs: events.append("end")
+    resources.lifecycle.end = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: events.append("end")
     )
     resources.store.archive_session.side_effect = lambda **_kwargs: (
         events.append("archive")
@@ -628,7 +628,8 @@ async def test_root_session_archive_migrates_then_ends_current_session() -> None
 
     assert result["status"] == "archived"
     assert events == ["archive", "end"]
-    session.end.assert_awaited_once_with(reason="archive")
+    assert resources.lifecycle.end.await_count == 1
+    assert resources.lifecycle.end.call_args.kwargs["reason"] == "archive"
     resources.store.archive_session.assert_called_once_with(
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
@@ -642,7 +643,7 @@ async def test_root_session_archive_rolls_back_when_lifecycle_end_fails() -> Non
         sid="sid_test_1_abcdef",
         turn_count=1,
     ))
-    session.end = AsyncMock(
+    resources.lifecycle.end = AsyncMock(
         side_effect=RuntimeError("end failed")
     )
 
@@ -663,12 +664,12 @@ async def test_root_session_archive_rolls_back_when_lifecycle_end_fails() -> Non
 async def test_root_session_archive_rejects_unstarted_session() -> None:
     session, resources = _root_session()
     session.snapshot()
-    session.end = AsyncMock()
+    resources.lifecycle.end = AsyncMock()
 
     with pytest.raises(LookupError, match="session is not started"):
         await session.archive_current()
 
-    session.end.assert_not_awaited()
+    resources.lifecycle.end.assert_not_awaited()
     resources.store.archive_session.assert_not_called()
 
 
@@ -678,7 +679,7 @@ async def test_root_session_archive_allows_resumed_without_local_turn() -> None:
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
     ))
-    session.end = AsyncMock()
+    resources.lifecycle.end = AsyncMock()
     resources.store.archive_session.return_value = {
         "cid": "cid_test_12345678",
         "sid": "sid_test_1_abcdef",
@@ -692,7 +693,8 @@ async def test_root_session_archive_allows_resumed_without_local_turn() -> None:
         cid="cid_test_12345678",
         sid="sid_test_1_abcdef",
     )
-    session.end.assert_awaited_once_with(reason="archive")
+    assert resources.lifecycle.end.await_count == 1
+    assert resources.lifecycle.end.call_args.kwargs["reason"] == "archive"
 
 
 @pytest.mark.anyio
