@@ -8,13 +8,17 @@ from unittest.mock import (
 import httpx
 import pytest
 
-from protocol.client import review
+from protocol.client import (
+    chat,
+    review,
+)
 from protocol.schema.review import (
     ClientReviewWorkspace,
     MindReviewRequest,
     ReviewCustomTarget,
     ReviewExecutionOptions,
 )
+from protocol.schema.stream_events import ContextUsageUpdatedEvent
 
 CID = "cid_demo_12345678"
 SID = "sid_demo_x_abcdef"
@@ -250,3 +254,70 @@ async def test_submit_review_rejects_unknown_receipt_fields(monkeypatch) -> None
 
     with pytest.raises(review.ReviewRequestError, match="invalid response"):
         await review.submit_review(_request())
+
+
+@pytest.mark.anyio
+async def test_failed_inline_review_confirms_session_usage_before_terminal(monkeypatch) -> None:
+    request = _request()
+    common = {"proto": "mind.chat", "cid": CID, "sid": SID, "turn_id": TURN_ID, "presentation_epoch": 1}
+    item = {"item_id": "review_item", "review_item_id": "review_item", "item_kind": "review"}
+    total = {
+        "total_tokens": 570, "input_tokens": 500, "cached_input_tokens": 350,
+        "cache_write_input_tokens": 50, "output_tokens": 70, "reasoning_output_tokens": 60,
+        "reported_calls": 1, "unreported_calls": 0,
+    }
+    snapshot = {
+        "model_context_window": None, "last_token_usage": None,
+        "usage_source": "unknown", "model": "test-model", "route": "responses",
+    }
+    usage = {**common, "type": "context.usage.updated", "turn_id": ""}
+
+    async def payloads(*_args, **_kwargs):
+        yield {
+            **common, **item, "type": "review.started", "event_seq": 1,
+            "status": "in_progress", "item_status": "in_progress",
+            "target": request.target.request_payload(), "workspace_revision": request.workspace.revision,
+            "prompt_version": "mind-review/1",
+        }
+        yield {**usage, "event_seq": 2, "context_usage": {
+            **snapshot, "total_token_usage": {**dict.fromkeys(total, 0), "unreported_calls": 1},
+        }}
+        reported = {**usage, "event_seq": 3, "context_usage": {**snapshot, "total_token_usage": total}}
+        yield reported
+        yield reported
+        yield {
+            **common, **item, "type": "review.failed", "event_seq": 4,
+            "status": "failed", "item_status": "failed", "error": "review failed",
+        }
+        yield {
+            **common, "type": "turn.completed", "event_seq": 5, "last_event_seq": 5,
+            "status": "failed", "error": "review failed", "completed_at": 1.0, "duration_ms": 10,
+        }
+
+    attach = Mock(side_effect=payloads)
+    status = AsyncMock()
+    monkeypatch.setattr(review, "post_json_reliably", AsyncMock(return_value=_response()))
+    monkeypatch.setattr(chat, "streaming", attach)
+    monkeypatch.setattr(chat, "get_turn_status", status)
+    monkeypatch.setattr(chat, "build_service_headers", lambda: {})
+    monkeypatch.setattr(chat.service_endpoints, "endpoint", lambda path: f"https://example.com{path}")
+
+    submission = await review.submit_review(request)
+    events = [event async for event in submission.events]
+    assert [event.type for event in events] == [
+        "review.started", "context.usage.updated", "context.usage.updated", "review.failed", "turn.completed",
+    ]
+    usage_events = [event for event in events if isinstance(event, ContextUsageUpdatedEvent)]
+    started, finished = usage_events
+    assert started.snapshot.total_token_usage is not None
+    assert started.snapshot.total_token_usage.unreported_calls == 1
+    assert finished.turn_id == ""
+    assert finished.snapshot.last_token_usage is None
+    assert finished.snapshot.total_token_usage is not None
+    assert finished.snapshot.total_token_usage.total_tokens == 570
+    assert finished.snapshot.total_token_usage.cached_input_tokens == 350
+    assert finished.snapshot.total_token_usage.is_complete
+    assert submission.events.last_event_seq == 5
+    assert submission.events.end_reason == "settled"
+    attach.assert_called_once()
+    status.assert_not_awaited()
