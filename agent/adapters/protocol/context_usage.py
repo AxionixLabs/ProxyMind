@@ -27,7 +27,8 @@ def context_usage_record(event: ContextUsageUpdatedEvent) -> ContextUsageRecord:
         ),
         total_tokens=(
             snapshot.total_token_usage.total_tokens
-            if snapshot.total_token_usage is not None else None
+            if snapshot.total_token_usage is not None and snapshot.total_token_usage.is_complete
+            else None
         ),
         usage_source=snapshot.usage_source,
         model=snapshot.model,

@@ -141,7 +141,12 @@ async def test_context_usage_shares_stream_identity_and_confirmation_cursor(monk
             "context_usage": {
                 "model_context_window": 100_000,
                 "last_token_usage": {"total_tokens": 20_000},
-                "total_token_usage": {"total_tokens": 250_000},
+                "total_token_usage": {
+                    "total_tokens": 250_000, "input_tokens": 240_000,
+                    "cached_input_tokens": 180_000, "cache_write_input_tokens": 0,
+                    "output_tokens": 10_000, "reasoning_output_tokens": 0,
+                    "reported_calls": 3, "unreported_calls": 0,
+                },
                 "usage_source": "provider", "model": "test-model", "route": "responses",
             },
         }

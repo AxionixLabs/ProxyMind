@@ -1,0 +1,53 @@
+{
+  "complete": {
+    "total_tokens": 17677,
+    "input_tokens": 17663,
+    "cached_input_tokens": 14976,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 14,
+    "reasoning_output_tokens": 4,
+    "reported_calls": 2,
+    "unreported_calls": 0
+  },
+  "zero": {
+    "total_tokens": 0,
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_output_tokens": 0,
+    "reported_calls": 1,
+    "unreported_calls": 0
+  },
+  "unknown": null,
+  "partial_details": {
+    "total_tokens": 17677,
+    "input_tokens": 17663,
+    "cached_input_tokens": null,
+    "cache_write_input_tokens": null,
+    "output_tokens": 14,
+    "reasoning_output_tokens": null,
+    "reported_calls": 2,
+    "unreported_calls": 0
+  },
+  "partial_calls": {
+    "total_tokens": 17677,
+    "input_tokens": 17663,
+    "cached_input_tokens": 14976,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 14,
+    "reasoning_output_tokens": 4,
+    "reported_calls": 2,
+    "unreported_calls": 1
+  },
+  "total_only": {
+    "total_tokens": 30,
+    "input_tokens": null,
+    "cached_input_tokens": null,
+    "cache_write_input_tokens": null,
+    "output_tokens": null,
+    "reasoning_output_tokens": null,
+    "reported_calls": 1,
+    "unreported_calls": 0
+  }
+}

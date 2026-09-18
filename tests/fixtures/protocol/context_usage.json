@@ -10,7 +10,16 @@
     "context_usage": {
       "model_context_window": 100000,
       "last_token_usage": {"total_tokens": 20000},
-      "total_token_usage": {"total_tokens": 250000},
+      "total_token_usage": {
+        "total_tokens": 250000,
+        "input_tokens": 240000,
+        "cached_input_tokens": 180000,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 10000,
+        "reasoning_output_tokens": 0,
+        "reported_calls": 3,
+        "unreported_calls": 0
+      },
       "usage_source": "provider",
       "model": "test-model",
       "route": "responses"

@@ -78,6 +78,8 @@ def test_context_usage_rejects_invalid_counter_structure(payload, field, value) 
     {"usage_source": None},
     {"model": None},
     {"route": ""},
+    {"route": "unsupported"},
+    {"model": "   "},
     {"display": {"text": "must not render"}},
     {"item_id": "unexpected"},
     {"usage": {"total_tokens": 10}},
@@ -117,3 +119,16 @@ def test_session_usage_preserves_empty_turn_and_rejects_flat_fields(payload) -> 
         parse_stream_event({**payload, **payload["context_usage"]})
     with pytest.raises(ValueError):
         parse_stream_event({**payload, "context_usage": None})
+
+
+@pytest.mark.parametrize("changes", [
+    {"unreported_calls": 1}, {"cached_input_tokens": None},
+])
+def test_partial_cumulative_usage_cannot_become_a_complete_local_total(payload, changes):
+    payload["context_usage"]["total_token_usage"].update(changes)
+    event = parse_stream_event(payload)
+    assert isinstance(event, ContextUsageUpdatedEvent)
+    assert event.snapshot.total_token_usage.total_tokens == 250_000
+    record = context_usage_record(event)
+    assert record.total_tokens is None
+    assert context_remaining_percent(record) == 91
