@@ -12,6 +12,7 @@ from dataclasses import (
 from pathlib import Path
 
 from agent.ports import ProtocolCommandClient
+from agent.ports.session_deletion import SessionDeletionResult
 from agent.ports.presentation import (
     ApplicationView,
     StyledBlock,
@@ -26,6 +27,7 @@ from infrastructure.config.store import ConfigStoreError
 from infrastructure.platform.file_assist import FileAssist
 from infrastructure.platform.git_review import WorkspaceReviewGitService
 from infrastructure.services.runtime_setup import service_runtime_asset_missing
+from protocol.schema.identifiers import new_request_id
 from .barriers import TuiForegroundTasks
 from .state import TuiSessionState
 from frontends.tui.features.resume import resume_history_session
@@ -48,6 +50,7 @@ from ..features.conversation import (
     ForkLiveStatus,
     compact_current_conversation,
     confirm_archive_session,
+    confirm_delete_session,
     copy_last_assistant_reply,
     copy_whole_assistant_reply,
     fork_current_conversation,
@@ -1169,6 +1172,9 @@ class TuiCommandDispatcher(object):
             self.host.lifecycle.request_stop()
             return DispatchAction.EXIT
 
+        if matches_command(command, "delete"):
+            return await self._delete_current_session()
+
         new_command = resolve_tui_command(command)
         if new_command is not None and new_command.key == "new":
             parts = prompt_text.strip().split(maxsplit=1)
@@ -1409,6 +1415,100 @@ class TuiCommandDispatcher(object):
             return DispatchAction.HANDLED
 
         return DispatchAction.MODEL_TURN
+
+    async def _delete_current_session(self) -> DispatchAction:
+        """确认并执行当前会话删除，等待前台清理完整收束。"""
+        conversation = self.host.conversation
+        target = (
+            str(conversation.cid or "").strip(),
+            str(conversation.sid or "").strip(),
+        )
+        if not all(target):
+            self._present(failure_text_block(
+                "No active session is available to delete.",
+            ))
+            self._present()
+            return DispatchAction.HANDLED
+
+        if not await confirm_delete_session(
+            self.runtime,
+            cid=target[0],
+            sid=target[1],
+        ):
+            return DispatchAction.HANDLED
+
+        current_target = (
+            str(conversation.cid or "").strip(),
+            str(conversation.sid or "").strip(),
+        )
+        if current_target != target:
+            self._present(failure_text_block(
+                "The session changed while confirmation was open; "
+                "nothing was deleted.",
+            ))
+            self._present()
+            return DispatchAction.HANDLED
+
+        request_id = new_request_id("delete")
+        results: list[SessionDeletionResult] = []
+
+        def finish(result: SessionDeletionResult) -> None:
+            """呈现删除终态并在完整成功时退出。"""
+            results.append(result)
+            if result.status == "deleted":
+                self.host.lifecycle.request_stop()
+                return None
+            if result.status == "rejected":
+                message = (
+                    "The server rejected session deletion"
+                    f" ({result.code or 'unknown reason'})."
+                )
+            elif result.status == "unknown":
+                message = (
+                    "Deletion outcome is unknown. Keep request "
+                    f"{result.request_id or request_id} for recovery; "
+                    "do not retry with a new request yet."
+                )
+            elif result.status == "local_failed":
+                message = (
+                    "The server deleted the session, but local cleanup "
+                    "did not finish. Restart to retry cleanup for request "
+                    f"{result.request_id or request_id}."
+                )
+            elif result.status == "new_unbound":
+                message = "No active session is available to delete."
+            elif result.status == "not_current":
+                message = "The selected session is no longer the current session."
+            elif result.status == "already_deleted":
+                message = (
+                    "This session was already marked deleted; local cleanup "
+                    "still needs recovery."
+                )
+            else:
+                message = (
+                    "Session deletion did not complete"
+                    f" ({result.code or result.status})."
+                )
+            self._present(failure_text_block(message))
+            self._present()
+
+        self.foreground_tasks.start(
+            "Delete session",
+            lambda: conversation.delete_current(request_id),
+            activity_kind="operation",
+            on_succeeded=finish,
+            on_failed=lambda error: self._present(failure_text_block(
+                f"Failed to delete current session: {error}",
+            )),
+            on_cancelled=lambda: self._present(failure_text_block(
+                "Deletion was interrupted; the remote outcome is unknown. "
+                f"Keep request {request_id} for recovery.",
+            )),
+        )
+        await self.foreground_tasks.wait()
+        if results and results[-1].status == "deleted":
+            return DispatchAction.EXIT
+        return DispatchAction.HANDLED
 
 
 async def _run_immediate_stream_action(callback: typing.Callable[[], None]) -> None:

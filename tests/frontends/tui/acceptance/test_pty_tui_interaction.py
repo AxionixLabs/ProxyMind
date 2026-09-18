@@ -12,6 +12,7 @@ from agent.protocol.json_value import freeze_json
 from agent.protocol.json_value import thaw_object
 from tests.pty import PtyKey
 from tests.pty import TerminalHarness
+from tests.pty import TerminalEnvironment
 from tests.pty import TerminalMode
 from tests.pty import TerminalSize
 from tests.pty import spawn_terminal
@@ -20,7 +21,13 @@ from tests.pty import spawn_terminal
 pytestmark = pytest.mark.pty_acceptance
 
 
-def _spawn_tui(scenario: str, facts_path: Path):
+def _spawn_tui(
+    scenario: str,
+    facts_path: Path,
+    *,
+    size: TerminalSize = TerminalSize(rows=24, columns=100),
+    terminal: TerminalEnvironment = TerminalEnvironment(),
+):
     """在真实 PTY 中启动产品 TUI 测试场景。"""
     return spawn_terminal(
         [
@@ -32,7 +39,8 @@ def _spawn_tui(scenario: str, facts_path: Path):
         ],
         cwd=Path.cwd(),
         env=os.environ,
-        size=TerminalSize(rows=24, columns=100),
+        size=size,
+        terminal=terminal,
         failure_artifact_directory=facts_path.parent / "artifacts",
     )
 
@@ -983,6 +991,96 @@ def test_menu_navigation_is_modal_and_preserves_composer(
     assert details["draft_after_menu"] == "draft remains"
     assert details.get("menu_query", "jk") == "jk"
     assert _submissions(facts) == []
+
+
+@pytest.mark.parametrize(
+    ("size", "terminal"),
+    (
+        pytest.param(
+            TerminalSize(rows=28, columns=80),
+            TerminalEnvironment(),
+            id="80x28",
+        ),
+        pytest.param(
+            TerminalSize(rows=22, columns=44),
+            TerminalEnvironment(),
+            id="44x22",
+        ),
+        pytest.param(
+            TerminalSize(rows=18, columns=36),
+            TerminalEnvironment(),
+            id="36x18",
+        ),
+        pytest.param(
+            TerminalSize(rows=28, columns=80),
+            TerminalEnvironment(no_color=True),
+            id="80x28-no-color",
+        ),
+    ),
+)
+def test_delete_confirmation_matches_native_tty_menu_layout_and_keys(
+    tmp_path: Path,
+    size: TerminalSize,
+    terminal: TerminalEnvironment,
+) -> None:
+    """验证删除菜单在真实 TTY 中对齐、默认取消并消费方向键与 Enter。"""
+    facts_path = tmp_path / "facts.json"
+    scenario = "delete_confirmation"
+    with _spawn_tui(scenario, facts_path, size=size, terminal=terminal) as pty:
+        _wait_for_tui_ready(pty, scenario)
+        pty.wait_for_screen_text("Delete this session?")
+        pty.wait_for_screen_text(
+            "Permanently delete this session"
+            if size.columns >= 44
+            else "Permanently delete this sessio",
+        )
+        pty.wait_for_screen_text("This action cannot be undone.")
+        _wait_for_stage(facts_path, "delete_menu_open")
+        pty.write_user(b"\x1b[B")
+        _wait_for_stage(facts_path, "delete_menu_moved")
+        pty.send_key(PtyKey.ENTER)
+        _wait_for_stage(facts_path, "delete_menu_consumed")
+        facts_path.with_suffix(".ack").write_text(
+            "delete-menu-observed",
+            encoding="ascii",
+        )
+
+        assert pty.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    details = _details(facts)
+    assert details["delete_confirmed"] is True
+
+
+@pytest.mark.parametrize(
+    ("scenario", "key"),
+    (
+        ("delete_confirmation_escape", PtyKey.ESCAPE),
+        ("delete_confirmation_ctrl_c", PtyKey.CTRL_C),
+    ),
+)
+def test_delete_confirmation_cancel_keys_keep_session_open(
+    tmp_path: Path,
+    scenario: str,
+    key: PtyKey,
+) -> None:
+    """验证删除菜单的 Esc 和 Ctrl+C 都取消确认且不形成删除决定。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(scenario, facts_path) as pty:
+        _wait_for_tui_ready(pty, scenario)
+        pty.wait_for_screen_text("Delete this session?")
+        _wait_for_stage(facts_path, "delete_menu_open")
+        pty.send_key(key)
+        _wait_for_stage(facts_path, "delete_menu_consumed")
+        facts_path.with_suffix(".ack").write_text(
+            "delete-menu-cancel-observed",
+            encoding="ascii",
+        )
+
+        assert pty.wait_for_exit(timeout=10.0) == 0
+        facts = _read_facts(facts_path)
+
+    assert _details(facts)["delete_confirmed"] is False
 
 
 def test_export_filename_has_real_cursor_and_submits_edited_value(

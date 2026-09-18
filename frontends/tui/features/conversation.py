@@ -159,6 +159,42 @@ async def confirm_archive_session(runtime: "MenuSelectionPort") -> bool:
     return selected is True
 
 
+async def confirm_delete_session(
+    runtime: "MenuSelectionPort",
+    *,
+    cid: str,
+    sid: str,
+) -> bool:
+    """显示当前会话删除确认菜单并返回用户是否确认。"""
+    selected = await runtime.select_menu(MenuRequest(
+        title="Delete this session?",
+        status="Delete the current session and exit.",
+        body=(
+            f"Permanently delete this session and all child sessions, "
+            f"then exit {const.APP_DESC}",
+            f"Session: {cid}/{sid}",
+            "This action cannot be undone.",
+        ),
+        view_id="conversation:delete-confirm",
+        footer_hint=STANDARD_MENU_FOOTER_HINT,
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=(
+            MenuOption(
+                value=False,
+                label="No, don't delete",
+                detail="Return to the current session",
+            ),
+            MenuOption(
+                value=True,
+                label="Yes, delete and exit",
+                detail="Delete this session and its children",
+            ),
+        ),
+        selected=0,
+    ))
+    return selected is True
+
+
 class CompactLiveStatus:
     """记录上下文压缩的流式阶段状态。"""
 

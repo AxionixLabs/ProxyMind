@@ -317,6 +317,59 @@ async def test_archive_confirmation_renders_codex_text_and_spacing() -> None:
     await task
 
 
+@pytest.mark.anyio
+async def test_delete_confirmation_renders_warning_and_default_cancel() -> None:
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: 100,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Delete this session?",
+        body=(
+            f"Permanently delete this session and all child sessions, "
+            f"then exit {const.APP_DESC}",
+            "Session: cid-delete/sid-delete",
+            "This action cannot be undone.",
+        ),
+        footer_hint="Press enter to confirm or esc to go back",
+        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
+        options=(
+            MenuOption(
+                False,
+                "No, don't delete",
+                "Return to the current session",
+            ),
+            MenuOption(
+                True,
+                "Yes, delete and exit",
+                "Delete this session and its children",
+            ),
+        ),
+    )))
+    await asyncio.sleep(0)
+
+    assert [
+        line.rstrip()
+        for line in _fragments_text(menu.fragments()).splitlines()
+    ] == [
+        "  Delete this session?",
+        f"  Permanently delete this session and all child sessions, "
+        f"then exit {const.APP_DESC}",
+        "  Session: cid-delete/sid-delete",
+        "  This action cannot be undone.",
+        "",
+        "› 1. No, don't delete      Return to the current session",
+        "  2. Yes, delete and exit  Delete this session and its children",
+        "",
+        "  Press enter to confirm or esc to go back",
+    ]
+
+    menu.finish(None)
+    await task
+
+
 def test_menu_style_matches_codex_semantics_without_selected_row_background() -> None:
     title = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.title")
     status = TUI_MENU_STYLE.get_attrs_for_style_str("class:tui-menu.status")

@@ -38,6 +38,7 @@ from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.features.transcript_export import _filename_prompt
 from frontends.tui.features.model import next_model_reasoning_effort
+from frontends.tui.features.conversation import confirm_delete_session
 from frontends.tui.session.turn_input import TuiTurnInputControl
 from infrastructure.skills import SkillSpec
 from observability import reset_sinks
@@ -1323,6 +1324,47 @@ async def _run_menu_surface(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     await asyncio.gather(reader, return_exceptions=True)
 
 
+async def _run_delete_confirmation(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """在真实 TTY 中展示删除确认菜单并记录最终选择。"""
+    _ready(runtime, facts)
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    menu = asyncio.create_task(confirm_delete_session(
+        runtime,
+        cid="cid-delete-pty",
+        sid="sid-delete-pty",
+    ))
+    await _wait_until(
+        lambda: (
+            runtime.screen.menu.state is not None
+            and runtime.screen.application.layout.current_control
+            is runtime.screen.menu_control
+        ),
+        "delete confirmation menu",
+    )
+    facts.stage = "delete_menu_open"
+    facts.write()
+    if facts.scenario == "delete_confirmation":
+        await _wait_until(
+            lambda: runtime.screen.menu.selected_index() == 1,
+            "delete confirmation selection",
+        )
+        facts.stage = "delete_menu_moved"
+        facts.write()
+    result = await menu
+    facts.set_detail("delete_confirmed", bool(result))
+    facts.stage = "delete_menu_consumed"
+    facts.write()
+    acknowledgment = facts.path.with_suffix(".ack")
+    await _wait_until(
+        acknowledgment.exists,
+        "delete confirmation assertion acknowledgment",
+    )
+    reader.cancel()
+    await asyncio.gather(reader, return_exceptions=True)
+
+
 async def _run_export_filename(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """验证生产导出文件名表面的真实编辑和光标生命周期。"""
     _ready(runtime, facts)
@@ -1532,6 +1574,12 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_approval_surface(runtime, facts)
         elif scenario in {"menu_surface", "searchable_menu_surface"}:
             await _run_menu_surface(runtime, facts)
+        elif scenario in {
+            "delete_confirmation",
+            "delete_confirmation_escape",
+            "delete_confirmation_ctrl_c",
+        }:
+            await _run_delete_confirmation(runtime, facts)
         elif scenario == "export_filename":
             await _run_export_filename(runtime, facts)
         elif scenario == "transcript_pager":

@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import typing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import (
@@ -27,6 +28,7 @@ from agent.domain.transcripts import TranscriptEntry
 from agent.domain.policies import preset_permissions
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import ProtocolCommandClient
+from agent.ports.session_deletion import SessionDeletionResult
 from agent.protocol import AssistantReplySnapshot
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
@@ -46,6 +48,7 @@ from frontends.tui.features.transcript_export import TranscriptExporter
 from frontends.tui.features.skills import choose_skill
 from frontends.tui.features.conversation import ForkLiveStatus
 from frontends.tui.features.conversation import confirm_archive_session
+from frontends.tui.features.conversation import confirm_delete_session
 from frontends.tui.prompting.commands import (
     SlashCommandCompleter,
     canonical_command_label,
@@ -72,20 +75,28 @@ def TuiCommandDispatcher(*args, **kwargs) -> _TuiCommandDispatcher:
 
 def _conversation(
     *,
+    cid: str | None = None,
+    sid: str | None = None,
     reset: AsyncMock | None = None,
     archive_current: AsyncMock | None = None,
+    delete_current: AsyncMock | None = None,
     recent: Mock | None = None,
     read_transcript: Mock | None = None,
     resume: AsyncMock | None = None,
 ) -> SimpleNamespace:
     """构造 TUI 命令测试使用的根会话边界。"""
     return SimpleNamespace(
-        cid=None,
-        sid=None,
+        cid=cid,
+        sid=sid,
         reset=reset if reset is not None else AsyncMock(),
         archive_current=(
             archive_current
             if archive_current is not None
+            else AsyncMock()
+        ),
+        delete_current=(
+            delete_current
+            if delete_current is not None
             else AsyncMock()
         ),
         archive=AsyncMock(),
@@ -109,6 +120,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/new",
         "/resume",
         "/archive",
+        "/delete",
         "/fork",
         "/permissions",
         "/model",
@@ -526,6 +538,7 @@ def test_command_catalog_preserves_dispatch_and_input_policies() -> None:
         ("/new", "reject"),
         ("/resume", "reject"),
         ("/archive", "reject"),
+        ("/delete", "reject"),
         ("/fork", "reject"),
         ("/compact", "reject"),
         ("/review", "reject"),
@@ -980,6 +993,171 @@ async def test_archive_confirmation_matches_codex_menu_contract() -> None:
         (False, "No, don't archive", "Return to the current session"),
         (True, "Yes, archive and exit", "Archive this session now"),
     ]
+
+
+@pytest.mark.anyio
+async def test_delete_confirmation_matches_codex_menu_contract() -> None:
+    runtime = SimpleNamespace(select_menu=AsyncMock(return_value=False))
+
+    assert await confirm_delete_session(
+        runtime,
+        cid="cid-delete",
+        sid="sid-delete",
+    ) is False
+
+    request = runtime.select_menu.await_args.args[0]
+    assert request.title == "Delete this session?"
+    assert request.status == "Delete the current session and exit."
+    assert request.body == (
+        f"Permanently delete this session and all child sessions, "
+        f"then exit {const.APP_DESC}",
+        "Session: cid-delete/sid-delete",
+        "This action cannot be undone.",
+    )
+    assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
+    assert request.selected == 0
+    assert request.description_layout is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+    assert [(option.value, option.label, option.detail) for option in request.options] == [
+        (False, "No, don't delete", "Return to the current session"),
+        (True, "Yes, delete and exit", "Delete this session and its children"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_delete_command_cancels_before_mutating_session(monkeypatch) -> None:
+    from frontends.tui.session import dispatch as dispatch_module
+
+    delete_current = AsyncMock()
+    conversation = _conversation(
+        cid="cid-delete",
+        sid="sid-delete",
+        delete_current=delete_current,
+    )
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        conversation=conversation,
+        lifecycle=SimpleNamespace(request_stop=Mock()),
+    )
+    confirm = AsyncMock(return_value=False)
+    monkeypatch.setattr(dispatch_module, "confirm_delete_session", confirm)
+    dispatcher = TuiCommandDispatcher(
+        host,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/delete")
+
+    assert action is DispatchAction.HANDLED
+    confirm.assert_awaited_once_with(
+        dispatcher.runtime,
+        cid="cid-delete",
+        sid="sid-delete",
+    )
+    delete_current.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_delete_command_submits_once_and_exits_after_complete(monkeypatch) -> None:
+    from frontends.tui.session import dispatch as dispatch_module
+
+    result = SessionDeletionResult("deleted", request_id="delete-test")
+    delete_current = AsyncMock(return_value=result)
+    conversation = _conversation(
+        cid="cid-delete",
+        sid="sid-delete",
+        delete_current=delete_current,
+    )
+    lifecycle = SimpleNamespace(request_stop=Mock())
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=Mock()),
+        ),
+        conversation=conversation,
+        lifecycle=lifecycle,
+    )
+    monkeypatch.setattr(
+        dispatch_module,
+        "confirm_delete_session",
+        AsyncMock(return_value=True),
+    )
+    callbacks: list[typing.Callable[[SessionDeletionResult], None]] = []
+    factories: list[typing.Callable[[], typing.Awaitable[SessionDeletionResult]]] = []
+
+    async def wait() -> None:
+        callbacks[0](await factories[0]())
+
+    foreground = SimpleNamespace(
+        start=Mock(side_effect=lambda _key, factory, **kwargs: (
+            factories.append(factory),
+            callbacks.append(kwargs["on_succeeded"]),
+        )),
+        wait=AsyncMock(side_effect=wait),
+    )
+    dispatcher = TuiCommandDispatcher(
+        host,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        foreground,
+    )
+
+    action = await dispatcher.dispatch("/delete")
+
+    assert action is DispatchAction.EXIT
+    delete_current.assert_awaited_once()
+    assert delete_current.await_args.args[0].startswith("delete_")
+    lifecycle.request_stop.assert_called_once_with()
+
+
+@pytest.mark.anyio
+async def test_delete_command_rechecks_identity_after_confirmation(monkeypatch) -> None:
+    from frontends.tui.session import dispatch as dispatch_module
+
+    delete_current = AsyncMock()
+    conversation = _conversation(
+        cid="cid-delete",
+        sid="sid-delete",
+        delete_current=delete_current,
+    )
+
+    async def confirm_and_switch(*_args, **_kwargs) -> bool:
+        conversation.sid = "sid-switched"
+        return True
+
+    monkeypatch.setattr(
+        dispatch_module,
+        "confirm_delete_session",
+        confirm_and_switch,
+    )
+    views: list[object] = []
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(
+            application=SimpleNamespace(emit=views.append),
+        ),
+        conversation=conversation,
+        lifecycle=SimpleNamespace(request_stop=Mock()),
+    )
+    dispatcher = TuiCommandDispatcher(
+        host,
+        SimpleNamespace(),
+        SimpleNamespace(),
+        SimpleNamespace(),
+    )
+
+    action = await dispatcher.dispatch("/delete")
+
+    assert action is DispatchAction.HANDLED
+    delete_current.assert_not_awaited()
+    output_text = "".join(
+        text
+        for view in views
+        if getattr(view, "renderable", None) is not None
+        for _style, text in view.renderable.fragments
+    )
+    assert "session changed while confirmation was open" in output_text
 
 
 @pytest.mark.anyio

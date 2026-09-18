@@ -231,6 +231,14 @@ class RootConversationSession:
         return self._state.session_bound
 
     @property
+    def session_retired(self) -> bool:
+        """返回当前会话是否已完成远端删除并退出可恢复生命周期。"""
+        return self._deleted_identity == (
+            str(self._state.cid or "").strip(),
+            str(self._state.sid or "").strip(),
+        )
+
+    @property
     def fork_source_available(self) -> bool:
         """返回当前会话是否存在可分支的输入。"""
         return self._state.fork_source_available

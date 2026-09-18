@@ -113,6 +113,9 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         "archive", "/archive", "Archive and exit",
     ),
     TuiCommandSpec(
+        "delete", "/delete", "Delete and exit",
+    ),
+    TuiCommandSpec(
         "fork", "/fork", "Fork conversation",
     ),
     TuiCommandSpec(

@@ -185,6 +185,11 @@ class RootConversationPort(typing.Protocol):
         ...
 
     @property
+    def session_retired(self) -> bool:
+        """返回当前会话是否已完成远端删除并退出可恢复生命周期。"""
+        ...
+
+    @property
     def fork_source_available(self) -> bool:
         """返回当前会话是否存在可分支输入。"""
         ...

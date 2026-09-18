@@ -984,7 +984,11 @@ async def finalize_application(
         runtime = require_tui_runtime(controller.frontend.runtime)
 
         conversation = controller.conversation
-        if conversation.turn_count > 0 and conversation.sid:
+        if (
+            conversation.turn_count > 0
+            and conversation.sid
+            and not getattr(conversation, "session_retired", False)
+        ):
             runtime.print_exit_summary(conversation.sid)
 
 

@@ -1511,6 +1511,32 @@ async def test_tui_finalization_prints_summary_after_cleanup(
 
 
 @pytest.mark.anyio
+async def test_tui_finalization_skips_summary_for_retired_session() -> None:
+    runtime = TuiRuntime()
+    runtime.close = AsyncMock()
+    runtime.print_exit_summary = Mock()
+    host = SimpleNamespace(
+        frontend=SimpleNamespace(runtime=runtime),
+        lifecycle=_lifecycle(),
+        resources=SimpleNamespace(close=AsyncMock()),
+        conversation=SimpleNamespace(
+            end=AsyncMock(),
+            turn_count=1,
+            sid="sid_test_1_abcdef",
+            session_retired=True,
+        ),
+    )
+
+    await bootstrap.finalize_application(
+        host,
+        output_mode="tui",
+        completed=True,
+    )
+
+    runtime.print_exit_summary.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_tui_finalization_closes_silently_without_a_conversation() -> None:
     events = []
     runtime = TuiRuntime()
