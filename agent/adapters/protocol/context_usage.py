@@ -55,6 +55,10 @@ class ProtocolContextUsageRecovery:
         try:
             event = await recover_context_usage(cid, sid)
             return context_usage_record(event) if event is not None else None
+        except httpx.HTTPStatusError as error:
+            raise ContextUsageRecoveryError(
+                "context usage recovery failed", access_denied=error.response.status_code == 403,
+            ) from None
         except (httpx.HTTPError, TimeoutError, ValueError, TypeError, RuntimeError):
             raise ContextUsageRecoveryError("context usage recovery failed") from None
 

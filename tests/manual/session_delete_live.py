@@ -47,6 +47,7 @@ class ForwardingServer:
     def __init__(self, upstream: str):
         """绑定回环端口，所有路径都交由指定的已部署服务处理。"""
         self.facts = []
+        self.drop_next_delete_response = False
         self.upstream = upstream.rstrip("/")
         owner = self
 
@@ -69,6 +70,12 @@ class ForwardingServer:
                         with client.stream(self.command, owner.upstream + self.path, headers=headers, content=payload) as response:
                             if fact is not None:
                                 fact["status"] = response.status_code
+                                if self.command == "POST" and response.status_code == 200 and owner.drop_next_delete_response:
+                                    owner.drop_next_delete_response = False
+                                    response.read()
+                                    fact["response_dropped"] = True
+                                    self.close_connection = True
+                                    return
                             self.send_response(response.status_code)
                             for key in ("content-type", "content-length", "content-encoding", "cache-control"):
                                 if key in response.headers:
@@ -158,7 +165,7 @@ def wait_turn(directory, previous):
     return result
 
 
-def prepare(directory, proxy, source):
+def prepare(directory, proxy, source, *, route=None):
     """以现有 Provider 建立隔离配置，启用本轮所需的子代理能力。"""
     workspace = directory / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -174,17 +181,19 @@ def prepare(directory, proxy, source):
         ("features", "subagents"): True,
         ("skills", "enabled"): ["__acceptance_none__"],
     })
+    if route is not None:
+        config.update_user({("model_providers", provider, "route"): route})
     decision = config.resolve(workspace=workspace).project_trust
     config.set_project_trust(decision, "trusted", workspace=workspace)
     return workspace
 
 
-def launch(directory, workspace, *arguments):
+def launch(directory, workspace, *arguments, columns=100, no_color=False):
     """从稳定 mind.py 入口启动完整客户端，隔离配置与所有本地状态。"""
     return spawn_terminal(
         [sys.executable, str(REPOSITORY / "mind.py"), *arguments], cwd=workspace,
         env={**os.environ, "PYTHONUTF8": "1", "MIND_HOME": str(directory / "config"), "MIND_STATE_HOME": str(directory / "state")},
-        size=TerminalSize(rows=32, columns=100), terminal=TerminalEnvironment(),
+        size=TerminalSize(rows=32, columns=columns), terminal=TerminalEnvironment(no_color=no_color),
         failure_artifact_directory=directory / "failure-terminal",
     )
 
@@ -255,7 +264,7 @@ def verify(directory):
     print(json.dumps({"verified": True, "pid": os.getpid(), "target_count": len(facts["targets"]), "control_survived": True}), flush=True)
 
 
-def accept(directory):
+def accept(directory, *, exit_summary=False, route=None, pause_before_delete=False):
     """执行实际对话、子代理、菜单取消确认、正式回执与重启核验。"""
     source = ConfigStore(default_config_home() / "config.toml").read_raw(create=False)
     source_config = default_config_home() / "config.toml"
@@ -264,8 +273,10 @@ def accept(directory):
     directory.mkdir(parents=True, exist_ok=False)
     proxy = ForwardingServer(domain)
     facts = {"service": domain, "client_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY, text=True).strip()}
+    provider = source["model_providers"][source["model_provider"]]
+    facts["provider"] = {"model": provider["model"], "route": route or provider["route"]}
     try:
-        workspace = prepare(directory, proxy, source)
+        workspace = prepare(directory, proxy, source, route=route)
         with httpx.Client(base_url=domain, headers=build_service_headers(), timeout=30, trust_env=False) as client:
             spec_response = client.get("/openapi.json")
             spec_response.raise_for_status()
@@ -321,6 +332,26 @@ def accept(directory):
                 command(terminal, "Do not use tools. Reply exactly CONTINUED_AFTER_CANCEL.")
                 facts["root"] = wait_turn(directory, previous)
                 facts["target_turns"] = target_turns(directory, targets)
+                if exit_summary:
+                    from tests.manual.exit_summary_live import capture_usage
+
+                    facts["usage_before_delete"] = [
+                        capture_usage(directory, domain, target, root=index == 0)
+                        for index, target in enumerate(targets)
+                    ]
+                    for index in range(3):
+                        cached = facts["usage_before_delete"][0]["usage"]["cached_input_tokens"]
+                        if cached is None or cached > 0:
+                            break
+                        previous = {row["run_id"] for row in runs(directory)}
+                        command(terminal, f"Continue this isolated cache acceptance. Do not use tools. Reply exactly CACHE_OK_{index}.")
+                        facts["root"] = wait_turn(directory, previous)
+                        facts["usage_before_delete"][0] = capture_usage(directory, domain, targets[0])
+                    facts["target_turns"] = target_turns(directory, targets)
+                    save(directory / "facts.json", facts)
+                    if pause_before_delete:
+                        stage("ready_for_database_verification")
+                        wait_for(lambda: (directory / "continue-delete").exists(), timeout=1800)
                 stage("confirm_delete")
                 command(terminal, "/delete")
                 terminal.wait_for_screen_text("› 1. No, keep this session")
@@ -332,6 +363,10 @@ def accept(directory):
                 facts["delete_exit_code"] = terminal.wait_for_exit(timeout=30)
                 assert facts["delete_exit_code"] == 0
                 assert "mind resume" not in terminal.screen.snapshot().visible_text
+                if exit_summary:
+                    from tests.manual.exit_summary_live import check_summary
+
+                    check_summary(terminal, directory / "deleted-exit", facts["usage_before_delete"][0], resume=False)
             assert len(proxy.facts) == 1 and proxy.facts[0]["status"] == 200, proxy.facts
             frozen = proxy.facts[0]["request"]
             assert {(row["cid"], row["sid"]) for row in [frozen, *frozen["descendants"]]} == {(row["cid"], row["sid"]) for row in targets}
@@ -362,6 +397,11 @@ def accept(directory):
                 terminal.save_failure_artifacts(directory / "control-resumed")
                 command(terminal, "/quit")
                 assert terminal.wait_for_exit(timeout=20) == 0
+            if exit_summary:
+                from tests.manual.exit_summary_live import verify_exits
+
+                facts["exit_acceptance"] = verify_exits(directory, workspace, domain, control, proxy)
+                save(directory / "facts.json", facts)
             stage("passed")
     finally:
         facts["user_configuration_unchanged"] = hashlib.sha256(source_config.read_bytes()).hexdigest() == source_digest
@@ -428,6 +468,9 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--verify", action="store_true")
     mode.add_argument("--cleanup", action="store_true")
+    parser.add_argument("--exit-summary", action="store_true")
+    parser.add_argument("--route", choices=("responses", "chat_completions", "messages"))
+    parser.add_argument("--pause-before-delete", action="store_true")
     args = parser.parse_args()
     if not (REPOSITORY / "mind.py").is_file():
         parser.error("Run this command from the repository root")
@@ -437,7 +480,7 @@ def main():
     elif args.verify:
         verify(directory)
     else:
-        accept(directory)
+        accept(directory, exit_summary=args.exit_summary, route=args.route, pause_before_delete=args.pause_before_delete)
 
 
 if __name__ == "__main__":

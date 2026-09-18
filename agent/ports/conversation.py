@@ -33,11 +33,17 @@ __all__ = (
 class ContextUsageRecoveryError(RuntimeError):
     """表示远端用量恢复未取得完整可信快照，不携带报告鉴权信息。"""
 
+    def __init__(self, message: str, *, access_denied: bool = False) -> None:
+        """保留服务端明确拒绝访问的事实，临时读取失败不推断权限。"""
+        super().__init__(message)
+        self.access_denied = access_denied
+
 
 class ContextUsageRecovery(typing.Protocol):
     """读取远端会话的完整用量事实；实现方拥有单次请求并负责关闭传输。
 
     返回空值表示权威未知；失败抛出 ContextUsageRecoveryError，不推进聊天确认游标。
+    实现方只在服务端明确拒绝访问时设置 access_denied，不以超时或过期查看令牌推断权限撤销。
     """
 
     async def load(self, cid: str, sid: str) -> ContextUsageRecord | None:

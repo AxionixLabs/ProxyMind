@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from agent.ports.conversation import ContextUsageRecoveryError
 from agent.ports.session_deletion import (
     LocalDeletionPlan,
     LocalDeletionTarget,
@@ -60,6 +61,64 @@ async def test_cold_resume_exit_freezes_full_fact_without_a_local_turn(record):
     await session.end(reason="exit")
     assert session.take_exit_snapshot() is None
     resources.context_recovery.load.assert_awaited_once()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("denied", [False, True])
+async def test_recovery_failure_only_suppresses_resume_after_explicit_denial(record, denied):
+    session, resources = await resumed(record)
+    resources.context_recovery.load.side_effect = ContextUsageRecoveryError("failed", access_denied=denied)
+    await session.restore_context_usage(record.cid, record.sid)
+    await session.end(reason="exit")
+    assert (session.take_exit_snapshot() is None) is denied
+
+
+@pytest.mark.anyio
+async def test_successful_recovery_restores_resume_after_access_is_restored(record):
+    session, resources = await resumed(record)
+    resources.context_recovery.load.side_effect = ContextUsageRecoveryError("failed", access_denied=True)
+    await session.restore_context_usage(record.cid, record.sid)
+    resources.context_recovery.load.side_effect = None
+    await session.restore_context_usage(record.cid, record.sid)
+    await session.end(reason="exit")
+    assert session.take_exit_snapshot().disposition == "recoverable"
+
+
+@pytest.mark.anyio
+async def test_stream_facts_and_transient_failure_cannot_undo_known_access_denial(record):
+    session, resources = await resumed(record)
+    resources.context_recovery.load.side_effect = ContextUsageRecoveryError("failed", access_denied=True)
+    await session.restore_context_usage(record.cid, record.sid)
+    session.record_context_usage(replace(record, event_seq=13))
+    session.observe_remote_turn(record.cid, record.sid, record.turn_id, terminal=True)
+    resources.context_recovery.load.side_effect = ContextUsageRecoveryError("timeout")
+    await session.restore_context_usage(record.cid, record.sid)
+    await session.end(reason="exit")
+    assert session.take_exit_snapshot() is None
+
+
+@pytest.mark.anyio
+async def test_old_session_access_denial_cannot_revoke_new_session_resume(record):
+    session, resources = await resumed(record)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed(cid, sid):
+        if sid != record.sid:
+            return replace(record, cid=cid, sid=sid)
+        entered.set()
+        await release.wait()
+        raise ContextUsageRecoveryError("failed", access_denied=True)
+
+    resources.context_recovery.load.side_effect = delayed
+    pending = asyncio.create_task(session.restore_context_usage(record.cid, record.sid))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        await session.bind("cid_test_87654321", "sid_test_2_fedcba")
+    finally:
+        release.set()
+        await pending
+    await session.end(reason="exit")
+    assert session.take_exit_snapshot().sid == "sid_test_2_fedcba"
 
 
 @pytest.mark.anyio

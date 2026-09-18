@@ -204,6 +204,7 @@ class RootConversationSession:
         self._exit_snapshot: SessionExitSnapshot | None = None
         self._exit_snapshot_released = False
         self._remote_session_confirmed = False
+        self._resume_access_denied = False
         self._unconfirmed_remote_turns: set[str] = set()
         self._remote_terminal_confirmed = False
 
@@ -233,7 +234,7 @@ class RootConversationSession:
         cid, sid = self.cid, self.sid
         if self._exit_snapshot_released or not self.session_bound or cid is None or sid is None:
             return None
-        if disposition == "recoverable" and not self._remote_session_confirmed:
+        if disposition == "recoverable" and (not self._remote_session_confirmed or self._resume_access_denied):
             return None
         return SessionExitSnapshot(
             cid=cid, sid=sid, disposition=disposition,
@@ -415,6 +416,7 @@ class RootConversationSession:
         self._exit_snapshot = None
         self._exit_snapshot_released = False
         self._remote_session_confirmed = not initial
+        self._resume_access_denied = False
         self._unconfirmed_remote_turns.clear()
         self._remote_terminal_confirmed = False
         self._context_usage.activate(cid, sid, initial=initial)
@@ -636,13 +638,18 @@ class RootConversationSession:
         observed_before = self._context_usage.begin_replay(cid, sid)
         try:
             record = await self._context_usage_recovery.load(cid, sid)
-        except ContextUsageRecoveryError:
+            access_denied = False
+        except ContextUsageRecoveryError as error:
             observe("context_usage.recovery.failed", level="WARNING", cid=cid, sid=sid)
+            access_denied = True if error.access_denied else None
             record = None
         if (self.cid, self.sid) != (cid, sid):
             return
+        if access_denied is not None:
+            self._resume_access_denied = access_denied
         self._context_usage.restore(cid, sid, record, observed_before=observed_before)
         if record is not None:
+            self._remote_session_confirmed = True
             self._history.save_context_usage(record)
         if publish:
             self._context_usage.finish_replay(cid, sid)

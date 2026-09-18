@@ -107,3 +107,19 @@ async def test_recovery_transport_error_does_not_expose_view_token():
     ):
         await ProtocolContextUsageRecovery().load('cid', 'sid')
     assert failure.value.__suppress_context__
+    assert not failure.value.access_denied
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('status', [401, 403, 404, 503])
+async def test_recovery_preserves_explicit_access_denial_without_private_url(status):
+    response = httpx.Response(status, request=httpx.Request('GET', 'https://service/mind-replay?vt=private'))
+    with (
+        patch('agent.adapters.protocol.context_usage.recover_context_usage', AsyncMock(
+            side_effect=httpx.HTTPStatusError('private view URL', request=response.request, response=response),
+        )),
+        pytest.raises(ContextUsageRecoveryError, match='^context usage recovery failed$') as failure,
+    ):
+        await ProtocolContextUsageRecovery().load('cid', 'sid')
+    assert failure.value.access_denied is (status == 403)
+    assert failure.value.__suppress_context__
