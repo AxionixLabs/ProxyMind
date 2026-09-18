@@ -444,6 +444,21 @@ async def run_tui_loop(
         turn_application = turn_application_factory(agent_runtime_db_path())
     else:
         turn_application = TurnApplication()
+    conversation = getattr(host, "conversation", None)
+    bind_runtime_close = getattr(
+        conversation,
+        "bind_session_runtime_close",
+        None,
+    )
+    if callable(bind_runtime_close) and durable_runtime:
+        bind_runtime_close(
+            lambda sid: turn_application.retire_session(
+                derive_local_session_id(
+                    "tui",
+                    {"cid": conversation.cid, "sid": sid},
+                )
+            )
+        )
     try:
         if turn_runner is None:
             raise RuntimeError("TUI root turn runner is required")

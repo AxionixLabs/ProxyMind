@@ -108,6 +108,10 @@ class TurnApplication(typing.Generic[ResultValue]):
         """关闭指定 Session，并等待已接收命令自然收束。"""
         await self._runtime.close_session(session_id)
 
+    async def retire_session(self, session_id: str) -> None:
+        """关闭并封锁指定 Session，防止旧身份在同一进程复活。"""
+        await self._runtime.retire_session(session_id)
+
     async def recover_session(
         self,
         session_id: str,

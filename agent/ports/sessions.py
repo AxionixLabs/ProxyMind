@@ -60,6 +60,10 @@ class SessionRuntime(typing.Protocol[ResultValue]):
         """关闭指定 Session 并等待已接收命令收束。"""
         ...
 
+    async def retire_session(self, session_id: str) -> None:
+        """关闭并永久封锁当前进程内的指定 Session 身份。"""
+        ...
+
     async def recover_session(
         self,
         session_id: str,

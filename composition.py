@@ -7,6 +7,7 @@ from agent.adapters.agents.execution import StreamSubagentExecution
 from agent.adapters.protocol.context_usage import ProtocolContextUsageRecovery
 from agent.adapters.protocol.compaction import ProtocolCompactionRecovery
 from agent.adapters.protocol.subagent_stream import ProtocolSubagentStream
+from agent.adapters.protocol.session_deletion import ProtocolSessionDeletionAdapter
 from agent.application import RuntimeServices
 from agent.application.services import SubscriptionRuntimeBuilder
 from agent.application.approvals.coordinator import ApprovalCoordinator
@@ -53,6 +54,8 @@ from agent.ports import (
     TurnCompletionPresenterPort,
 )
 from agent.stores import AgentGraphStore
+from agent.stores.effects.journal import LocalEffectJournal
+from agent.stores.runs.store import SQLiteRunStore
 from agent.stores.approvals.ledger import ApprovalCallLedger
 from agent.stores.approvals.facts import SQLiteApprovalFactStore
 from agent.stores.approvals.grants import InMemorySessionGrantStore
@@ -61,6 +64,7 @@ from agent.stores.sessions import (
     ConversationHistoryStore,
     normalize_workspace,
 )
+from agent.stores.sessions.deletion import SQLiteSessionDeletionStore
 from infrastructure.config.hooks import HookManager
 from infrastructure.config.layers import ConfigResolution
 from infrastructure.config.paths import ApplicationLayout
@@ -69,6 +73,8 @@ from infrastructure.config.runtime_paths import (
     agent_graph_db_path,
     approval_fact_db_path,
     conversation_history_db_path,
+    effect_journal_db_path,
+    agent_runtime_db_path,
 )
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.settings_session import SettingsSession
@@ -361,6 +367,23 @@ class ApplicationHost:
             existing_transcript_path_for=transcripts.existing_path_for_session,
             transcript_entries_for=lambda path: transcripts.reader(path).read(),
         )
+        graph_store = AgentGraphStore(
+            agent_graph_db_path(),
+            ttl_ms=history_store.ttl_ms,
+            max_items=history_store.max_items,
+        )
+        deletion_store = SQLiteSessionDeletionStore(
+            history=history_store,
+            graphs=graph_store,
+            runs=SQLiteRunStore(agent_runtime_db_path()),
+            effects=LocalEffectJournal(
+                effect_journal_db_path(),
+                cid="cid_delete_00000000",
+                sid="sid_delete_0_000000",
+            ),
+            approvals=SQLiteApprovalFactStore(approval_fact_db_path()),
+            transcripts=transcripts,
+        )
         self.conversation = RootConversationSession(
             history,
             context_usage_recovery=ProtocolContextUsageRecovery(),
@@ -388,6 +411,8 @@ class ApplicationHost:
             command_hook_cleanup=self.command_hook_sessions.clear_root,
             event_session_close=self.execution.event_reporting.close_session,
             await_cleanup=self.lifecycle.await_cleanup,
+            session_deletion_store=deletion_store,
+            session_deletion_remote=ProtocolSessionDeletionAdapter(),
         )
         self.subagent_turn_runner = TurnRunner(self.execution)
         self.subagent_cleanup = self.conversation
@@ -411,11 +436,7 @@ class ApplicationHost:
             transcript_path_for=self.conversation.transcript_path_for_session,
             transcript_entries_for=lambda path: transcripts.reader(path).read(),
             javascript_session_cleanup=self.javascript_lifecycle.close_session,
-            graph_store=AgentGraphStore(
-                agent_graph_db_path(),
-                ttl_ms=self.conversation.history_ttl_ms,
-                max_items=self.conversation.history_max_items,
-            ),
+            graph_store=graph_store,
         )
         self.service_runtime = ServiceRuntimeOwner()
 

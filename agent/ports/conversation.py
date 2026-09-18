@@ -11,6 +11,7 @@ from pathlib import Path
 from agent.domain.hooks import SessionEndReason
 from agent.domain.transcripts import TranscriptEntry
 from agent.ports.workspace import WorkspaceChangePort
+from agent.ports.session_deletion import SessionDeletionResult
 from agent.protocol import AssistantReplySnapshot
 from agent.protocol.context_usage import ContextUsageRecord
 
@@ -241,6 +242,27 @@ class RootConversationPort(typing.Protocol):
 
     async def end(self, *, reason: SessionEndReason) -> None:
         """结束当前根会话生命周期。"""
+        ...
+
+    def bind_session_runtime_close(self, callback: typing.Callable[[str], typing.Awaitable[None]]) -> None:
+        """绑定前端 Turn owner 的永久会话封锁回调。"""
+        ...
+
+    async def delete_current(self, request_id: str) -> SessionDeletionResult:
+        """删除当前根会话并返回远端与本地清理的类型化结果。"""
+        ...
+
+    async def delete_session(
+        self,
+        cid: str,
+        sid: str,
+        request_id: str,
+    ) -> SessionDeletionResult:
+        """按冻结坐标请求删除；非当前根会话返回明确结果。"""
+        ...
+
+    async def recover_delete(self, request_id: str) -> SessionDeletionResult:
+        """查询并继续完成尚未确定的删除请求。"""
         ...
 
     async def archive_current(self) -> dict[str, typing.Any]:

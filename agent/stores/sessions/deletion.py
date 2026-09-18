@@ -54,15 +54,13 @@ class SQLiteSessionDeletionStore:
         normalized = _normalize_plan(plan)
         encoded = _encode_plan(normalized)
         layout = self._layout(normalized)
+        self._prepare_normalized(normalized, encoded=encoded, layout=layout)
         with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            connection.execute("INSERT OR IGNORE INTO session_deletions (request_id, plan, layout) VALUES (?, ?, ?)",
-                               (normalized.request_id, encoded, layout))
-            row = connection.execute("SELECT plan, layout, completed FROM session_deletions WHERE request_id = ?",
+            row = connection.execute("SELECT completed FROM session_deletions WHERE request_id = ?",
                                      (normalized.request_id,)).fetchone()
-            if row is None or row[0] != encoded or row[1] != layout:
-                raise SessionDeletionConflict("deletion request scope conflicts with persisted plan")
-            if row[2]:
+            if row is None:
+                raise SessionDeletionConflict("deletion request was not persisted")
+            if row[0]:
                 return
         with self.transcripts.lock_sessions(tuple(target.sid for target in normalized.targets)) as lease:
             lease.retire()
@@ -76,6 +74,15 @@ class SQLiteSessionDeletionStore:
             with closing(self._connect()) as connection, connection:
                 connection.execute("UPDATE session_deletions SET completed = 1 WHERE request_id = ?",
                                    (normalized.request_id,))
+
+    def prepare(self, plan: LocalDeletionPlan) -> None:
+        """只持久化不可变清理计划，供远端未知结果恢复查询。"""
+        normalized = _normalize_plan(plan)
+        self._prepare_normalized(
+            normalized,
+            encoded=_encode_plan(normalized),
+            layout=self._layout(normalized),
+        )
 
     def pending(self) -> tuple[LocalDeletionPlan, ...]:
         """恢复完整原始集合，不依赖已过期或已删除的历史游标和代理图。"""
@@ -111,6 +118,29 @@ class SQLiteSessionDeletionStore:
         except BaseException:
             connection.close()
             raise
+
+    def _prepare_normalized(
+        self,
+        plan: LocalDeletionPlan,
+        *,
+        encoded: str,
+        layout: str,
+    ) -> None:
+        """原子登记待完成计划并校验重复请求范围不可改变。"""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT OR IGNORE INTO session_deletions (request_id, plan, layout) VALUES (?, ?, ?)",
+                (plan.request_id, encoded, layout),
+            )
+            row = connection.execute(
+                "SELECT plan, layout FROM session_deletions WHERE request_id = ?",
+                (plan.request_id,),
+            ).fetchone()
+            if row is None or row[0] != encoded or row[1] != layout:
+                raise SessionDeletionConflict(
+                    "deletion request scope conflicts with persisted plan"
+                )
 
 
 def _normalize_plan(plan: LocalDeletionPlan) -> LocalDeletionPlan:

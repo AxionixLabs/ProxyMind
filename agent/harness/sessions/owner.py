@@ -26,6 +26,7 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
         """创建尚未启动任何 SessionLoop 的运行时所有者。"""
         self._persistence = persistence
         self._sessions: dict[str, SessionLoop[ResultValue]] = {}
+        self._retired: set[str] = set()
         self._lock: asyncio.Lock = asyncio.Lock()
         self._close_task: asyncio.Task[None] | None = None
         self._closing: bool = False
@@ -54,6 +55,17 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
     async def close_session(self, session_id: str) -> None:
         """停止指定 Session 接收命令，并等待已提交队列自然收束。"""
         session = await self._take_session(session_id)
+        if session is not None:
+            await session.close()
+
+    async def retire_session(self, session_id: str) -> None:
+        """停止指定 Session，并在本进程内拒绝其后续提交。"""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("session_id is required")
+        async with self._lock:
+            self._retired.add(normalized_session_id)
+            session = self._sessions.pop(normalized_session_id, None)
         if session is not None:
             await session.close()
 
@@ -133,6 +145,8 @@ class SessionRuntimeOwner(typing.Generic[ResultValue]):
         async with self._lock:
             if self._closing or self._closed:
                 raise RuntimeError("session runtime is closing")
+            if normalized_session_id in self._retired:
+                raise RuntimeError("session runtime has been retired")
             session = self._sessions.get(normalized_session_id)
             if session is None:
                 session = SessionLoop(
