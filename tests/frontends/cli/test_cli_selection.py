@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from agent.application.views.context_usage import SessionExitSnapshot
 from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from metadata import const
@@ -1496,6 +1497,9 @@ async def test_tui_finalization_prints_summary_after_cleanup(
             ),
             turn_count=1,
             sid="sid_test_1_abcdef",
+            take_exit_snapshot=Mock(return_value=SessionExitSnapshot(
+                "cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, False,
+            )),
         ),
     )
 
@@ -1507,11 +1511,11 @@ async def test_tui_finalization_prints_summary_after_cleanup(
 
     assert events == ["session", "runtime", "resources", "summary"]
     host.conversation.end.assert_awaited_once_with(reason="exit")
-    runtime.print_exit_summary.assert_called_once_with("sid_test_1_abcdef")
+    runtime.print_exit_summary.assert_called_once_with(host.conversation.take_exit_snapshot.return_value)
 
 
 @pytest.mark.anyio
-async def test_tui_finalization_skips_summary_for_retired_session() -> None:
+async def test_tui_finalization_passes_deleted_fact_to_summary_renderer() -> None:
     runtime = TuiRuntime()
     runtime.close = AsyncMock()
     runtime.print_exit_summary = Mock()
@@ -1524,6 +1528,9 @@ async def test_tui_finalization_skips_summary_for_retired_session() -> None:
             turn_count=1,
             sid="sid_test_1_abcdef",
             session_retired=True,
+            take_exit_snapshot=Mock(return_value=SessionExitSnapshot(
+                "cid_test_12345678", "sid_test_1_abcdef", "deleted", None, True,
+            )),
         ),
     )
 
@@ -1533,7 +1540,7 @@ async def test_tui_finalization_skips_summary_for_retired_session() -> None:
         completed=True,
     )
 
-    runtime.print_exit_summary.assert_not_called()
+    runtime.print_exit_summary.assert_called_once_with(host.conversation.take_exit_snapshot.return_value)
 
 
 @pytest.mark.anyio
@@ -1554,6 +1561,7 @@ async def test_tui_finalization_closes_silently_without_a_conversation() -> None
             ),
             turn_count=0,
             sid=None,
+            take_exit_snapshot=Mock(return_value=None),
         ),
     )
 
@@ -1575,7 +1583,7 @@ async def test_tui_finalization_skips_summary_for_incomplete_session() -> None:
     host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
-        conversation=SimpleNamespace(end=AsyncMock()),
+        conversation=SimpleNamespace(end=AsyncMock(), take_exit_snapshot=Mock(return_value=None)),
         resources=SimpleNamespace(close=AsyncMock()),
     )
 
@@ -1599,7 +1607,7 @@ async def test_tui_finalization_skips_summary_when_cleanup_fails() -> None:
     host = SimpleNamespace(
         frontend=SimpleNamespace(runtime=runtime),
         lifecycle=_lifecycle(),
-        conversation=SimpleNamespace(end=AsyncMock()),
+        conversation=SimpleNamespace(end=AsyncMock(), take_exit_snapshot=Mock(return_value=None)),
         resources=SimpleNamespace(close=AsyncMock()),
     )
 
@@ -1625,6 +1633,7 @@ async def test_finalization_closes_resources_when_session_end_fails() -> None:
             end=AsyncMock(
                 side_effect=RuntimeError("session end failed"),
             ),
+            take_exit_snapshot=Mock(return_value=None),
         ),
         resources=SimpleNamespace(close=AsyncMock()),
     )

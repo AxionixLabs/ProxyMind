@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, Mock
 
@@ -28,6 +29,7 @@ from protocol.client.tools import (
 )
 from protocol.client.fork import ResubmittablePrompt
 from protocol.client.turn_control import TurnControlRequestError
+from protocol.schema.stream_events import parse_stream_event
 
 
 @pytest.mark.anyio
@@ -941,6 +943,45 @@ async def test_protocol_stream_accepts_nonpersistent_retained_gap() -> None:
 
     assert [event.type async for event in stream] == ["stream.gap"]
     assert stream.canonical_items == ()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("changes, accepted", [
+    ({}, True), ({"cid": "cid_other"}, False), ({"sid": "sid_other"}, False),
+    ({"turn_id": "turn_other"}, False), ({"type": "turn.thinking"}, False),
+])
+async def test_session_usage_crosses_model_boundary_without_weakening_turn_isolation(changes, accepted):
+    payload = {
+        "type": "context.usage.updated", "proto": "mind.chat", "cid": "cid_test", "sid": "sid_test",
+        "turn_id": "", "event_seq": 3, "presentation_epoch": 1,
+        "context_usage": {"model_context_window": None, "last_token_usage": None, "total_token_usage": None,
+                          "usage_source": "unknown", "model": "test-model", "route": "responses"},
+    }
+    event = parse_stream_event(payload)
+    if changes:
+        event = replace(event, **changes)
+
+    class RawStream:
+        end_reason = "settled"
+        last_event_seq = 3
+
+        async def __aiter__(self):
+            yield event
+
+        async def aclose(self):
+            return None
+
+    cursors = model_adapter.ProtocolEventCursorStore()
+    stream = model_adapter.ProtocolModelEventStream(
+        RawStream(), cid="cid_test", sid="sid_test", turn_id="turn_test", event_cursors=cursors,
+    )
+    if accepted:
+        assert [item async for item in stream] == [event]
+        assert stream.canonical_items == ()
+        assert cursors.current(cid="cid_test", sid="sid_test") == 3
+    else:
+        with pytest.raises(ModelCapabilityError):
+            [item async for item in stream]
 
 
 @pytest.mark.anyio

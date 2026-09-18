@@ -4,7 +4,10 @@
 import httpx
 
 from agent.ports.conversation import ContextUsageRecoveryError
-from agent.protocol.context_usage import ContextUsageRecord
+from agent.protocol.context_usage import (
+    ContextUsageRecord,
+    SessionTokenUsageRecord,
+)
 from protocol.client.context_usage import recover_context_usage
 from protocol.schema.stream_events import ContextUsageUpdatedEvent
 
@@ -12,6 +15,7 @@ from protocol.schema.stream_events import ContextUsageUpdatedEvent
 def context_usage_record(event: ContextUsageUpdatedEvent) -> ContextUsageRecord:
     """把严格 wire 快照转换为不依赖传输的本地事实。"""
     snapshot = event.snapshot
+    total = snapshot.total_token_usage
     if event.event_seq is None:
         raise ValueError("context usage requires a committed event sequence")
     return ContextUsageRecord(
@@ -25,10 +29,17 @@ def context_usage_record(event: ContextUsageUpdatedEvent) -> ContextUsageRecord:
             snapshot.last_token_usage.total_tokens
             if snapshot.last_token_usage is not None else None
         ),
-        total_tokens=(
-            snapshot.total_token_usage.total_tokens
-            if snapshot.total_token_usage is not None and snapshot.total_token_usage.is_complete
-            else None
+        total_token_usage=(
+            SessionTokenUsageRecord(
+                total_tokens=total.total_tokens,
+                input_tokens=total.input_tokens,
+                cached_input_tokens=total.cached_input_tokens,
+                cache_write_input_tokens=total.cache_write_input_tokens,
+                output_tokens=total.output_tokens,
+                reasoning_output_tokens=total.reasoning_output_tokens,
+                reported_calls=total.reported_calls,
+                unreported_calls=total.unreported_calls,
+            ) if total is not None else None
         ),
         usage_source=snapshot.usage_source,
         model=snapshot.model,

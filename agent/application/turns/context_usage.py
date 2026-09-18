@@ -74,12 +74,13 @@ class ContextUsageProjection:
             self._publish_record()
         return True
 
-    def begin_replay(self, cid: str, sid: str) -> None:
-        """隐藏当前会话的中间恢复画面。"""
+    def begin_replay(self, cid: str, sid: str) -> ContextUsageRecord | None:
+        """隐藏中间恢复画面，并返回本次读取前的事实以保护并发更新。"""
         if self._identity != (cid, sid):
             return
         self._replaying = True
         self._publish(ContextUsageView("pending"))
+        return self._record
 
     def discard_retained_prefix(self, cid: str, sid: str, event_seq: int) -> None:
         """作废落在不可完整恢复区间内的旧快照，等待后续权威事件。"""
@@ -91,13 +92,19 @@ class ContextUsageProjection:
             if not self._replaying:
                 self._publish_record()
 
-    def restore(self, cid: str, sid: str, record: ContextUsageRecord | None) -> None:
+    def restore(
+        self, cid: str, sid: str, record: ContextUsageRecord | None,
+        *, observed_before: ContextUsageRecord | None,
+    ) -> None:
         """接受完成回放后独立保留的权威快照，允许其早于历史裁剪水位。"""
         if self._identity != (cid, sid):
             return
         if record is not None and (record.cid, record.sid) != (cid, sid):
             raise ValueError("recovered context usage identity does not match")
-        if record is None or self._record is None or record.event_seq >= self._record.event_seq:
+        if record is None:
+            if self._record is observed_before:
+                self._record = None
+        elif self._record is None or record.event_seq >= self._record.event_seq:
             self._record = record
         if not self._replaying:
             self._publish_record()
@@ -124,7 +131,11 @@ class ContextUsageProjection:
         record = self._record
         known = record is not None and (
             (record.model_context_window is not None and record.last_total_tokens is not None)
-            or (record.model_context_window is None and record.total_tokens is not None)
+            or (
+                record.model_context_window is None
+                and record.total_token_usage is not None
+                and record.total_token_usage.is_complete
+            )
         )
         self._publish(ContextUsageView("known" if known else "unknown", record))
 

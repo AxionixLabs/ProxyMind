@@ -11,7 +11,10 @@ from pathlib import Path
 
 from agent.domain.workspaces import workspace_path_key
 from agent.ports.session_deletion import LocalDeletionTarget
-from agent.protocol.context_usage import ContextUsageRecord
+from agent.protocol.context_usage import (
+    ContextUsageRecord,
+    SessionTokenUsageRecord,
+)
 from agent.stores.sessions.retirement import (
     coordinate_guard_sql,
     retire_coordinates,
@@ -63,6 +66,13 @@ CREATE TABLE IF NOT EXISTS {TABLE_CONTEXT_USAGE} (
     model_context_window INTEGER,
     last_total_tokens INTEGER,
     total_tokens INTEGER,
+    input_tokens INTEGER,
+    cached_input_tokens INTEGER,
+    cache_write_input_tokens INTEGER,
+    output_tokens INTEGER,
+    reasoning_output_tokens INTEGER,
+    reported_calls INTEGER,
+    unreported_calls INTEGER,
     usage_source TEXT NOT NULL,
     model TEXT NOT NULL,
     route TEXT NOT NULL,
@@ -121,6 +131,11 @@ class ConversationHistoryStore(object):
             conn.close()
         if row is None:
             return None
+        if row["total_tokens"] is None and any(row[name] is not None for name in (
+            "input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens",
+            "reasoning_output_tokens", "reported_calls", "unreported_calls",
+        )):
+            raise ValueError("unknown cumulative usage cannot contain details")
         return ContextUsageRecord(
             cid=row["cid"],
             sid=row["sid"],
@@ -129,7 +144,16 @@ class ConversationHistoryStore(object):
             presentation_epoch=row["presentation_epoch"],
             model_context_window=row["model_context_window"],
             last_total_tokens=row["last_total_tokens"],
-            total_tokens=row["total_tokens"],
+            total_token_usage=(SessionTokenUsageRecord(
+                total_tokens=row["total_tokens"],
+                input_tokens=row["input_tokens"],
+                cached_input_tokens=row["cached_input_tokens"],
+                cache_write_input_tokens=row["cache_write_input_tokens"],
+                output_tokens=row["output_tokens"],
+                reasoning_output_tokens=row["reasoning_output_tokens"],
+                reported_calls=row["reported_calls"],
+                unreported_calls=row["unreported_calls"],
+            ) if row["total_tokens"] is not None else None),
             usage_source=row["usage_source"],
             model=row["model"],
             route=row["route"],
@@ -137,6 +161,7 @@ class ConversationHistoryStore(object):
 
     def save_context_usage(self, record: ContextUsageRecord) -> bool:
         """按远端事件序号原子替换缓存，随父历史游标删除。"""
+        total = record.total_token_usage
         conn = self._connect()
         try:
             with conn:
@@ -146,8 +171,10 @@ class ConversationHistoryStore(object):
                     INSERT INTO {TABLE_CONTEXT_USAGE} (
                         cid, sid, turn_id, event_seq, presentation_epoch,
                         model_context_window, last_total_tokens, total_tokens,
+                        input_tokens, cached_input_tokens, cache_write_input_tokens,
+                        output_tokens, reasoning_output_tokens, reported_calls, unreported_calls,
                         usage_source, model, route
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(cid, sid) DO UPDATE SET
                         turn_id = excluded.turn_id,
                         event_seq = excluded.event_seq,
@@ -155,6 +182,13 @@ class ConversationHistoryStore(object):
                         model_context_window = excluded.model_context_window,
                         last_total_tokens = excluded.last_total_tokens,
                         total_tokens = excluded.total_tokens,
+                        input_tokens = excluded.input_tokens,
+                        cached_input_tokens = excluded.cached_input_tokens,
+                        cache_write_input_tokens = excluded.cache_write_input_tokens,
+                        output_tokens = excluded.output_tokens,
+                        reasoning_output_tokens = excluded.reasoning_output_tokens,
+                        reported_calls = excluded.reported_calls,
+                        unreported_calls = excluded.unreported_calls,
                         usage_source = excluded.usage_source,
                         model = excluded.model,
                         route = excluded.route
@@ -163,7 +197,15 @@ class ConversationHistoryStore(object):
                     (
                         record.cid, record.sid, record.turn_id, record.event_seq,
                         record.presentation_epoch, record.model_context_window,
-                        record.last_total_tokens, record.total_tokens,
+                        record.last_total_tokens,
+                        total.total_tokens if total is not None else None,
+                        total.input_tokens if total is not None else None,
+                        total.cached_input_tokens if total is not None else None,
+                        total.cache_write_input_tokens if total is not None else None,
+                        total.output_tokens if total is not None else None,
+                        total.reasoning_output_tokens if total is not None else None,
+                        total.reported_calls if total is not None else None,
+                        total.unreported_calls if total is not None else None,
                         record.usage_source, record.model, record.route,
                     ),
                 )
@@ -686,6 +728,11 @@ class ConversationHistoryStore(object):
     def _init_schema(conn: sqlite3.Connection) -> None:
         """初始化历史库结构。"""
         conn.executescript(SCHEMA_SQL)
+        usage_columns = {row[1] for row in conn.execute(f"PRAGMA table_info({TABLE_CONTEXT_USAGE})")}
+        if "reported_calls" not in usage_columns:
+            # 旧缓存没有可恢复的累计明细；只作废派生缓存，保留历史游标及正文。
+            conn.execute(f"DROP TABLE {TABLE_CONTEXT_USAGE}")
+            conn.executescript(SCHEMA_SQL)
         columns = {
             str(row[1])
             for row in conn.execute(

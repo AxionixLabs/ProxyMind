@@ -23,7 +23,10 @@ from agent.protocol import (
     ModelStreamRequest,
     SubmitTurnCommand,
 )
-from agent.protocol.context_usage import ContextUsageRecord
+from agent.protocol.context_usage import (
+    ContextUsageRecord,
+    SessionTokenUsageRecord,
+)
 from agent.protocol.json_value import ThawedJsonValue
 from agent.stores.agents.graph import (
     AgentGraphCheckpoint,
@@ -107,7 +110,8 @@ async def seed(directory: Path, owner: LocalDeletionTarget) -> None:
     backend.history.touch_session(cid=owner.cid, sid=owner.sid, title="isolated acceptance", source="tui")
     backend.history.get_or_create_fork_request(cid=owner.cid, sid=owner.sid, request_id="fork_" + owner.sid)
     backend.history.save_context_usage(ContextUsageRecord(
-        owner.cid, owner.sid, "turn_" + owner.sid, 1, 1, 32000, 12, 12, "provider", "test-model", "test-route",
+        owner.cid, owner.sid, "turn_" + owner.sid, 1, 1, 32000, 12,
+        SessionTokenUsageRecord(12, 10, 5, 0, 2, None, 1, 0), "provider", "test-model", "test-route",
     ))
     backend.graphs.save(AgentGraphCheckpoint(owner.sid, 1, time.time_ns() // 1_000_000))
     await backend.approvals.record_requested(approval(owner))

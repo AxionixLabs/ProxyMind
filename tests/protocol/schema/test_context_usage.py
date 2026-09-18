@@ -35,7 +35,7 @@ def test_context_usage_is_immutable_and_does_not_create_an_item(payload) -> None
     assert reducer.apply(event) is None
     assert reducer.canonical_items == ()
     record = context_usage_record(event)
-    assert record.total_tokens == 250_000
+    assert record.total_token_usage.total_tokens == 250_000
     assert context_remaining_percent(record) == 91
     payload["context_usage"]["last_token_usage"]["total_tokens"] = 20_000
     assert parse_compact_event(payload) == event
@@ -108,7 +108,7 @@ def test_context_usage_accepts_explicit_unknown_without_zero_fallback(payload) -
     assert isinstance(event, ContextUsageUpdatedEvent)
     record = context_usage_record(event)
     assert record.last_total_tokens is None
-    assert record.total_tokens is None
+    assert record.total_token_usage is None
     assert context_remaining_percent(record) is None
 
 
@@ -130,5 +130,6 @@ def test_partial_cumulative_usage_cannot_become_a_complete_local_total(payload, 
     assert isinstance(event, ContextUsageUpdatedEvent)
     assert event.snapshot.total_token_usage.total_tokens == 250_000
     record = context_usage_record(event)
-    assert record.total_tokens is None
+    assert record.total_token_usage.total_tokens == 250_000
+    assert not record.total_token_usage.is_complete
     assert context_remaining_percent(record) == 91

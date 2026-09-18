@@ -4,7 +4,10 @@
 import asyncio
 import contextlib
 import typing
-from dataclasses import asdict
+from dataclasses import (
+    asdict,
+    replace,
+)
 from collections.abc import (
     Awaitable,
     Callable,
@@ -16,6 +19,7 @@ from agent.application.config.session_identity import derive_local_session_id
 from agent.application.agents.views import AgentSnapshot
 from agent.application.turns.compact_result import CompactEvent
 from agent.application.turns.context_usage import ContextUsageProjection
+from agent.application.views.context_usage import SessionExitSnapshot
 from agent.application.hooks.context import HookExecutionContext
 from agent.domain.hooks import SessionEndReason
 from agent.domain.policies import PermissionSettings
@@ -197,6 +201,49 @@ class RootConversationSession:
         self._lifecycle_id = 0
         self._assistant_reply_snapshot: AssistantReplySnapshot | None = None
         self._context_usage = ContextUsageProjection()
+        self._exit_snapshot: SessionExitSnapshot | None = None
+        self._exit_snapshot_released = False
+        self._remote_session_confirmed = False
+        self._unconfirmed_remote_turns: set[str] = set()
+        self._remote_terminal_confirmed = False
+
+    def take_exit_snapshot(self) -> SessionExitSnapshot | None:
+        """转移冻结事实的所有权，重复消费返回空值。"""
+        snapshot = self._exit_snapshot
+        self._exit_snapshot = None
+        self._exit_snapshot_released = True
+        return snapshot
+
+    def observe_remote_turn(self, cid: str, sid: str, turn_id: str, *, terminal: bool) -> None:
+        """仅以匹配身份的正式终态确认观察对象停止，不把断流或取消当成终态。"""
+        if (cid, sid) != (self.cid, self.sid):
+            return
+        if terminal:
+            self._remote_session_confirmed = True
+            self._unconfirmed_remote_turns.discard(turn_id)
+            self._remote_terminal_confirmed = True
+        else:
+            self._unconfirmed_remote_turns.add(turn_id)
+
+    def _capture_exit(
+        self, disposition: typing.Literal["recoverable", "archived", "pending_delete"],
+        *, request_id: str | None = None,
+    ) -> SessionExitSnapshot | None:
+        """在身份锁内冻结已发布事实；恢复中的中间值不能用于退出统计。"""
+        cid, sid = self.cid, self.sid
+        if self._exit_snapshot_released or not self.session_bound or cid is None or sid is None:
+            return None
+        if disposition == "recoverable" and not self._remote_session_confirmed:
+            return None
+        return SessionExitSnapshot(
+            cid=cid, sid=sid, disposition=disposition,
+            record=self._context_usage.view.record,
+            remote_stop_confirmed=(
+                self._remote_terminal_confirmed and not self._unconfirmed_remote_turns
+                and not self._pending_compactions
+            ),
+            deletion_request_id=request_id,
+        )
 
     @property
     def context_usage(self) -> ContextUsageFeed:
@@ -365,6 +412,11 @@ class RootConversationSession:
 
     def _activate_context_usage(self, cid: str, sid: str, *, initial: bool) -> None:
         """切换活动投影；已有会话先进入 pending，再恢复精确缓存。"""
+        self._exit_snapshot = None
+        self._exit_snapshot_released = False
+        self._remote_session_confirmed = not initial
+        self._unconfirmed_remote_turns.clear()
+        self._remote_terminal_confirmed = False
         self._context_usage.activate(cid, sid, initial=initial)
         if not initial:
             record = self._history.load_context_usage(cid, sid)
@@ -437,6 +489,7 @@ class RootConversationSession:
     def record_context_usage(self, record: ContextUsageRecord) -> None:
         """先缓存当前会话的新事实，再提交展示投影。"""
         if self._context_usage.accepts(record):
+            self._remote_session_confirmed = True
             self._history.save_context_usage(record)
             self._context_usage.apply(record)
 
@@ -580,7 +633,7 @@ class RootConversationSession:
         """读取完整权威快照，恢复期间隐藏缓存且不推进事件确认水位。"""
         if (self.cid, self.sid) != (cid, sid):
             return
-        self._context_usage.begin_replay(cid, sid)
+        observed_before = self._context_usage.begin_replay(cid, sid)
         try:
             record = await self._context_usage_recovery.load(cid, sid)
         except ContextUsageRecoveryError:
@@ -588,7 +641,7 @@ class RootConversationSession:
             record = None
         if (self.cid, self.sid) != (cid, sid):
             return
-        self._context_usage.restore(cid, sid, record)
+        self._context_usage.restore(cid, sid, record, observed_before=observed_before)
         if record is not None:
             self._history.save_context_usage(record)
         if publish:
@@ -827,16 +880,45 @@ class RootConversationSession:
 
     async def _end(self, *, reason: SessionEndReason) -> None:
         """结束当前已绑定的根会话生命周期。"""
+        candidate = None
+        if reason in {"exit", "archive"}:
+            candidate = self._exit_snapshot
+            deletion = None
+            cid, sid = self.cid, self.sid
+            if self.session_bound and cid is not None and sid is not None and self._session_deletion_store is not None:
+                deletion = await asyncio.to_thread(
+                    self._session_deletion_store.for_session, cid, sid,
+                )
+            if deletion is not None:
+                candidate = candidate or self._capture_exit("pending_delete", request_id=deletion.plan.request_id)
+                if candidate is not None:
+                    candidate = replace(
+                        candidate, disposition="deleted" if deletion.complete else "pending_delete",
+                        deletion_request_id=None if deletion.complete else deletion.plan.request_id,
+                        remote_stop_confirmed=deletion.complete or self.session_retired,
+                    )
+            else:
+                candidate = candidate or self._capture_exit("archived" if reason == "archive" else "recoverable")
+            latest = self._context_usage.view.record
+            if candidate is not None and latest is not None and (
+                candidate.record is None or latest.event_seq > candidate.record.event_seq
+            ):
+                candidate = replace(candidate, record=latest)
+        self._exit_snapshot = None
+        if reason == "error":
+            self._exit_snapshot_released = True
         recovery = self._compaction_recovery_task
         if recovery is not None:
             recovery.cancel()
             await asyncio.gather(recovery, return_exceptions=True)
         self._pending_compactions.clear()
         self._compaction_scope = None
-        self._context_usage.close(clear_listeners=reason == "exit")
+        if reason != "archive":
+            self._context_usage.close(clear_listeners=reason == "exit")
         cid = str(self._state.cid or "").strip()
         sid = str(self._state.sid or "").strip()
         if self.session_retired or not self._state.session_bound or not valid_session_ids(cid, sid):
+            self._exit_snapshot = candidate
             return None
 
         transcript_path = self._transcript_path_for(sid)
@@ -854,6 +936,9 @@ class RootConversationSession:
             transcript=transcript,
             subagent_snapshots=subagent_snapshots,
         )
+        if reason == "archive":
+            self._context_usage.close()
+        self._exit_snapshot = candidate
 
     async def delete_current(self, request_id: str) -> SessionDeletionResult:
         """协调当前根会话的远端删除、资源收束和本地幂等清理。"""
@@ -915,6 +1000,12 @@ class RootConversationSession:
         plan = record.plan
         if record.complete:
             if (self.cid, self.sid) == (plan.root.cid, plan.root.sid):
+                candidate = self._exit_snapshot or self._capture_exit("recoverable")
+                if candidate is not None:
+                    self._exit_snapshot = replace(
+                        candidate, disposition="deleted", deletion_request_id=None,
+                        remote_stop_confirmed=True,
+                    )
                 self._deleted_identity = (plan.root.cid, plan.root.sid)
             return SessionDeletionResult("deleted", request_id=request_id, remote_deleted=True)
         request = _request_from_plan(plan)
@@ -935,6 +1026,12 @@ class RootConversationSession:
         cid, sid = plan.root.cid, plan.root.sid
         is_current = (self.cid, self.sid) == (cid, sid)
         if is_current:
+            candidate = self._exit_snapshot or self._capture_exit("pending_delete", request_id=plan.request_id)
+            if candidate is not None:
+                self._exit_snapshot = replace(
+                    candidate, disposition="pending_delete", deletion_request_id=plan.request_id,
+                    remote_stop_confirmed=True,
+                )
             self._deleted_identity = (cid, sid)
         try:
             if snapshots is None:
@@ -945,6 +1042,9 @@ class RootConversationSession:
             if self._session_runtime_close is not None:
                 await self._session_runtime_close(cid, sid)
             if is_current:
+                latest = self._context_usage.view.record
+                if latest is not None and self._exit_snapshot is not None:
+                    self._exit_snapshot = replace(self._exit_snapshot, record=latest)
                 recovery = self._compaction_recovery_task
                 if recovery is not None:
                     recovery.cancel()
@@ -969,6 +1069,8 @@ class RootConversationSession:
             return SessionDeletionResult(
                 "local_failed", request_id=plan.request_id, code="local_cleanup_failed", remote_deleted=True,
             )
+        if is_current and self._exit_snapshot is not None:
+            self._exit_snapshot = replace(self._exit_snapshot, disposition="deleted", deletion_request_id=None)
         return SessionDeletionResult("deleted", request_id=plan.request_id, remote_deleted=True)
 
     async def archive_current(self) -> dict[str, typing.Any]:

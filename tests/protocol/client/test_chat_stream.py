@@ -134,10 +134,11 @@ async def _collect(stream):
 
 
 @pytest.mark.anyio
-async def test_context_usage_shares_stream_identity_and_confirmation_cursor(monkeypatch) -> None:
+@pytest.mark.parametrize("usage_turn_id", ["turn_1", ""])
+async def test_context_usage_shares_stream_identity_and_confirmation_cursor(monkeypatch, usage_turn_id) -> None:
     async def payloads():
         usage = {
-            "type": "context.usage.updated", "turn_id": "turn_1", "event_seq": 3,
+            "type": "context.usage.updated", "turn_id": usage_turn_id, "event_seq": 3,
             "context_usage": {
                 "model_context_window": 100_000,
                 "last_token_usage": {"total_tokens": 20_000},

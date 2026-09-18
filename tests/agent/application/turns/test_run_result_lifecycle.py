@@ -474,6 +474,7 @@ def _host(
         """实现 TurnSessionStatePort 的测试替身。"""
 
         record_context_usage = Mock()
+        observe_remote_turn = Mock()
         context_usage_recovery = Mock()
         discard_context_usage_prefix = Mock()
         restore_context_usage = AsyncMock()
@@ -1076,7 +1077,7 @@ async def test_context_usage_updates_session_without_content_or_wait_activity(
         assert records == []
     else:
         assert [call.args[0].last_total_tokens for call in records] == [20_000, 13_000]
-        assert [call.args[0].total_tokens for call in records] == [250_000, 250_000]
+        assert [call.args[0].total_token_usage.total_tokens for call in records] == [250_000, 250_000]
     assert not any(
         isinstance(item, ModelWaitRequested) and item.reason == "lifecycle"
         for item in host.output_session.activity.items

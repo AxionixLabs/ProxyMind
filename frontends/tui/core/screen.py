@@ -6,6 +6,8 @@ import shutil
 import sys
 import typing
 
+from agent.application.views.context_usage import SessionExitSnapshot
+
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.data_structures import (
@@ -1728,14 +1730,17 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._synchronized_frame_pending = True
         self.invalidate()
 
-    def print_exit_summary(self, session_id: str) -> None:
+    def print_exit_summary(self, snapshot: SessionExitSnapshot) -> None:
         """在 Application 停止后向终端打印会话恢复提示。"""
+        fragments = exit_summary_fragments(snapshot)
+        if not fragments:
+            return
         with contextlib.suppress(EOFError, OSError, ValueError):
             print_formatted_text(
                 PromptFormattedText(
                     (
                         ("", "\n"),
-                        *exit_summary_fragments(session_id),
+                        *fragments,
                     ),
                 ),
                 output=self.application.output,

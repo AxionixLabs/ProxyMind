@@ -15,7 +15,10 @@ from prompt_toolkit.utils import get_cwidth
 from agent.application.turns.context_usage import ContextUsageProjection
 from agent.application.views.context_usage import ContextUsageView
 from agent.ports import OutputSurfaceContext
-from agent.protocol.context_usage import ContextUsageRecord
+from agent.protocol.context_usage import (
+    ContextUsageRecord,
+    SessionTokenUsageRecord,
+)
 from frontends.terminal.capabilities import TerminalCapabilities
 from frontends.terminal.color_support import (
     TerminalColorLevel,
@@ -48,7 +51,8 @@ from tests.frontends.tui.rendering.frame_scenarios import (
 def _record() -> ContextUsageRecord:
     return ContextUsageRecord(
         cid="cid", sid="sid", turn_id="turn", event_seq=2, presentation_epoch=1,
-        model_context_window=100_000, last_total_tokens=20_000, total_tokens=250_000,
+        model_context_window=100_000, last_total_tokens=20_000,
+        total_token_usage=SessionTokenUsageRecord(250_000, 240_000, 140_000, 0, 10_000, None, 1, 0),
         usage_source="provider", model="test-model", route="responses",
     )
 
@@ -59,7 +63,8 @@ def _record() -> ContextUsageRecord:
     (1_000_000_000, "1B used"), (1_000_000_000_000, "1T used"),
 ])
 def test_unknown_window_displays_only_authoritative_total(value, expected) -> None:
-    record = replace(_record(), model_context_window=None, total_tokens=value)
+    record = replace(_record(), model_context_window=None,
+                     total_token_usage=SessionTokenUsageRecord(value, value, 0, 0, 0, None, 1, 0))
     assert context_usage_label(ContextUsageView("known", record)) == expected
 
 
@@ -70,6 +75,18 @@ def test_footer_statuses_do_not_infer_zero_usage() -> None:
     assert context_usage_label(ContextUsageView("known", _record())) == "91% context left"
     record = replace(_record(), last_total_tokens=None, usage_source="unknown")
     assert context_usage_label(ContextUsageView("known", record)) == ""
+
+
+@pytest.mark.parametrize("changes", [{"cached_input_tokens": None}, {"unreported_calls": 1}])
+def test_partial_cumulative_is_preserved_but_never_displayed_as_complete_total(changes):
+    record = _record()
+    partial = replace(record, model_context_window=None,
+                      total_token_usage=replace(record.total_token_usage, **changes))
+    projection = ContextUsageProjection()
+    projection.activate(record.cid, record.sid, initial=True)
+    projection.apply(partial)
+    assert projection.view.record == partial
+    assert context_usage_label(projection.view) == ""
 
 
 @pytest.mark.parametrize("reserved", [0, 1])
@@ -219,7 +236,7 @@ async def test_session_subscription_survives_turn_output_and_closes_with_runtime
                 assert (input_after.ypos, input_after.height) == (input_before.ypos, input_before.height)
                 assert "91% context left" in fragments_text(runtime.screen._footer_fragments())
                 with patch.object(runtime.screen, "invalidate") as invalidate:
-                    projection.apply(replace(_record(), event_seq=3, total_tokens=900_000))
+                    projection.apply(replace(_record(), event_seq=3, total_token_usage=None))
                     invalidate.assert_not_called()
                 projection.begin_replay("cid", "sid")
                 assert runtime.screen.context_usage_label == ""

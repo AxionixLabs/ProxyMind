@@ -31,7 +31,7 @@ def test_percentage_uses_independent_contract_examples(record, fixtures_root: Pa
         assert context_remaining_percent(replace(
             record, model_context_window=window, last_total_tokens=used,
         )) == expected
-    assert context_remaining_percent(replace(record, total_tokens=999_999_999)) == 91
+    assert context_remaining_percent(replace(record, total_token_usage=None)) == 91
     assert context_remaining_percent(replace(
         record, last_total_tokens=None, usage_source="unknown",
     )) is None
@@ -71,7 +71,7 @@ def test_replay_publishes_once_at_confirmed_boundary_and_unsubscribes(record) ->
     assert len(views) == 1
     projection.finish_replay(record.cid, record.sid)
     assert [view.status for view in views] == ["pending", "known"]
-    assert views[-1].record.total_tokens == 250_000
+    assert views[-1].record.total_token_usage.total_tokens == 250_000
     assert views[-1].record.last_total_tokens == 13_000
     projection.begin_replay(record.cid, record.sid)
     projection.apply(record)
@@ -114,7 +114,21 @@ def test_retained_authoritative_snapshot_can_restore_before_floor(record):
     projection.activate(record.cid, record.sid, initial=False)
     projection.discard_retained_prefix(record.cid, record.sid, 100)
     assert not projection.apply(record)
-    projection.restore(record.cid, record.sid, record)
+    projection.restore(record.cid, record.sid, record, observed_before=None)
     assert projection.view.status == 'pending'
     projection.finish_replay(record.cid, record.sid)
     assert projection.view.record == record
+
+
+@pytest.mark.parametrize("restored", ["unknown", "old", "current"])
+def test_recovery_does_not_erase_events_received_during_read(record, restored):
+    projection = ContextUsageProjection()
+    projection.activate(record.cid, record.sid, initial=True)
+    projection.apply(record)
+    before = projection.begin_replay(record.cid, record.sid)
+    latest = replace(record, event_seq=30, total_token_usage=None)
+    projection.apply(latest)
+    result = {"unknown": None, "old": record, "current": latest}[restored]
+    projection.restore(record.cid, record.sid, result, observed_before=before)
+    projection.finish_replay(record.cid, record.sid)
+    assert projection.view.record == latest

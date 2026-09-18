@@ -22,6 +22,7 @@ from protocol.client.turn_control import (
 )
 from protocol.schema.stream_events import (
     ChatStreamEvent,
+    ContextUsageUpdatedEvent,
     StreamGapEvent,
     TurnCompletedEvent,
     parse_stream_event
@@ -221,7 +222,10 @@ class TurnEventStream(object):
             event.proto != "mind.chat"
             or event.cid != attach_target["cid"]
             or event.sid != attach_target["sid"]
-            or event.turn_id != attach_target["turn_id"]
+            or (
+                event.turn_id != attach_target["turn_id"]
+                and not (isinstance(event, ContextUsageUpdatedEvent) and event.turn_id == "")
+            )
         ):
             raise ValueError("stream event does not belong to the current turn")
         if event.event_seq is None or event.event_seq < 1:

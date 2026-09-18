@@ -39,10 +39,10 @@ def context_usage_label(view: ContextUsageView) -> str:
     percent = context_remaining_percent(view.record)
     if percent is not None:
         return f"{percent}% context left"
-    total = view.record.total_tokens
-    if view.record.model_context_window is not None or total is None:
+    total = view.record.total_token_usage
+    if view.record.model_context_window is not None or total is None or not total.is_complete:
         return ""
-    return f"{_compact_tokens(total)} used"
+    return f"{_compact_tokens(total.total_tokens)} used"
 
 
 def _compact_tokens(value: int) -> str:

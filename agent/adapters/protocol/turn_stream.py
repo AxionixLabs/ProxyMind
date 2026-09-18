@@ -179,12 +179,7 @@ async def stream_turn(
     ):
         raise RuntimeError("turn session state is required")
     usage_session = (
-        session_state
-        if (
-            turn_context.agent.depth == 0
-            and source.uses_conversation_context
-            and isinstance(session_state, TurnSessionStatePort)
-        )
+        session_state if turn_context.agent.depth == 0 and isinstance(session_state, TurnSessionStatePort)
         else None
     )
 
@@ -405,6 +400,10 @@ async def stream_turn(
             usage_session.context_usage_recovery(
                 turn_context.cid, turn_context.sid, pending=True,
             )
+        if usage_session is not None:
+            usage_session.observe_remote_turn(
+                turn_context.cid, turn_context.sid, turn_context.turn_id, terminal=False,
+            )
         event_stream = await source.open(
             turn_context,
             pref_config=pref_config,
@@ -440,7 +439,7 @@ async def stream_turn(
                 first_event = False
             event_type = event.type
             if isinstance(event, ContextUsageUpdatedEvent):
-                if usage_session is not None:
+                if usage_session is not None and (source.uses_conversation_context or not event.turn_id):
                     usage_session.record_context_usage(context_usage_record(event))
                 continue
             if await model_events.handle(event, projection=event_stream):
@@ -548,6 +547,8 @@ async def stream_turn(
                         "turn.completed arrived before tool.calls.done"
                     )
                 outcome.record_completed_event(event)
+                if usage_session is not None:
+                    usage_session.observe_remote_turn(event.cid, event.sid, event.turn_id, terminal=True)
                 await tool_dispatcher.aclose()
                 await activity_projector.turn_terminal(
                     normalize_turn_terminal_status(outcome.status)

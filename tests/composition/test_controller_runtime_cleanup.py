@@ -23,7 +23,10 @@ from agent.harness.sessions.conversation import ConversationState
 from agent.harness.sessions.root import RootConversationSession
 from agent.domain.policies import preset_permissions
 from agent.ports import TurnSessionContextPort
-from agent.protocol.context_usage import ContextUsageRecord
+from agent.protocol.context_usage import (
+    ContextUsageRecord,
+    SessionTokenUsageRecord,
+)
 from agent.stores.sessions import normalize_workspace
 from infrastructure.persistence.conversation_history import LocalConversationHistory
 from agent.harness.workspace_runtime import WorkspaceRuntimeOwner
@@ -201,7 +204,8 @@ async def test_root_context_usage_survives_turn_and_restores_only_target_session
     metadata = session.snapshot()
     record = ContextUsageRecord(
         **metadata, turn_id="turn_1", event_seq=12, presentation_epoch=1,
-        model_context_window=100_000, last_total_tokens=20_000, total_tokens=250_000,
+        model_context_window=100_000, last_total_tokens=20_000,
+        total_token_usage=SessionTokenUsageRecord(250_000, 240_000, 140_000, 0, 10_000, None, 1, 0),
         usage_source="provider", model="test-model", route="responses",
     )
     views = []

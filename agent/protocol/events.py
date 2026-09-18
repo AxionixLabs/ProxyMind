@@ -82,6 +82,8 @@ def validate_model_event(event: ModelEvent) -> ModelEvent:
             ("sid", event.sid),
             ("turn_id", event.turn_id),
     ):
+        if field_name == "turn_id" and event.type == "context.usage.updated" and value == "":
+            continue
         if not value.strip():
             raise ValueError(f"model event {field_name} is required")
     if (

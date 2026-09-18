@@ -28,7 +28,10 @@ from agent.application.approvals.models import (
     ApprovalQueueSnapshot,
     ApprovalRequest,
 )
-from agent.application.views.context_usage import ContextUsageView
+from agent.application.views.context_usage import (
+    ContextUsageView,
+    SessionExitSnapshot,
+)
 from agent.ports.conversation import ContextUsageFeed
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import (
@@ -934,11 +937,11 @@ class TuiRuntime(object):
         """绑定或清除待发送附件状态判断。"""
         self.submissions.bind_pending_attachment_check(check)
 
-    def print_exit_summary(self, session_id: str) -> None:
+    def print_exit_summary(self, snapshot: SessionExitSnapshot) -> None:
         """在 TUI 释放终端后打印会话恢复提示。"""
         if self.active:
             raise RuntimeError("TUI exit summary requires a closed Application")
-        self.screen.print_exit_summary(session_id)
+        self.screen.print_exit_summary(snapshot)
 
     def add_open_callback(self, callback: typing.Callable[[], None]) -> None:
         """注册主应用首帧完成后的同步回调。"""

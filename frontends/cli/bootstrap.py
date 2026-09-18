@@ -947,7 +947,7 @@ async def finalize_application(
     output_mode: OutputMode,
     completed: bool
 ) -> None:
-    """关闭前端和运行时资源，并在已有对话时打印恢复提示。"""
+    """接收会话结束前冻结的事实，完成资源收尾后消费适用的恢复提示。"""
     observe(
         "app.shutdown.start",
         output_mode=output_mode,
@@ -963,6 +963,7 @@ async def finalize_application(
             observe_exception("session.close.failed", error)
             raise
         finally:
+            snapshot = controller.conversation.take_exit_snapshot()
             try:
                 approval_coordinator = getattr(
                     controller,
@@ -983,13 +984,8 @@ async def finalize_application(
 
         runtime = require_tui_runtime(controller.frontend.runtime)
 
-        conversation = controller.conversation
-        if (
-            conversation.turn_count > 0
-            and conversation.sid
-            and not getattr(conversation, "session_retired", False)
-        ):
-            runtime.print_exit_summary(conversation.sid)
+        if snapshot is not None:
+            runtime.print_exit_summary(snapshot)
 
 
 if __name__ == '__main__':

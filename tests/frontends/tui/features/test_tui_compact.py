@@ -301,7 +301,7 @@ async def test_compact_success_is_committed_to_tui(monkeypatch) -> None:
 
     record = host.conversation.record_context_usage.call_args.args[0]
     assert record.last_total_tokens == 13_000
-    assert record.total_tokens == 250_000
+    assert record.total_token_usage.total_tokens == 250_000
     assert closed == [True]
 
     status = next(view for view in host.views if view.type == "tui.compact.status")

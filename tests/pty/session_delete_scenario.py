@@ -136,10 +136,11 @@ async def run(directory: Path, url: str, mode: str) -> None:
         facts.stage = "complete"
     finally:
         await session.end(reason="exit")
+        snapshot = session.take_exit_snapshot()
         await application.close(cancel_running=True)
         await runtime.close()
-        if session.turn_count > 0 and session.sid and not session.session_retired:
-            runtime.print_exit_summary(session.sid)
+        if snapshot is not None:
+            runtime.print_exit_summary(snapshot)
         facts.set_detail("pending_ids", [item.request_id for item in backend.pending()])
         facts.set_detail("retired", session.session_retired)
         facts.write()

@@ -3,6 +3,8 @@
 
 import typing
 
+from agent.application.views.context_usage import SessionExitSnapshot
+
 from prompt_toolkit.styles import (
     Attrs,
     BaseStyle,
@@ -622,9 +624,11 @@ def build_tui_style_transformation(
     return DummyStyleTransformation()
 
 
-def exit_summary_fragments(session_id: str) -> tuple[tuple[str, str], ...]:
+def exit_summary_fragments(snapshot: SessionExitSnapshot) -> tuple[tuple[str, str], ...]:
     """生成 TUI 释放终端后的会话恢复提示。"""
-    command = f"{const.APP_NAME} resume {session_id}"
+    if snapshot.disposition != "recoverable":
+        return ()
+    command = f"{const.APP_NAME} resume {snapshot.sid}"
 
     return (
         (prompt_style(MUTED_STYLE), "■ "),

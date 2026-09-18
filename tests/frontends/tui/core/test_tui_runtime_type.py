@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from agent.application.views.context_usage import SessionExitSnapshot
 from prompt_toolkit.data_structures import Size
 from prompt_toolkit.output import ColorDepth
 from prompt_toolkit.output.plain_text import PlainTextOutput
@@ -41,7 +42,7 @@ def test_exit_summary_renders_as_plain_terminal_text() -> None:
     stdout = StringIO()
     runtime = TuiRuntime(output_obj=PlainTextOutput(stdout))
 
-    runtime.print_exit_summary("sid_test_1_abcdef")
+    runtime.print_exit_summary(SessionExitSnapshot("cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, False))
 
     assert stdout.getvalue() == (
         "\r\n■ To continue this session, run "
@@ -50,12 +51,24 @@ def test_exit_summary_renders_as_plain_terminal_text() -> None:
 
 
 def test_exit_summary_command_uses_semantic_accent_without_bold() -> None:
-    fragments = exit_summary_fragments("sid_test_1_abcdef")
+    fragments = exit_summary_fragments(SessionExitSnapshot("cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, False))
     command_style, command = fragments[-1]
 
     assert command == "mind resume sid_test_1_abcdef"
     assert command_style == "class:terminal.accent"
     assert "bold" not in command_style
+
+
+@pytest.mark.parametrize("disposition", ["archived", "deleted", "pending_delete"])
+def test_exit_summary_never_resumes_unavailable_session(disposition):
+    stdout = StringIO()
+    runtime = TuiRuntime(output_obj=PlainTextOutput(stdout))
+    snapshot = SessionExitSnapshot(
+        "cid_test_12345678", "sid_test_1_abcdef", disposition, None, False,
+        "delete_pending" if disposition == "pending_delete" else None,
+    )
+    runtime.print_exit_summary(snapshot)
+    assert stdout.getvalue() == ""
 
 
 def test_exit_summary_writes_codex_cyan_command_to_terminal() -> None:
@@ -67,7 +80,7 @@ def test_exit_summary_writes_codex_cyan_command_to_terminal() -> None:
     )
     runtime = TuiRuntime(output_obj=output)
 
-    runtime.print_exit_summary("sid_test_1_abcdef")
+    runtime.print_exit_summary(SessionExitSnapshot("cid_test_12345678", "sid_test_1_abcdef", "recoverable", None, False))
 
     rendered = stdout.getvalue()
     assert "\x1b[0;36mmind resume sid_test_1_abcdef" in rendered

@@ -282,7 +282,10 @@ class ProtocolModelEventStream:
         if (
             event.cid != self._cid
             or event.sid != self._sid
-            or event.turn_id != self._turn_id
+            or (
+                event.turn_id != self._turn_id
+                and not (event.type == "context.usage.updated" and event.turn_id == "")
+            )
         ):
             raise ValueError("model event does not match request coordinates")
 

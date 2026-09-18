@@ -16,7 +16,10 @@ from agent.protocol import AssistantReplySnapshot
 from agent.protocol.context_usage import ContextUsageRecord
 
 if typing.TYPE_CHECKING:
-    from agent.application.views.context_usage import ContextUsageView
+    from agent.application.views.context_usage import (
+        ContextUsageView,
+        SessionExitSnapshot,
+    )
 
 __all__ = (
     "ContextUsageRecovery",
@@ -158,6 +161,10 @@ class ConversationHistoryPort(typing.Protocol):
 
 class RootConversationPort(typing.Protocol):
     """定义入口观察和控制根会话生命周期所需的公共边界。"""
+
+    def take_exit_snapshot(self) -> "SessionExitSnapshot | None":
+        """转交并释放结束事务冻结的事实；统一收尾消费一次，失败时直接丢弃。"""
+        ...
 
     @property
     def context_usage(self) -> ContextUsageFeed:

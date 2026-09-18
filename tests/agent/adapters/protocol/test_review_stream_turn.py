@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import (
     AsyncMock,
@@ -168,6 +169,7 @@ class _SessionState:
         self.replies = []
         self.contexts = []
         self.record_context_usage = Mock()
+        self.observe_remote_turn = Mock()
         self.context_usage_recovery = Mock()
         self.discard_context_usage_prefix = Mock()
         self.restore_context_usage = AsyncMock()
@@ -481,7 +483,11 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
         },
     })
     result_received = asyncio.Event()
-    stream = _ReviewStream((usage, *_events()), result_received)
+    cumulative = replace(usage, turn_id="", event_seq=2, snapshot=replace(
+        usage.snapshot, model="main-model",
+        last_token_usage=replace(usage.snapshot.last_token_usage, total_tokens=13_000),
+    ))
+    stream = _ReviewStream((usage, cumulative, *_events()), result_received)
     capability = _ReviewCapability(stream)
     source = SubmittingReviewTurnStreamSource(capability, command.request)
     projector = ReviewEventProjector(
@@ -550,7 +556,10 @@ async def test_review_reuses_standard_activity_and_tool_event_pump(
 
     assert result.status == "completed"
     assert result.assistant_text == "No findings."
-    session_state.record_context_usage.assert_not_called()
+    session_state.record_context_usage.assert_called_once()
+    assert session_state.record_context_usage.call_args.args[0].turn_id == ""
+    assert session_state.record_context_usage.call_args.args[0].last_total_tokens == 13_000
+    assert session_state.record_context_usage.call_args.args[0].model == "main-model"
     session_state.context_usage_recovery.assert_not_called()
     assert [event.type for event in input_events] == [
         "turn.started",

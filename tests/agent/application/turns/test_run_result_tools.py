@@ -551,6 +551,7 @@ def _host(
         """实现 TurnSessionStatePort 的测试替身。"""
 
         record_context_usage = Mock()
+        observe_remote_turn = Mock()
         context_usage_recovery = Mock()
         discard_context_usage_prefix = Mock()
         restore_context_usage = AsyncMock()
