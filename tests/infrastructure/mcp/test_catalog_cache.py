@@ -71,7 +71,8 @@ def test_effective_config_fingerprint_covers_environment_headers_and_policy():
     second = normalize_mcp_servers(config, environment={"TEST_TOKEN": "second"})[0]
     assert configuration_identity(first) != configuration_identity(second)
     assert "first" not in configuration_identity(first)
-    assert configuration_identity(first) != configuration_identity({**first, "tool_filter": {"deny": ["*"]}})
+    assert configuration_identity(first) != configuration_identity({**first, "tool_filter": {"enabled_tools": []}})
+    assert configuration_identity(first) != configuration_identity({**first, "tool_filter": {"disabled_tools": ["read"]}})
 
 
 @pytest.mark.parametrize("value", [-1, True, "1", float("inf"), float("nan")])

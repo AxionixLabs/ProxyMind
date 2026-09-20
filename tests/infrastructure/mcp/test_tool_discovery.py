@@ -32,7 +32,7 @@ async def test_all_pages_are_filtered_and_annotated_as_one_catalog() -> None:
     session.list_tools = AsyncMock(side_effect=[page(["first"], "next"), page([], "last"), page(["second", "hidden"])])
     tools, discovered = await ExternalMcpGroup._collect_tools(
         mcp_types.Implementation(name="audit", version="1"), session,
-        rules={"deny": ["hidden"]}, default_approval_mode="prompt", config_server_key="audit",
+        rules={"disabled_tools": ["hidden"]}, default_approval_mode="prompt", config_server_key="audit",
     )
     assert discovered == 3
     assert list(tools) == ["mcp__audit__first", "mcp__audit__second"]

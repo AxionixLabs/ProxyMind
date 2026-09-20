@@ -521,8 +521,8 @@ MCP_BOOL_FIELDS = frozenset({
 })
 MCP_STRING_LIST_FIELDS = frozenset({
     "args",
-    "allow",
-    "deny",
+    "enabled_tools",
+    "disabled_tools",
 })
 MCP_STRING_MAP_FIELDS = frozenset({
     "env",

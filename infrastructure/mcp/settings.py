@@ -4,12 +4,12 @@
 import math
 import os
 import typing
-from fnmatch import fnmatchcase
 from urllib.parse import urlsplit
 
 from agent.domain.mcp_authorization import McpAuthorizationStatus
 from agent.domain.mcp_oauth import McpOAuthBinding
 from agent.ports.mcp_runtime import McpTransport
+from agent.protocol.json_value import ThawedJsonValue
 from infrastructure.config.mcp_oauth import McpOAuthServerSettings
 from .values import slugify_mcp_name
 
@@ -19,6 +19,13 @@ DEFAULT_MCP_OPTIONAL_STARTUP_WAIT_SEC = 1.0
 DEFAULT_MCP_REQ_TIMEOUT_SEC = 60.0
 DEFAULT_MCP_SSE_TIMEOUT_SEC = 30 * 60
 MCP_APPROVAL_MODES = frozenset({"auto", "prompt", "writes", "approve"})
+
+
+class McpToolFilter(typing.TypedDict, total=False):
+    """保存配置边界校验后的原始工具名列表，随服务配置传入目录收集流程。"""
+
+    enabled_tools: list[str]
+    disabled_tools: list[str]
 
 
 class NormalizedMcpServer(typing.TypedDict, total=False):
@@ -33,7 +40,7 @@ class NormalizedMcpServer(typing.TypedDict, total=False):
     startup_timeout_sec: float
     optional_startup_wait_sec: float
     timeout_sec: float
-    tool_filter: dict[str, list[str]]
+    tool_filter: McpToolFilter
     default_tools_approval_mode: str
     tool_approval_modes: dict[str, str]
     command: str
@@ -88,22 +95,17 @@ def string_list(value: typing.Any) -> list[str]:
     ]
 
 
-def _tool_patterns(value: typing.Any) -> list[str]:
-    """规范化外接 MCP 工具匹配模式，并保持配置顺序。"""
+def _tool_names(value: ThawedJsonValue) -> list[str]:
+    """校验并复制原始工具名列表，保留名称的大小写和空白。"""
     if not isinstance(value, list):
-        return []
+        raise McpConfigError("MCP tool filter must be an array of strings")
 
-    patterns: list[str] = []
-    seen: set[str] = set()
+    names: list[str] = []
     for item in value:
         if not isinstance(item, str):
-            continue
-        pattern = item.strip()
-        if not pattern or pattern in seen:
-            continue
-        seen.add(pattern)
-        patterns.append(pattern)
-    return patterns
+            raise McpConfigError("MCP tool filter must be an array of strings")
+        names.append(item)
+    return names
 
 
 def normalize_mcp_approval_mode(
@@ -140,21 +142,14 @@ def _tool_approval_modes(value: typing.Any) -> dict[str, str]:
     return result
 
 
-def is_mcp_tool_allowed(name: str, rules: typing.Any) -> bool:
-    """按原始工具名判断外接 MCP 工具是否允许暴露。"""
-    policy = rules if isinstance(rules, dict) else {}
-    tool_name = str(name)
-
-    allow = policy.get("allow")
-    if "allow" in policy and not any(
-        fnmatchcase(tool_name, pattern) for pattern in list(allow or [])
-    ):
+def is_mcp_tool_allowed(name: str, rules: McpToolFilter | None) -> bool:
+    """精确匹配原始工具名，显式空允许列表关闭全部工具，禁用列表优先。"""
+    if rules is None:
+        return True
+    enabled_tools = rules.get("enabled_tools")
+    if enabled_tools is not None and name not in enabled_tools:
         return False
-
-    deny = policy.get("deny")
-    return not any(
-        fnmatchcase(tool_name, pattern) for pattern in list(deny or [])
-    )
+    return name not in rules.get("disabled_tools", [])
 
 
 def normalize_mcp_servers(
@@ -197,11 +192,11 @@ def normalize_mcp_servers(
             item.get("tool_timeout_sec"),
             DEFAULT_MCP_REQ_TIMEOUT_SEC,
         )
-        tool_rules: dict[str, list[str]] = {}
-        if "allow" in item:
-            tool_rules["allow"] = _tool_patterns(item.get("allow"))
-        if "deny" in item:
-            tool_rules["deny"] = _tool_patterns(item.get("deny"))
+        tool_rules: McpToolFilter = {}
+        if "enabled_tools" in item:
+            tool_rules["enabled_tools"] = _tool_names(item["enabled_tools"])
+        if "disabled_tools" in item:
+            tool_rules["disabled_tools"] = _tool_names(item["disabled_tools"])
 
         unique_slug = slug
         suffix = 2

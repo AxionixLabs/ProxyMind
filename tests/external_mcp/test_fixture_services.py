@@ -174,7 +174,7 @@ def test_fixture_configuration_is_isolated_reproducible_and_not_overwritten(tmp_
     assert disabled["enabled"] is False
     assert str(tmp_path) in " ".join(disabled["args"])
     filtered = next(item for item in servers if item["config_key"] == "Filtered")
-    assert filtered["tool_filter"] == {"allow": []}
+    assert filtered["tool_filter"] == {"enabled_tools": []}
     with pytest.raises(FileExistsError):
         write_config(tmp_path, (), repository=repository_root)
     assert path.read_bytes() == before

@@ -230,10 +230,10 @@ def _add_config(command: McpAddCommand) -> dict[str, typing.Any]:
 
     if command.required:
         config["required"] = True
-    if command.allow:
-        config["allow"] = list(command.allow)
-    if command.deny:
-        config["deny"] = list(command.deny)
+    if command.enabled_tools is not None:
+        config["enabled_tools"] = list(command.enabled_tools)
+    if command.disabled_tools is not None:
+        config["disabled_tools"] = list(command.disabled_tools)
     if command.approval_mode is not None:
         config["default_tools_approval_mode"] = command.approval_mode
     if command.startup_timeout_sec is not None:

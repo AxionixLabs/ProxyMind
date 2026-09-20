@@ -202,7 +202,10 @@ class McpScenario:
                 raise RuntimeError("submitted command has no input payload")
             self.facts.record_submission(submission, queue_only=False)
             before = len(self.application.views)
-            action = await self.dispatcher.dispatch(value)
+            try:
+                action = await self.dispatcher.dispatch(value)
+            finally:
+                self.runtime.discard_pending_submission()
             if self.protocol_client.mock_calls:
                 raise RuntimeError("local MCP command contacted the protocol client")
             if action is DispatchAction.EXIT:
@@ -212,6 +215,8 @@ class McpScenario:
             changed = self.application.views[before:]
             if any(view["type"] in {"tui.external_mcp.status", "tui.external_mcp.interrupted"} for view in changed):
                 await self.probe_ready_services()
+                if self.facts.scenario == "filtering":
+                    await self.probe_filtered_tools()
             self.facts.set_detail("latest_views", changed)
             self.completed += 1
             if self.facts.scenario == "busy" and self.completed == 1:
@@ -220,6 +225,35 @@ class McpScenario:
                 self.held_scope.close()
                 self.held_tools = None
             self.publish()
+
+    async def probe_filtered_tools(self) -> None:
+        """验证冻结目录和 Hook 调用均拒绝已过滤工具，不向服务发送请求。"""
+        rejected: list[ThawedJsonValue] = []
+        with self.owner.use_tools() as tools:
+            if tools is not None:
+                for service in self.owner.snapshot.services:
+                    if service.state != "ready":
+                        continue
+                    alias = service.tool_prefix.removeprefix("mcp__").removesuffix("__")
+                    for raw_name in ("ping", "block"):
+                        name = service.tool_prefix + raw_name
+                        if name in service.tools:
+                            continue
+                        async with asyncio.timeout(2.0):
+                            try:
+                                await tools.call_tool(name)
+                            except KeyError:
+                                pass
+                            else:
+                                raise AssertionError(f"filtered tool was callable: {name}")
+                            try:
+                                await tools.call_hook_tool(alias, raw_name)
+                            except KeyError:
+                                pass
+                            else:
+                                raise AssertionError(f"filtered Hook tool was callable: {name}")
+                        rejected.append(name)
+        self.facts.set_detail("rejected_tools", rejected)
 
     async def run(self) -> None:
         """共同监督输入和观测任务，任一异常均结束场景并释放资源。"""
@@ -255,7 +289,7 @@ async def execute(scenario: str, facts_path: Path, *, animate: bool) -> None:
     repository = Path.cwd()
     async with contextlib.AsyncExitStack() as stack:
         remotes = []
-        if scenario == "control":
+        if scenario in {"control", "filtering"}:
             specifications: tuple[tuple[str, FixtureTransport], ...] = (("H", "streamable_http"), ("S", "sse"))
             for name, transport in specifications:
                 remotes.append(await stack.enter_async_context(remote_fixture(FixtureSpec(
@@ -264,6 +298,22 @@ async def execute(scenario: str, facts_path: Path, *, animate: bool) -> None:
         config_path = write_config(directory, tuple(remotes), repository=repository)
         store = ConfigStore(config_path)
         store.update({("mcp_servers", "Slow", "startup_timeout_sec"): 30.0})
+        if scenario == "filtering":
+            filters: dict[str, dict[str, ThawedJsonValue]] = {
+                "A": {"enabled_tools": ["ping", "block"], "disabled_tools": ["block"]},
+                "B": {"disabled_tools": ["block"]},
+                "Filtered": {"enabled_tools": []},
+                "Docs API": {"enabled_tools": ["p*"]},
+                "Docs/API": {"enabled_tools": ["PING"]},
+                "all": {"enabled_tools": [" ping "]},
+                "H": {"enabled_tools": ["ping"]},
+                "S": {"enabled_tools": ["ping"], "disabled_tools": []},
+            }
+            servers = store.read_raw()["mcp_servers"]
+            store.update({("mcp_servers",): {
+                key: {**servers[key], **rules, "enabled": True, "optional_startup_wait_sec": 0}
+                for key, rules in filters.items()
+            }})
         if scenario == "navigation":
             spec = FixtureSpec(directory, "long-name", repository=repository)
             store.update({("mcp_servers", "Long service name with spaces and a narrow terminal"): {
@@ -273,6 +323,7 @@ async def execute(scenario: str, facts_path: Path, *, animate: bool) -> None:
         config = ConfigSession(store, workspace=directory)
         facts.set_detail("config_before", config_digest(config_path))
         facts.set_detail("remote_urls", {remote.spec.name: remote.url for remote in remotes})
+        facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
         capabilities = detect_terminal_capabilities(input_stream=sys.stdin, output_stream=sys.stdout)
         runtime = TuiRuntime(input_obj=create_tui_input(sys.stdin), terminal_capabilities=capabilities)
         await runtime.open()
@@ -292,7 +343,7 @@ async def execute(scenario: str, facts_path: Path, *, animate: bool) -> None:
 def main() -> None:
     """解析原生 MCP 验收场景及动画策略。"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenario", choices=("control", "busy", "failure", "navigation"))
+    parser.add_argument("scenario", choices=("control", "busy", "failure", "navigation", "filtering"))
     parser.add_argument("facts", type=Path)
     parser.add_argument("--no-animation", action="store_true")
     arguments = parser.parse_args()

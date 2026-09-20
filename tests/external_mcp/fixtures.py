@@ -209,7 +209,7 @@ def write_config(directory: Path, remotes: tuple[RemoteFixture, ...], *, reposit
         item["optional_startup_wait_sec"] = 0
         item["tool_timeout_sec"] = 30.0
         if key == "Filtered":
-            item["allow"] = []
+            item["enabled_tools"] = []
         servers[key] = item
     for remote in remotes:
         servers[remote.spec.name] = {"url": remote.url, "enabled": True}

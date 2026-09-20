@@ -685,8 +685,8 @@ async def test_external_mcp_filters_discovered_tools_before_registration() -> No
         Session(),
         transport="stdio",
         rules={
-            "allow": ["*_bug", "list_*"],
-            "deny": ["delete_*"],
+            "enabled_tools": ["get_bug", "delete_bug", "list_projects"],
+            "disabled_tools": ["delete_bug"],
         },
         default_approval_mode="writes",
         tool_approval_modes={"get_bug": "prompt"},

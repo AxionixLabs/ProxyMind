@@ -33,8 +33,8 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "env": {"MODE": "test"},
             "cwd": ".",
             "required": True,
-            "allow": ["read_*", "read_*", ""],
-            "deny": ["read_secret"],
+            "enabled_tools": ["read_file", "read_file", " read_file ", ""],
+            "disabled_tools": ["read_secret"],
             "startup_timeout_sec": 12,
             "tool_timeout_sec": 30,
             "tools": {
@@ -65,8 +65,8 @@ def test_mcp_settings_normalize_stdio_and_remote_servers() -> None:
             "optional_startup_wait_sec": 1.0,
             "timeout_sec": 30.0,
             "tool_filter": {
-                "allow": ["read_*"],
-                "deny": ["read_secret"],
+                "enabled_tools": ["read_file", "read_file", " read_file ", ""],
+                "disabled_tools": ["read_secret"],
             },
             "default_tools_approval_mode": "writes",
             "tool_approval_modes": {"create_issue": "prompt"},

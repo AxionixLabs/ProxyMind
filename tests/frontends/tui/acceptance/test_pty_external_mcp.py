@@ -321,6 +321,48 @@ def test_native_mcp_controls_real_transports_without_restarting_other_services(t
             client.save()
 
 
+def test_native_mcp_exact_filters_block_calls_across_real_transports(tmp_path: Path) -> None:
+    path = tmp_path / "facts.json"
+    with _spawn("filtering", path) as terminal:
+        client = McpTerminal(terminal, path)
+        try:
+            client.ready()
+            initial = client.command("/mcp start")
+            assert initial["tty"] == {"stdin": True, "stdout": True}
+            for key, prefix in (("A", "a"), ("B", "b"), ("H", "h"), ("S", "s")):
+                service = _service(initial, key)
+                assert service["state"] == "ready"
+                assert service["tools"] == [f"mcp__{prefix}__ping"]
+                assert service["discovered"] == 2 and service["filtered"] == 1
+                assert _identity(initial, key)
+            for key in ("Filtered", "Docs API", "Docs/API", "all"):
+                service = _service(initial, key)
+                assert service["state"] == "ready"
+                assert service["tools"] == []
+                assert service["discovered"] == service["filtered"] == 2
+            rejected = initial["rejected_tools"]
+            assert isinstance(rejected, list) and len(rejected) == 12
+            client.command("/mcp status")
+            terminal.wait_for_screen_text("MCP Tools")
+            restarted = client.action("A", "restart")
+            assert _identity(restarted, "A") != _identity(initial, "A")
+            assert _identity(restarted, "B") == _identity(initial, "B")
+            assert _service(restarted, "A")["tools"] == ["mcp__a__ping"]
+            assert restarted["rejected_tools"] == rejected
+            for name in ("a", "b", "H", "S"):
+                calls = [fact.tool for fact in read_facts(tmp_path / "services" / f"{name}.jsonl")
+                         if fact.event == "tool.started"]
+                assert calls and set(calls) == {"ping"}
+            for name in ("filtered", "alias-one", "alias-two", "named-all"):
+                facts = read_facts(tmp_path / "services" / f"{name}.jsonl")
+                assert any(fact.event == "tools.listed" for fact in facts)
+                assert not any(fact.event == "tool.started" for fact in facts)
+            client.close()
+            _assert_stdio_sessions_closed(tmp_path / "services")
+        finally:
+            client.save()
+
+
 def test_native_mcp_busy_scope_blocks_stop_and_keeps_its_tool_catalog(tmp_path: Path) -> None:
     path = tmp_path / "facts.json"
     with _spawn("busy", path) as terminal:

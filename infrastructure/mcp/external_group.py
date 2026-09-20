@@ -71,6 +71,7 @@ from infrastructure.mcp.initialize_retry import (
     is_retryable_initialize_error,
 )
 from infrastructure.mcp.settings import (
+    McpToolFilter,
     NormalizedMcpServer,
     is_mcp_tool_allowed,
     normalize_mcp_approval_mode,
@@ -471,7 +472,7 @@ class ExternalMcpGroup:
         session: ClientSession,
         *,
         transport: str | None = None,
-        rules: dict[str, list[str]] | None = None,
+        rules: McpToolFilter | None = None,
         default_approval_mode: str = "auto",
         tool_approval_modes: dict[str, str] | None = None,
         config_server_key: str | None = None,

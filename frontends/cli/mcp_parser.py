@@ -114,8 +114,14 @@ def _parse_add_command(
         "env_http_headers",
     )
 
-    allow = _patterns(parser, values, "allow")
-    deny = _patterns(parser, values, "deny")
+    enabled_tools = (
+        None if values["enabled_tools"] is None
+        else _string_sequence(parser, values, "enabled_tools")
+    )
+    disabled_tools = (
+        None if values["disabled_tools"] is None
+        else _string_sequence(parser, values, "disabled_tools")
+    )
     raw_approval_mode = _optional_string(parser, values, "approval_mode")
     approval_mode = (
         raw_approval_mode
@@ -163,8 +169,8 @@ def _parse_add_command(
             env_http_headers=env_http_headers,
             enabled=not bool(values["disabled"]),
             required=bool(values["required"]),
-            allow=allow,
-            deny=deny,
+            enabled_tools=enabled_tools,
+            disabled_tools=disabled_tools,
             approval_mode=approval_mode,
             startup_timeout_sec=startup_timeout_sec,
             tool_timeout_sec=tool_timeout_sec,
@@ -183,8 +189,8 @@ def _parse_add_command(
         cwd=cwd,
         enabled=not bool(values["disabled"]),
         required=bool(values["required"]),
-        allow=allow,
-        deny=deny,
+        enabled_tools=enabled_tools,
+        disabled_tools=disabled_tools,
         approval_mode=approval_mode,
         startup_timeout_sec=startup_timeout_sec,
         tool_timeout_sec=tool_timeout_sec,
@@ -254,27 +260,6 @@ def _key_value_pairs(
         pairs.append((name, value))
 
     return tuple(pairs)
-
-
-def _patterns(
-    parser: argparse.ArgumentParser,
-    values: dict[str, object],
-    key: str
-) -> tuple[str, ...]:
-    """读取并去重一个非空匹配模式序列。"""
-    patterns: list[str] = []
-    seen: set[str] = set()
-
-    for raw in _string_sequence(parser, values, key):
-        pattern = raw.strip()
-        if not pattern:
-            parser.error(f"--{key} pattern must not be empty")
-        if pattern in seen:
-            continue
-        seen.add(pattern)
-        patterns.append(pattern)
-
-    return tuple(patterns)
 
 
 def _positive_number(

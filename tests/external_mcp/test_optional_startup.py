@@ -122,7 +122,7 @@ async def test_pending_startup_retires_without_late_publication(delayed_runtime,
         if outcome == "retire":
             runtime.retire()
         elif outcome == "config":
-            config.servers["delayed"]["deny"] = ["*"]
+            config.servers["delayed"]["enabled_tools"] = []
         elif outcome == "disable":
             config.servers["delayed"]["enabled"] = False
         elif outcome == "stop":

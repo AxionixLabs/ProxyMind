@@ -154,8 +154,8 @@ class McpAddCommand(object):
     cwd: str | None = None
     enabled: bool = True
     required: bool = False
-    allow: tuple[str, ...] = ()
-    deny: tuple[str, ...] = ()
+    enabled_tools: tuple[str, ...] | None = None
+    disabled_tools: tuple[str, ...] | None = None
     approval_mode: McpApprovalModeValue | None = None
     startup_timeout_sec: float | None = None
     tool_timeout_sec: float | None = None

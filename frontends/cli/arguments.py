@@ -480,18 +480,18 @@ def create_cli_parser() -> CliArgumentParser:
         help="Fail startup when this server cannot be initialized",
     )
     mcp_add_options.add_argument(
-        "--allow",
+        "--enabled-tool",
         action="append",
-        default=[],
-        metavar="PATTERN",
-        help="Allow a tool name or glob pattern (repeatable)",
+        dest="enabled_tools",
+        metavar="NAME",
+        help="Expose only these exact MCP tool names (repeatable)",
     )
     mcp_add_options.add_argument(
-        "--deny",
+        "--disabled-tool",
         action="append",
-        default=[],
-        metavar="PATTERN",
-        help="Deny a tool name or glob pattern (repeatable)",
+        dest="disabled_tools",
+        metavar="NAME",
+        help="Disable an exact MCP tool name, overriding enabled tools (repeatable)",
     )
     mcp_add_options.add_argument(
         "--approval-mode",
