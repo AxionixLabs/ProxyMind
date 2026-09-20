@@ -134,7 +134,7 @@ def test_approval_footer_uses_runtime_keymap_labels() -> None:
     )
 
     text = "\n".join(_line_texts(lines))
-    assert "Press f18 to confirm" in text
+    assert "f18 to submit" in text
     assert "Press enter" not in text
 
 
@@ -204,7 +204,17 @@ def test_mcp_approval_card_uses_structured_fields_and_semantic_styles() -> None:
     text_lines = _line_texts(lines)
     text = "\n".join(text_lines)
 
-    assert "Would you like to approve the following MCP tool call?" in text
+    assert 'Allow GitHub to run tool "create_issue"?' in text
+    assert "Field 1/1" in text
+    assert "authorization: [redacted]" in text
+    assert "title: Bug report" in text
+    assert "Server:" not in text and "Risk:" not in text
+    assert "Run the tool and continue." in text
+    assert "enter to submit | esc to cancel" in text
+    assert "(y)" not in text
+    assert any(style == "class:approval-mcp-prompt" for line in lines for style, _ in line)
+    details = approval_command_pager_lines(approval)
+    text_lines = _line_texts(details)
     ordered = [
         next(index for index, line in enumerate(text_lines) if line.startswith(label))
         for label in (
@@ -220,23 +230,19 @@ def test_mcp_approval_card_uses_structured_fields_and_semantic_styles() -> None:
         )
     ]
     assert ordered == sorted(ordered)
-    source_index = next(
-        index for index, line in enumerate(text_lines)
-        if line == "Agent worker · agent-worker"
-    )
-    assert source_index < ordered[0]
+    assert "Agent worker · agent-worker" in text
     assert "Bearer private" not in text
     assert "[redacted]" in text
     assert any(
         style == "class:approval-mcp-write"
-        for line in lines
+        for line in details
         for style, value in line
         if "external" in value or "write" in value
     )
     assert approval_pager_title(approval) == "M C P"
 
 
-def test_mcp_approval_narrow_layout_keeps_identity_risk_and_options() -> None:
+def test_mcp_approval_narrow_layout_keeps_prompt_and_options() -> None:
     lines = tui_approval_content_lines(
         ["accept", "acceptForSession", "decline"],
         approval={
@@ -257,15 +263,15 @@ def test_mcp_approval_narrow_layout_keeps_identity_risk_and_options() -> None:
 
     assert len(lines) <= 10
     assert all(get_cwidth(line) <= 24 for line in text_lines)
-    assert any(line.startswith("Server:") for line in text_lines)
-    assert any(line.startswith("Tool:") for line in text_lines)
-    assert any(line.startswith("Risk:") for line in text_lines)
+    assert "Allow the" in " ".join(text_lines)
+    assert "very-long-server-name" in " ".join(text_lines)
+    assert "create_issue" in " ".join(text_lines)
     assert any(line.startswith("› 1.") for line in text_lines)
     assert any(line.startswith("  3.") for line in text_lines)
 
 
 def test_mcp_gateway_approval_keeps_operation_arguments_when_description_is_collapsed() -> None:
-    decisions = ["accept", "acceptForSession", "acceptAndRemember", "decline"]
+    decisions = ["accept", "acceptForSession", "acceptAndRemember", "cancel"]
     lines = tui_approval_content_lines(
         decisions,
         approval={
@@ -285,12 +291,47 @@ def test_mcp_gateway_approval_keeps_operation_arguments_when_description_is_coll
     )
     text = "\n".join(_line_texts(lines))
     assert len(lines) <= 20
-    assert "Arguments (2):" in text
-    assert 'name="find_releases"' in text
-    assert "arguments={}" in text
-    assert "Risk: destructive" in text
+    assert "name: find_releases" in text
+    assert "arguments: {}" in text
     assert "for this session" in text
-    assert "don't ask again" in text
+    assert "Always allow" in text
+    assert "Cancel this tool call" in text
+
+
+def test_mcp_approval_codex_layout_and_three_parameter_limit() -> None:
+    decisions = ["accept", "acceptForSession", "acceptAndRemember", "cancel"]
+    approval = {
+        "kind": "mcp_tool_call", "server": "docs", "tool_name": "publish",
+        "_local_mcp_approval": True, "available_decisions": decisions,
+        "arguments": {"d": "hidden", "b": "line\n next", "a": 1, "c": {"enabled": True}},
+    }
+    lines = tui_approval_content_lines(decisions, approval=approval, width=100)
+    assert _line_texts(lines) == [
+        "", "Field 1/1", 'Allow the docs MCP server to run tool "publish"?', "",
+        "a: 1", "b: line next", 'c: {"enabled": true}', "",
+        "› 1. Allow                   Run the tool and continue.",
+        "  2. Allow for this session  Run the tool and remember this choice for this session.",
+        "  3. Always allow            Run the tool and remember this choice for future tool calls.",
+        "  4. Cancel                  Cancel this tool call",
+        "", "enter to submit | esc to cancel", "",
+    ]
+    assert "hidden" in "\n".join(_line_texts(approval_command_pager_lines(approval)))
+
+
+@pytest.mark.parametrize("width", [24, 36, 76, 100])
+@pytest.mark.parametrize("height", [6, 10, 20])
+def test_mcp_approval_layout_bounds_and_selected_option(width: int, height: int) -> None:
+    decisions = ["accept", "acceptForSession", "acceptAndRemember", "cancel"]
+    lines = tui_approval_content_lines(
+        decisions, approval={
+            "kind": "mcp_tool_call", "server": "docs", "tool_name": "publish",
+            "arguments": {"body": "long value " * 80},
+        }, width=width, max_height=height, selected_index=3,
+    )
+    text = _line_texts(lines)
+    assert len(lines) <= height
+    assert all(get_cwidth(line) <= width for line in text)
+    assert any("› 4. Cancel" in line for line in text)
 
 
 def test_patch_approval_uses_dedicated_fullscreen_title_and_preview() -> None:

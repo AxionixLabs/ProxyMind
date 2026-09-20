@@ -11,6 +11,7 @@ from agent.protocol.json_value import freeze_json
 from agent.protocol.json_value import thaw_object
 from tests.pty import PtyKey
 from tests.pty import TerminalHarness
+from tests.pty import TerminalInputSource
 from tests.pty import TerminalMode
 from tests.pty import TerminalSize
 from tests.pty import TerminalSnapshot
@@ -163,6 +164,32 @@ def _assert_first_frame_golden(
 def _expected_tui_width(size: TerminalSize) -> int:
     """返回 prompt_toolkit 在当前平台暴露的内容宽度。"""
     return size.columns - 1 if sys.platform == "win32" else size.columns
+
+
+def test_idle_resize_without_keys_after_open_and_reopen(tmp_path: Path) -> None:
+    facts_path = tmp_path / "facts.json"
+    with _spawn_render_scenario("idle_resize", facts_path) as terminal:
+        for stage, size in (
+            ("initial", TerminalSize(rows=18, columns=44)),
+            ("reopened", TerminalSize(rows=28, columns=100)),
+        ):
+            facts = _wait_for_stage(facts_path, f"{stage}_ready")
+            assert _detail(facts, "tty") == {"stdin": True, "stdout": True}
+            terminal.resize(size)
+            _acknowledge(facts_path, f"{stage}_ready")
+            facts = _wait_for_stage(facts_path, f"{stage}_resized")
+            assert _detail(facts, f"{stage}_geometry") == [_expected_tui_width(size), size.rows]
+            terminal.wait_for_screen_text("pty-model")
+            _assert_first_frame_golden(terminal.screen.snapshot(), size)
+            assert not any(event.source is TerminalInputSource.USER for event in terminal.input_events)
+            terminal.save_failure_artifacts(tmp_path / stage)
+            _acknowledge(facts_path, f"{stage}_resized")
+        assert terminal.wait_for_exit(timeout=10) == 0
+        facts = _read_facts(facts_path)
+        assert facts["stage"] == "complete" and facts["submissions"] == []
+        assert _detail(facts, "application_running") is False
+        assert _detail(facts, "application_background_tasks") == 0
+        _assert_cursor_restored(tuple(event.mode for event in terminal.mode_events))
 
 
 @pytest.mark.parametrize(

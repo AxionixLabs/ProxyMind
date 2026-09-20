@@ -209,7 +209,9 @@ async def _render_next_frame(runtime: TuiRuntime) -> Screen:
 
 async def _wait_for_screen_text(runtime: TuiRuntime, expected: str) -> None:
     """等待动画正文通过正式 renderer 出现在可见帧。"""
-    for _ in range(100):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 2.0
+    while loop.time() < deadline:
         screen = await _render_next_frame(runtime)
         if expected in _rendered_screen_text(screen):
             return None

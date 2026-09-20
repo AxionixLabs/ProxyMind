@@ -373,7 +373,11 @@ class ApprovalCoordinator:
                             )
                             self._changed()
                             continue
-                        if decision == "cancel":
+                        local_mcp = (
+                            current.request.key.kind == "mcp_tool_call"
+                            and current.request.payload.get("_local_mcp_approval") is True
+                        )
+                        if decision == "cancel" and not local_mcp:
                             self._settle_batch_cancel(current)
                         else:
                             decision_source = self._interaction.approval_source

@@ -548,6 +548,34 @@ async def _run_menu_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
+async def _run_idle_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证首次打开和重新打开后，空闲输入界面无需按键即可随终端缩放。"""
+    application = runtime.screen.application
+    facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
+    for stage, columns, rows in (("initial", 44, 18), ("reopened", 100, 28)):
+        if stage == "reopened":
+            await runtime.close()
+            assert not application.is_running and not application._background_tasks
+            await runtime.open()
+
+        revision = application.render_counter
+        facts.set_detail(f"{stage}_before_revision", revision)
+        await _checkpoint(facts, f"{stage}_ready")
+        width = columns - 1 if sys.platform == "win32" else columns
+        await _wait_until(
+            lambda: (
+                application.render_counter > revision
+                and runtime.viewport._reflowed_geometry == (width, rows)
+            ),
+            f"{stage} idle resize",
+        )
+        size = application.renderer._last_size
+        assert size is not None and (size.columns, size.rows) == (width, rows)
+        facts.set_detail(f"{stage}_after_revision", application.render_counter)
+        facts.set_detail(f"{stage}_geometry", [size.columns, size.rows])
+        await _checkpoint(facts, f"{stage}_resized")
+
+
 async def _run(scenario: str, facts_path: Path) -> None:
     """在原生终端中运行指定渲染与生命周期场景。"""
     reset_sinks()
@@ -577,6 +605,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_resize(runtime, facts)
         elif scenario == "menu_resize":
             await _run_menu_resize(runtime, facts)
+        elif scenario == "idle_resize":
+            await _run_idle_resize(runtime, facts)
         elif scenario == "overlay":
             await _run_overlay(runtime, facts)
         elif scenario in {"sync_cancel", "sync_exception"}:
@@ -590,6 +620,8 @@ async def _run(scenario: str, facts_path: Path) -> None:
         facts.stage = "complete"
     finally:
         await runtime.close()
+        facts.set_detail("application_running", runtime.screen.application.is_running)
+        facts.set_detail("application_background_tasks", len(runtime.screen.application._background_tasks))
         facts.write()
 
 

@@ -74,6 +74,7 @@ from frontends.tui.contracts.screen import (
     ResumePickerScreenPort,
 )
 from frontends.tui.contracts.transcript import MailboxEntry
+from frontends.tui.runtime.lifecycle import TerminalApplication
 from .approval import TuiApproval
 from .approval_render import TUI_APPROVAL_STYLE
 from .bottom_pane import (
@@ -1176,7 +1177,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         application_input = input_obj or (DummyInput() if dummy_io else None)
         application_output = output_obj or (DummyOutput() if dummy_io else None)
 
-        self.application: Application[None] = Application(
+        self.application: Application[None] = TerminalApplication(
             layout=Layout(self.root, focused_element=self.input),
             key_bindings=merge_key_bindings([
                 self.input_model.key_bindings,

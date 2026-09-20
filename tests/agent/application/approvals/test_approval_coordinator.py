@@ -97,6 +97,27 @@ async def test_approval_cancellation_releases_next_request() -> None:
 
 
 @pytest.mark.anyio
+async def test_local_mcp_cancel_preserves_next_approval() -> None:
+    interaction = ControlledInteraction()
+    coordinator = ApprovalCoordinator(interaction)
+    first = asyncio.create_task(coordinator.request_outcome({
+        "id": "mcp", "kind": "mcp_tool_call", "_local_mcp_approval": True,
+        "server": "docs", "tool_name": "publish", "available_decisions": ["accept", "cancel"],
+    }))
+    await interaction.wait_started("mcp")
+    second = asyncio.create_task(coordinator.request({"id": "second"}))
+    await asyncio.sleep(0)
+    interaction.finish("mcp", "cancel")
+    outcome = await first
+    assert outcome.decision == "cancel" and outcome.reason == "user"
+    await interaction.wait_started("second")
+    assert not second.done()
+    interaction.finish("second", "accept")
+    assert await second == "accept"
+    await coordinator.close()
+
+
+@pytest.mark.anyio
 async def test_duplicate_identity_shares_one_decision_future() -> None:
     interaction = ControlledInteraction()
     coordinator = ApprovalCoordinator(interaction)

@@ -33,6 +33,7 @@ from tests.pty import (
     PtyKey,
     TerminalEnvironment,
     TerminalHarness,
+    TerminalInputSource,
     TerminalMode,
     TerminalSize,
     spawn_terminal,
@@ -41,6 +42,107 @@ from tests.pty import (
 
 pytestmark = pytest.mark.pty_acceptance
 _INITIAL_SIZE = TerminalSize(rows=28, columns=100)
+
+
+@pytest.mark.parametrize("transport, keys, decision, color, theme", (
+    pytest.param("stdio", (b"\r",), "accept", True, "dark", id="allow-enter"),
+    pytest.param("streamable_http", (b"\x1b[B", b"\r"), "acceptForSession", True, "dark", id="session-navigation"),
+    pytest.param("stdio", (b"3",), "acceptAndRemember", True, "dark", id="persistent-number"),
+    pytest.param("sse", (b"4",), "cancel", True, "dark", id="cancel-number"),
+    pytest.param("stdio", (b"\x1b",), "cancel", True, "dark", id="cancel-escape"),
+    pytest.param("streamable_http", (b"\x1b[B" * 3, b"\r"), "cancel", False, "dark", id="cancel-monochrome"),
+    pytest.param("stdio", (b"\r",), "accept", True, "light", id="allow-light"),
+))
+def test_mcp_tool_approval_codex_card_and_real_call(
+    tmp_path: Path, transport: str, keys: tuple[bytes, ...], decision: str, color: bool, theme: str,
+) -> None:
+    path = tmp_path / "facts.json"
+    with spawn_terminal(
+        [sys.executable, "-m", "tests.pty.mcp_approval_scenario", transport, str(path), "--theme", theme],
+        cwd=Path.cwd(), env=os.environ, size=_INITIAL_SIZE,
+        terminal=TerminalEnvironment(no_color=not color),
+        failure_artifact_directory=tmp_path / "artifacts",
+    ) as terminal:
+        driver = McpTerminal(terminal, path)
+        try:
+            driver.wait(lambda details: "tty" in details)
+            terminal.wait_for_screen_text("fixture-model")
+            terminal.write_user_text("draft remains")
+            driver.wait(lambda details: details.get("card_active") is True)
+            terminal.wait_for_screen_text("Cancel this tool call")
+            snapshot = terminal.screen.snapshot()
+            screen = snapshot.visible_text
+            assert 'Allow the approval MCP server to run tool "ping"?' in screen
+            assert "Field 1/1" in screen
+            assert "value: TTY 参数摘要" in screen and "..." in screen
+            for label in ("1. Allow", "2. Allow for this session", "3. Always allow", "4. Cancel"):
+                assert label in screen
+            assert "enter to submit | esc to cancel" in screen
+            assert "Risk:" not in screen and "(y)" not in screen
+            prompt_row = next(i for i, line in enumerate(snapshot.visible_lines) if "Allow the approval" in line)
+            selected_row = next(i for i, line in enumerate(snapshot.visible_lines) if "› 1." in line)
+            footer_row = next(i for i, line in enumerate(snapshot.visible_lines) if "enter to submit" in line)
+            prompt = terminal.screen.cell(prompt_row, 2)
+            selected = terminal.screen.cell(selected_row, 2)
+            footer = terminal.screen.cell(footer_row, 2)
+            assert prompt.foreground == selected.foreground
+            assert not prompt.bold
+            assert prompt.background == footer.background
+            assert (prompt.foreground != "default") is color
+            assert (prompt.background != "default") is color
+            terminal.save_failure_artifacts(tmp_path / "card")
+
+            before_inputs = tuple(event for event in terminal.input_events if event.source is TerminalInputSource.USER)
+            before_resize = driver.details()["render_counter"]
+            assert isinstance(before_resize, int)
+            driver.resize(TerminalSize(rows=18, columns=44))
+            driver.wait(lambda details: isinstance(details["render_counter"], int) and details["render_counter"] > before_resize)
+            terminal.wait_for_screen_text("enter to submit | esc to cancel")
+            terminal.wait_for_screen_text("Always allow")
+            assert "Cancel" in terminal.screen.snapshot().visible_text
+            assert driver.details()["selected"] == 0
+            assert driver.details()["draft"] == "draft remains"
+            terminal.save_failure_artifacts(tmp_path / "narrow")
+            driver.resize(_INITIAL_SIZE)
+            terminal.wait_for_screen_text("Cancel this tool call")
+            assert tuple(event for event in terminal.input_events if event.source is TerminalInputSource.USER) == before_inputs
+            terminal.send_key(PtyKey.CTRL_A)
+            driver.wait(lambda details: details["pager_active"] is True)
+            terminal.wait_for_screen_text("Risk:")
+            terminal.write_user_text("q")
+            driver.wait(lambda details: details["pager_active"] is False)
+            for key in keys:
+                terminal.write_user(key)
+            details = driver.wait(lambda details: "first" in details)
+            first = _mapping(details["first"])
+            assert first["decision"] == decision
+            assert first["allowed"] is (decision != "cancel")
+            facts = tuple(fact for file in (tmp_path / "services").glob("*.jsonl") for fact in read_facts(file))
+            assert sum(fact.event == "tool.started" for fact in facts) == (0 if decision == "cancel" else 1)
+            path.with_suffix(".repeat").write_text("continue", encoding="ascii")
+            if decision in {"accept", "cancel"}:
+                driver.wait(lambda details: details["card_call"] == "call-2")
+                terminal.send_key(PtyKey.ESCAPE)
+            details = driver.wait(lambda details: "second" in details)
+            second = _mapping(details["second"])
+            assert second["allowed"] is (decision in {"acceptForSession", "acceptAndRemember"})
+            assert details["composer_submitted"] is False and details["draft"] == "draft remains"
+            assert details["tty"] == {"stdin": True, "stdout": True}
+            if decision == "acceptAndRemember":
+                server = _mapping(_mapping(details["config"])["approval"])
+                assert _mapping(_mapping(server["tools"])["ping"])["approval_mode"] == "approve"
+            path.with_suffix(".ack").write_text("observed", encoding="ascii")
+            assert terminal.wait_for_exit(timeout=15) == 0
+            details = driver.details()
+            assert details["owner_released"] is True and details["remote_released"] is True
+            assert details["pending_mcp_tasks"] == []
+            facts = tuple(fact for file in (tmp_path / "services").glob("*.jsonl") for fact in read_facts(file))
+            expected_calls = 0 if decision == "cancel" else 1 if decision == "accept" else 2
+            assert sum(fact.event == "tool.started" for fact in facts) == expected_calls
+            assert sum(fact.event == "tool.completed" for fact in facts) == expected_calls
+            _assert_stdio_sessions_closed(tmp_path / "services")
+        finally:
+            driver.save()
 
 
 def _mapping(value: ThawedJsonValue) -> dict[str, ThawedJsonValue]:

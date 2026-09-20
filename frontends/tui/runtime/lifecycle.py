@@ -16,6 +16,28 @@ _APPLICATION_EXIT_TIMEOUT_SEC: typing.Final[float] = 2.0
 _APPLICATION_CANCEL_TIMEOUT_SEC: typing.Final[float] = 1.0
 
 
+class TerminalApplication(Application[None]):
+    """适配终端尺寸轮询，任务的创建、取消和回收由 Application 持有。
+
+    prompt_toolkit 修复首次轮询丢失尺寸变化后，可移除此覆盖并直接使用 Application。
+    """
+
+    async def _poll_output_size(self) -> None:
+        """从本次运行的首帧尺寸开始检查，避免首次等待吞掉缩放。"""
+        interval = self.terminal_size_polling_interval
+        if interval is None:
+            return
+
+        # 首帧和后台任务启动之间也可能发生缩放，基线必须来自已渲染尺寸。
+        size = self.renderer._last_size
+        while True:
+            new_size = self.output.get_size()
+            if size is not None and new_size != size:
+                self._on_resize()
+            size = new_size
+            await asyncio.sleep(interval)
+
+
 class ApplicationLifecycle(object):
     """拥有输入 Application 任务，并把异常收束为可等待的失败事件。"""
 

@@ -185,14 +185,17 @@ async def test_double_ctrl_c_returns_normally_from_session_loop(
 @pytest.mark.anyio
 async def test_exit_confirmation_task_expires_footer() -> None:
     runtime = TuiRuntime()
-    runtime.submissions.interrupt_state.timeout_sec = 0.01
+    runtime.submissions.interrupt_state = TuiInterruptState(
+        timeout_sec=0.1, clock=Mock(return_value=1.0),
+    )
 
     runtime.submissions.interrupt_input()
 
-    assert runtime.submissions.exit_expiry_task is not None
+    expiry_task = runtime.submissions.exit_expiry_task
+    assert expiry_task is not None
     assert runtime.submissions.interrupt_state.exit_armed
 
-    await asyncio.sleep(0.02)
+    await asyncio.wait_for(expiry_task, timeout=1.0)
 
     assert runtime.submissions.exit_expiry_task is None
     assert not runtime.submissions.interrupt_state.exit_armed

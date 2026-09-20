@@ -241,6 +241,8 @@ class TuiApproval(object):
             max_height=self.get_max_height(),
             keymap=self.keymap,
         )
+        if state.presentation.context.kind == "mcp_tool_call":
+            return lines, []
         footer_start = next((
             index
             for index, line in enumerate(lines)

@@ -306,7 +306,7 @@ def test_real_tui_color_matrix_preserves_screen_and_business_facts(
             _acknowledge(facts_path, "diff")
 
             initial_facts = _wait_for_stage(facts_path, "approval_initial")
-            terminal.wait_for_screen_text("Delete color record")
+            terminal.wait_for_screen_text('run tool "delete_color_record"?')
             assert _details(initial_facts)["approval_selected_index"] == 0
             terminal.write_user(b"\x1b[B")
             _acknowledge(facts_path, "approval_initial")

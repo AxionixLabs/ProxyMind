@@ -148,7 +148,7 @@ def test_permissions_and_mcp_presentation_summaries_are_action_specific() -> Non
     assert isinstance(mcp, McpApprovalPresentation)
     assert mcp.summary == "github: create_issue"
     assert mcp.context.prompt == (
-        "Would you like to approve the following MCP tool call?"
+        'Allow the github MCP server to run tool "create_issue"?'
     )
     assert mcp.risk == "unknown"
 
@@ -210,6 +210,25 @@ def test_mcp_presentation_redacts_and_bounds_structured_arguments() -> None:
     assert "\\n" in rendered
     assert "\\u001b" in rendered
     assert len(rendered.encode("utf-8")) <= 2048
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("first\n  second\tthird", "first second third"),
+    ({"items": [1, True]}, '{"items": [1, true]}'),
+    ("e\u0301" * 61, "e\u0301" * 57 + "..."),
+    ("👩‍💻" * 61, "👩‍💻" * 57 + "..."),
+    ("路" * 60, "路" * 60),
+    ("line\x1b[2J", "line\\u001b[2J"),
+])
+def test_mcp_parameter_summary_matches_codex_text_units(value, expected) -> None:
+    presentation = build_approval_presentation({
+        "kind": "mcp_tool_call", "server": "docs", "tool_name": "publish",
+        "connector_name": " Docs\nApp ", "arguments": {"body": value, "token": "private"},
+    })
+    assert isinstance(presentation, McpApprovalPresentation)
+    assert presentation.context.prompt == 'Allow Docs App to run tool "publish"?'
+    assert presentation.arguments[0].summary == expected
+    assert presentation.arguments[1].summary == "[redacted]"
 
 
 def test_mcp_argument_budget_includes_field_separators() -> None:

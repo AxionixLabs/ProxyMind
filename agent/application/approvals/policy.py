@@ -369,6 +369,14 @@ def approval_decision_label(
     kind: str = "",
 ) -> str:
     """返回客户端定义的审批选项展示文案。"""
+    if kind == "mcp_tool_call":
+        return {
+            "accept": "Allow",
+            "acceptForSession": "Allow for this session",
+            "acceptAndRemember": "Always allow",
+            "decline": "Deny",
+            "cancel": "Cancel",
+        }.get(decision, decision)
     if decision == "acceptWithExecpolicyAmendment":
         amendment = amendment or approval_execpolicy_amendment(approval)
         if amendment is not None:
@@ -383,7 +391,6 @@ def approval_decision_label(
             "apply_patch": "No, continue without applying it",
             "network_access": "No, continue without network access",
             "request_permissions": "No, continue without permissions",
-            "mcp_tool_call": "No, but continue without it",
         }.get(kind, DECISION_LABELS["decline"])
     return DECISION_LABELS.get(decision, decision)
 

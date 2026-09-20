@@ -172,7 +172,7 @@ async def test_prompt_mode_approves_before_external_mcp_execution() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("decision", ["accept", "decline"])
+@pytest.mark.parametrize("decision", ["accept", "cancel"])
 async def test_cached_approve_catalog_uses_explicit_gate_without_remember_choices(decision):
     runner, invocation, approval, external, _presentation = _runtime("approve", decision=decision, read_only=True)
     external.tools = CatalogSnapshot.capture(external.tools).preview()
@@ -180,7 +180,7 @@ async def test_cached_approve_catalog_uses_explicit_gate_without_remember_choice
     outcome = await runner.execute(invocation, use_coding_trace=False, display=False)
 
     assert len(approval.actions) == 1
-    assert approval.presentations[0]["available_decisions"] == ["accept", "decline"]
+    assert approval.presentations[0]["available_decisions"] == ["accept", "cancel"]
     assert outcome.result.ok is (decision == "accept")
     assert external.call_tool.await_count == (1 if decision == "accept" else 0)
 
@@ -215,16 +215,19 @@ async def test_subagent_mcp_approval_projects_trusted_source_identity() -> None:
 
 
 @pytest.mark.anyio
-async def test_declined_external_mcp_call_never_reaches_sdk() -> None:
+@pytest.mark.parametrize("decision", ["decline", "cancel"])
+async def test_denied_external_mcp_call_never_reaches_sdk(decision: str) -> None:
     runner, invocation, approval, external, _presentation = _runtime(
         "prompt",
-        decision="decline",
+        decision=decision,
     )
 
     outcome = await runner.execute(invocation, use_coding_trace=False, display=False)
 
     assert outcome.result.ok is False
     assert outcome.result.fields["data"]["approval_denied"] is True
+    if decision == "cancel":
+        assert outcome.result.text == "MCP tool approval cancelled"
     assert len(approval.actions) == 1
     external.call_tool.assert_not_awaited()
 

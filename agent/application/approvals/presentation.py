@@ -32,6 +32,7 @@ from .policy import (
 from .summary import (
     approval_shell_commands,
     approval_summary,
+    truncate_approval_text,
 )
 
 ApprovalCommand: typing.TypeAlias = str | tuple[str, ...]
@@ -40,6 +41,7 @@ MCP_ARGUMENT_FIELD_LIMIT = 12
 MCP_ARGUMENT_VALUE_WIDTH = 120
 MCP_ARGUMENT_BYTE_LIMIT = 2048
 MCP_ARGUMENT_NESTING_LIMIT = 2
+MCP_ARGUMENT_SUMMARY_GRAPHEMES = 60
 _MCP_SENSITIVE_KEYS = (
     "token",
     "secret",
@@ -111,6 +113,7 @@ class McpArgumentPresentation(object):
     """保存一个已经脱敏、折叠和限长的 MCP 参数字段。"""
     name: str
     value: str
+    summary: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,7 +415,11 @@ def _presentation_prompt(
     if kind == "request_permissions":
         return "Would you like to grant these permissions?"
     if kind == "mcp_tool_call":
-        return "Would you like to approve the following MCP tool call?"
+        connector = _mcp_display_text(payload.get("connector_name"))
+        server = _mcp_display_text(payload.get("server")) or "unknown"
+        tool_name = _mcp_display_text(payload.get("tool_name")) or "unknown"
+        actor = connector or f"the {server} MCP server"
+        return f'Allow {actor} to run tool "{tool_name}"?'
     return approval_prompt(payload)
 
 
@@ -507,7 +514,17 @@ def _mcp_argument_presentations(
         if entry_bytes > byte_budget:
             truncated = True
             break
-        fields.append(McpArgumentPresentation(safe_name, display_value))
+        decoded_value = json.loads(safe_value)
+        summary_value = (
+            _mcp_display_text(decoded_value)
+            if isinstance(decoded_value, str)
+            else safe_value
+        )
+        fields.append(McpArgumentPresentation(
+            safe_name,
+            display_value,
+            truncate_approval_text(summary_value, MCP_ARGUMENT_SUMMARY_GRAPHEMES),
+        ))
         byte_budget -= entry_bytes
 
     omitted = total - len(fields)

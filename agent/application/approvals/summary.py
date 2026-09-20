@@ -117,10 +117,17 @@ def _truncate_approval_snippet(value: typing.Any) -> str:
     if len(lines) > 1:
         text = f"{lines[0]} ..."
 
+    return truncate_approval_text(text, APPROVAL_SNIPPET_MAX_GRAPHEMES)
+
+
+def truncate_approval_text(text: str, max_graphemes: int) -> str:
+    """按文本单元限制审批摘要长度，避免拆开组合字符和 Emoji。"""
     units = list(_approval_graphemes(text))
-    if len(units) <= APPROVAL_SNIPPET_MAX_GRAPHEMES:
+    if len(units) <= max_graphemes:
         return text
-    return "".join(units[:APPROVAL_SNIPPET_MAX_GRAPHEMES - 3]) + "..."
+    if max_graphemes < 3:
+        return "".join(units[:max(0, max_graphemes)])
+    return "".join(units[:max_graphemes - 3]) + "..."
 
 
 def _approval_command_summary(approval: dict[str, typing.Any]) -> str:

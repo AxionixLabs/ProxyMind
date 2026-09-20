@@ -116,7 +116,7 @@ def mcp_approval_payload(
         decisions.append("acceptForSession")
     if descriptor.policy.allow_persistent_approval:
         decisions.append("acceptAndRemember")
-    decisions.append("decline")
+    decisions.append("cancel")
     payload: dict[str, typing.Any] = {
         "request_id": action.identity.approval_id,
         "approval_id": action.identity.approval_id,
@@ -207,6 +207,8 @@ async def authorize_mcp_tool_call(
         (
             "MCP tool approval accepted"
             if allowed
+            else "MCP tool approval cancelled"
+            if outcome.decision == "cancel"
             else "MCP tool approval declined"
         ),
         action=action,
