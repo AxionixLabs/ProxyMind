@@ -203,6 +203,71 @@ async def test_client_tool_call_executes_invocation_arguments(monkeypatch) -> No
 
 
 @pytest.mark.anyio
+async def test_client_tool_call_projects_mcp_result_metadata(monkeypatch) -> None:
+    async def run_allowed(invocation, operation):
+        operation_result = await operation(invocation)
+        return ToolCallRunResult(
+            allowed=True,
+            value=operation_result.value,
+            visible_result=HookVisibleToolResult(
+                ok=operation_result.snapshot.ok,
+                text=operation_result.snapshot.text,
+                fields=operation_result.snapshot.fields,
+            ),
+        )
+
+    coordinator = SimpleNamespace(run_invocation=AsyncMock(side_effect=run_allowed))
+    runner, _ports = _runner(
+        coordinator,
+        tools=[{"name": "grep_packages"}],
+    )
+    runner.session.call_tool = AsyncMock(return_value=mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="com.example.flash")],
+        structuredContent={
+            "ok": True,
+            "tool": "grep_packages",
+            "args": {"keyword": "example", "scope": "all"},
+            "text": "tool=grep_packages target=67080DLKY000BC ok=True com.example.flash",
+            "attachments": [],
+            "data": {
+                "count": 1,
+                "packages": ["com.example.flash"],
+            },
+            "target": "67080DLKY000BC",
+        },
+    ))
+    monkeypatch.setattr(client_call, "show_tool_start", AsyncMock())
+    monkeypatch.setattr(client_call, "show_tool_result", AsyncMock())
+
+    invocation = replace(
+        _invocation(),
+        name="grep_packages",
+        arguments={"keyword": "example", "scope": "all"},
+    )
+    outcome = await runner.execute(invocation, use_coding_trace=False)
+
+    assert outcome.result.fields == {
+        "ok": True,
+        "tool": "grep_packages",
+        "source": "client",
+        "args": {"keyword": "example", "scope": "all"},
+        "text": "com.example.flash",
+        "attachments": [],
+        "data": {
+            "count": 1,
+            "packages": ["com.example.flash"],
+        },
+    }
+    assert outcome.result.ok is True
+    assert outcome.result.hook_response["structuredContent"]["target"] == "67080DLKY000BC"
+    assert outcome.result.nested_output is not None
+    assert (
+        outcome.result.nested_output["output"]["structuredContent"]["target"]
+        == "67080DLKY000BC"
+    )
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("display", (True, False))
 async def test_empty_terminal_poll_waits_from_start_and_releases_on_cancel(display) -> None:
     runner, _ports = _runner(SimpleNamespace())

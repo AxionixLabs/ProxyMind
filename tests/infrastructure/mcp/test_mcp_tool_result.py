@@ -48,7 +48,7 @@ def test_normalize_pure_structured_result_uses_json_display() -> None:
     assert '"answer": 42' in normalized.display_text
 
 
-def test_normalize_standard_envelope_preserves_project_fields() -> None:
+def test_normalize_standard_envelope_projects_client_fields() -> None:
     result = mcp_types.CallToolResult(
         content=[mcp_types.TextContent(type="text", text="visible output")],
         structuredContent={
@@ -62,12 +62,36 @@ def test_normalize_standard_envelope_preserves_project_fields() -> None:
 
     normalized = normalize_call_tool_result(result)
 
+    assert normalized.fields == {
+        "ok": True,
+        "text": "visible output",
+        "attachments": [{"kind": "file", "path": "result.txt"}],
+        "data": {"count": 2},
+    }
+
+
+def test_normalize_envelope_with_unknown_fields_keeps_complete_payload() -> None:
+    result = mcp_types.CallToolResult(
+        content=[mcp_types.TextContent(type="text", text="visible output")],
+        structuredContent={
+            "ok": True,
+            "text": "structured output",
+            "attachments": [],
+            "data": {"count": 2},
+            "trace_id": "trace-1",
+        },
+    )
+
+    normalized = normalize_call_tool_result(result)
+
+    assert normalized.fields["data"] == {
+        "ok": True,
+        "text": "structured output",
+        "attachments": [],
+        "data": {"count": 2},
+        "trace_id": "trace-1",
+    }
     assert normalized.fields["text"] == "visible output"
-    assert normalized.fields["data"] == {"count": 2}
-    assert normalized.fields["target"] == "device-1"
-    assert normalized.fields["attachments"] == [
-        {"kind": "file", "path": "result.txt"}
-    ]
 
 
 def test_normalize_mixed_media_and_resource_content() -> None:
@@ -229,8 +253,6 @@ async def test_client_tool_result_keeps_business_fields_inside_data() -> None:
 
     assert tool_run.fields == {
         "ok": True,
-        "tool": "shell_command",
-        "args": {"command": "echo ready"},
         "text": "completed",
         "attachments": [],
         "data": {
@@ -238,7 +260,6 @@ async def test_client_tool_result_keeps_business_fields_inside_data() -> None:
             "exit_code": 0,
             "stdout": "ready\n",
         },
-        "target": "local",
     }
 
 

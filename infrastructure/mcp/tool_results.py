@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from mcp import types as mcp_types
 
 _ENVELOPE_KEYS = frozenset({"ok", "text", "attachments", "data"})
+# MCP 端可能回传这些调用元数据，客户端信封会从当前调用上下文重新生成。
+_ENVELOPE_IDENTITY_KEYS = frozenset({"args", "source", "tool"})
+_ENVELOPE_METADATA_KEYS = frozenset({"target"})
 
 _DISPLAY_JSON_LIMIT = 12000
 
@@ -105,10 +108,23 @@ def _normalize_fields(
     content_summaries: typing.Iterable[str] = (),
 ) -> NormalizedToolResult:
     """建立稳定字段，并生成独立于模型回填内容的展示文本。"""
-    is_envelope = _ENVELOPE_KEYS.issubset(raw_fields)
+    envelope_fields = (
+        _ENVELOPE_KEYS
+        | _ENVELOPE_IDENTITY_KEYS
+        | _ENVELOPE_METADATA_KEYS
+    )
+    is_envelope = (
+        _ENVELOPE_KEYS.issubset(raw_fields)
+        and set(raw_fields).issubset(envelope_fields)
+    )
     if is_envelope:
-        fields = dict(raw_fields)
-        structured_attachments = fields.get("attachments")
+        raw_data = raw_fields.get("data")
+        fields = {
+            "data": dict(raw_data)
+            if isinstance(raw_data, dict)
+            else dict(raw_fields),
+        }
+        structured_attachments = raw_fields.get("attachments")
     else:
         fields = {"data": dict(raw_fields) if raw_fields else {}}
         structured_attachments = ()
