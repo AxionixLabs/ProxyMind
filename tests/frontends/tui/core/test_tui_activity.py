@@ -53,6 +53,7 @@ from frontends.tui.core.styles import text_block
 from frontends.tui.core.task_state import TuiTaskState
 from frontends.tui.features.helix import TuiUpgradeProgress
 from frontends.tui.session.barriers import TuiForegroundTasks
+from frontends.tui.session.turn import emit_tui_interrupt_notice
 from frontends.tui.runtime.turn_surface import TuiTurnSurfaceCoordinator
 from frontends.terminal.worked import emit_worked_footer
 from frontends.terminal.mcp_status import (
@@ -1473,6 +1474,8 @@ async def test_escape_wait_survives_old_cleanup_and_hands_off_without_empty_fram
         with patch.object(runtime.screen.application.output, "get_size", return_value=Size(rows=24, columns=100)):
             await runtime.open()
             try:
+                runtime.submissions.enqueue_message("天气")
+                assert await runtime.read_message(PromptContext(model="test")) == "天气"
                 runtime.set_execution_active(True)
                 await runtime.begin_wait_status()
                 await old.open()
@@ -1490,8 +1493,20 @@ async def test_escape_wait_survives_old_cleanup_and_hands_off_without_empty_fram
                 )
                 submission = TuiSubmission(value="next query", editable_text="next query", paste_store={})
                 runtime.track_pending_steer(submission)
-                runtime.bind_interrupt_handler(lambda: InterruptDisposition.CONSUMED)
+                application = SimpleNamespace(emit=TuiApplicationSink(runtime)._emit_active)
+
+                def interrupt():
+                    emit_tui_interrupt_notice(application, submit_pending_steers=True)
+                    return InterruptDisposition.CONSUMED
+
+                runtime.bind_interrupt_handler(interrupt)
                 runtime.submissions.interrupt_turn()
+                notice_text = "• Model interrupted to submit steer instructions."
+                assert runtime.document.blocks[0].raw_text == "天气"
+                assert fragments_text(runtime.document.blocks[-2].display_block.fragments) == notice_text
+                assert runtime.document.blocks[-1].raw_text == "next query"
+                assert runtime.document.blocks[-2].gap_before == 1
+                assert runtime.document.blocks[-1].gap_before == 1
                 assert runtime.activity._slots["foreground"].phase == old_phase
                 lease = runtime.activity.lease("wait")
                 assert lease is not None
@@ -1554,7 +1569,11 @@ async def test_escape_wait_survives_old_cleanup_and_hands_off_without_empty_fram
                 await _render_next_frame(runtime)
                 assert not runtime.submission_wait_pending
                 assert runtime.activity.lease("wait") is None
-                assert sum(block.kind == "user" for block in runtime.document.blocks) == 1
+                assert sum(block.kind == "user" for block in runtime.document.blocks) == 2
+                assert sum(
+                    fragments_text(block.display_block.fragments) == notice_text
+                    for block in runtime.document.blocks
+                ) == 1
             finally:
                 runtime.screen.application.after_render -= capture
                 await old.close()

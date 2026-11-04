@@ -221,6 +221,7 @@ class TuiRuntime(object):
         self._turn_progress_active: bool = False
         self._turn_output_suppressed: bool = False
         self._interrupt_query: TranscriptBlock | None = None
+        self._interrupt_notice: TranscriptBlock | None = None
         self._submission_wait: ActivityLease | None = None
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
@@ -584,6 +585,7 @@ class TuiRuntime(object):
         return bool(
             self._modal_depth > 0
             or self._interrupt_query is not None
+            or self._interrupt_notice is not None
             or self.foreground_active
             or self.screen.startup_gate_active
             or (self.screen.menu.active and not reflow)
@@ -787,7 +789,7 @@ class TuiRuntime(object):
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
         activity_lease: ActivityLease | None = None
-    ) -> None:
+    ) -> TranscriptBlock:
         """在当前视觉事务中追加正文并完成相关状态交接。"""
         previous_activity_height = (
             self.screen.activity_layout_height()
@@ -813,6 +815,7 @@ class TuiRuntime(object):
             self._complete_command_layout()
             self.screen.transcript_overlay.content_changed()
             self.viewport.content_appended()
+        return appended
 
     def _handoff_inline_process(self) -> None:
         """把当前活动 Shell 固定为稳定块并让下一个 Shell 接管活动位。"""
@@ -1684,6 +1687,13 @@ class TuiRuntime(object):
 
         return True
 
+    def append_interrupt_notice(self, block: FragmentBlock) -> None:
+        """在旧轮收尾处记录中断提示，保留定位点直到输入归属对账结束。"""
+        with self.screen.visual_update():
+            notice = self._append_block(block, kind="notice")
+            if self.execution_active:
+                self._interrupt_notice = notice
+
     def _present_interrupt_submission(self, submission: TuiSubmission | None) -> None:
         """立即展示中断后的待执行问题，并按输入对账结果原位更新。"""
         with self.screen.visual_update():
@@ -1789,7 +1799,10 @@ class TuiRuntime(object):
         transcript = query_block(display_text, command_aware=False)
         renderer = partial(query_display_block, display_text)
 
+        interrupt_notice = self._interrupt_notice
         interrupt_query = self._interrupt_query
+        if interrupt_notice is not None:
+            self.document.remove_stable_block(interrupt_notice)
         if interrupt_query is not None:
             self.document.remove_stable_block(interrupt_query)
 
@@ -1812,6 +1825,11 @@ class TuiRuntime(object):
         ):
             raise RuntimeError("accepted turn input payload could not be bound")
 
+        if interrupt_notice is not None:
+            self._interrupt_notice = self.document.append_block(
+                interrupt_notice.display_block, kind="notice",
+                transcript_block=interrupt_notice.transcript_block,
+            )
         if interrupt_query is not None:
             self._interrupt_query = self.document.append_block(
                 interrupt_query.display_block, kind="user",
@@ -1821,6 +1839,7 @@ class TuiRuntime(object):
                 display_render_width=interrupt_query.display_render_width,
                 stable_id=interrupt_query.stable_id,
             )
+        if interrupt_notice is not None or interrupt_query is not None:
             self.screen.transcript_overlay.content_changed()
             self.viewport.stable_content_changed()
 
@@ -2108,6 +2127,7 @@ class TuiRuntime(object):
                 self.activity.finish_wait()
             self.execution_active = active
             if not self.execution_active:
+                self._interrupt_notice = None
                 if was_active:
                     for callback in tuple(self._turn_finished_callbacks):
                         callback()
@@ -2470,6 +2490,7 @@ class TuiRuntime(object):
     async def close(self) -> None:
         """停止输入应用和全部动态任务。"""
         self._closing = True
+        self._interrupt_notice = None
         if self._unsubscribe_context_usage is not None:
             self._unsubscribe_context_usage()
             self._unsubscribe_context_usage = None

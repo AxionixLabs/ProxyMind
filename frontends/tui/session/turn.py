@@ -74,6 +74,7 @@ class _TurnInterruptState(object):
 
     def __init__(self) -> None:
         self.requested = False
+        self.notice_emitted = False
 
     def request(self) -> None:
         """记录当前轮次已收到用户中断。"""
@@ -186,7 +187,6 @@ async def execute_tui_model_turn(
 
     fatal_error: BaseException | None = None
     interrupted: bool = False
-    submit_pending_steers: bool = False
     terminal_status: str = ""
 
     def cancel_local_stream() -> None:
@@ -209,6 +209,9 @@ async def execute_tui_model_turn(
         else:
             interrupt_dispatched = turn_input_control.request_interrupt()
         runtime.begin_interrupt_settlement()
+        if runtime.submit_pending_steers_after_interrupt and show_interrupt_notice():
+            emit_tui_interrupt_notice(application, submit_pending_steers=True)
+            interrupt_state.notice_emitted = True
 
         observe(
             "tui.turn.interrupt.local",
@@ -273,10 +276,6 @@ async def execute_tui_model_turn(
         )
 
     finally:
-        if interrupted:
-            submit_pending_steers = (
-                runtime.submit_pending_steers_after_interrupt
-            )
         if not task.done():
             task.cancel()
         if not application_failure.done():
@@ -319,11 +318,8 @@ async def execute_tui_model_turn(
     if fatal_error is not None:
         raise fatal_error
 
-    if interrupted and show_interrupt_notice():
-        emit_tui_interrupt_notice(
-            application,
-            submit_pending_steers=submit_pending_steers,
-        )
+    if interrupted and not interrupt_state.notice_emitted and show_interrupt_notice():
+        emit_tui_interrupt_notice(application)
 
     return result
 

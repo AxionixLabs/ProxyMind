@@ -16,6 +16,7 @@ from agent.ports import (
     ProtocolCommandError,
 )
 from frontends.interaction.contracts import PromptContext
+from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
@@ -1496,7 +1497,8 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
         side_effect=retry_pending,
     )
     runtime = TuiRuntime()
-    application = SimpleNamespace(emit=Mock())
+    sink = TuiApplicationSink(runtime)
+    application = SimpleNamespace(emit=Mock(side_effect=sink._emit_active))
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1539,16 +1541,22 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
     assert "third query" not in immediate_preview
     assert "tab follow up" in immediate_preview
     assert [block.raw_text for block in runtime.document.blocks] == [
+        None,
         "second query\nthird query",
     ]
     assert not runtime.submissions.rejected_steers.active
     assert runtime.submissions.message_queue.empty()
     assert runtime.execution_active
     assert not execution.done()
-    application.emit.assert_not_called()
+    application.emit.assert_called_once()
+    notice_text = "• Model interrupted to submit steer instructions."
+    assert fragments_text(runtime.document.blocks[0].display_block.fragments) == notice_text
+    assert runtime.submissions.interrupt_turn() is InterruptDisposition.IGNORED
+    application.emit.assert_called_once()
     wait_lease = runtime.activity.lease("wait")
     assert wait_lease is not None
 
+    runtime.document.set_display_width(40)
     for client_message_id in pending_ids[:accepted_count]:
         control.handle_event(TurnInputAcceptedEvent(
             type="turn.input.accepted",
@@ -1567,13 +1575,9 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
-    if terminal_status == "interrupted":
-        notice = application.emit.call_args.args[0]
-        assert fragments_text(notice.renderable.fragments) == (
-            "• Model interrupted to submit steer instructions."
-        )
-    else:
-        application.emit.assert_not_called()
+    application.emit.assert_called_once()
+    assert runtime.document.blocks[accepted_count].kind == "notice"
+    assert fragments_text(runtime.document.blocks[accepted_count].display_block.fragments) == notice_text
     if accepted_count < 2:
         assert runtime.activity.lease("wait") == wait_lease
         immediate = await runtime.read_message(PromptContext(model="test"))
@@ -1584,7 +1588,9 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
         assert runtime.activity.lease("wait") is None
         assert not runtime.submissions.rejected_steers.active
         assert not runtime.submissions.pending_steers.active
-    assert len(runtime.document.blocks) == min(accepted_count + 1, 2)
+    assert len(runtime.document.blocks) == min(accepted_count + 1, 2) + 1
+    assert fragments_text(runtime.document.fragments(width=100)).count(notice_text) == 1
+    assert runtime._interrupt_notice is None
     assert fragments_text(runtime.document.fragments(width=100)).count("second query") == 1
     assert fragments_text(runtime.document.fragments(width=100)).count("third query") == 1
     assert runtime.submissions.queued_messages.active
