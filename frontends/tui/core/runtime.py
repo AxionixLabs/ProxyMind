@@ -242,6 +242,7 @@ class TuiRuntime(object):
             present_interrupt_submission=self._present_interrupt_submission,
             invalidate=self.invalidate,
         )
+        self.input_model.bind_input_activity(self.submissions.clear_exit_confirmation)
         self.viewport = TuiTranscriptViewport(
             document=self.document,
             is_application_active=lambda: self.active,
@@ -291,6 +292,7 @@ class TuiRuntime(object):
             pending_steers=self.submissions.pending_steers,
             rejected_steers=self.submissions.rejected_steers,
             queued_messages=self.submissions.queued_messages,
+            interrupt_state=self.submissions.interrupt_state,
             get_context=lambda: self.context,
             get_placeholder_text=lambda: self.submissions.placeholder_text,
             get_submission_deferred=lambda: self.submission_deferred,
@@ -306,6 +308,7 @@ class TuiRuntime(object):
             get_transcript_view_row=lambda: self.viewport.view_row,
             accept_input=self.submissions.accept_input,
             on_input_text_changed=self.submissions.on_input_text_changed,
+            clear_exit_confirmation=self.submissions.clear_exit_confirmation,
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_raw_output_mode=self.toggle_raw_output_mode,
@@ -716,6 +719,9 @@ class TuiRuntime(object):
             if self.submissions.discard_input_draft():
                 return InterruptDisposition.DRAFT_DISCARDED
             self.resolve_inline_process("interrupt")
+            disposition = self.submissions.interrupt_input()
+            if disposition is InterruptDisposition.EXIT_REQUESTED:
+                return disposition
             return InterruptDisposition.CONSUMED
 
         return self.submissions.interrupt_input()
@@ -2035,7 +2041,7 @@ class TuiRuntime(object):
                 ("class:static-pager.key", f"{'Ctrl+C':<18}"),
                 (
                     "class:static-pager.text",
-                    "clear draft; interrupt active task; exit when idle",
+                    "press twice within 2s to exit; any other key cancels",
                 ),
             ),
         ))

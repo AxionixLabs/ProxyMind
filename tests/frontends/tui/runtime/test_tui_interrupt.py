@@ -73,8 +73,15 @@ async def _wait_for_input_text(runtime: TuiRuntime, text: str) -> None:
     )
 
 
-def test_interrupt_state_consumes_exit_requests() -> None:
-    state = TuiInterruptState()
+def test_interrupt_state_expires_and_consumes_exit_requests() -> None:
+    clock = [10.0]
+    state = TuiInterruptState(timeout_sec=2.0, clock=lambda: clock[0])
+
+    state.arm_exit()
+    assert state.exit_armed
+
+    clock[0] = 12.1
+    assert not state.exit_armed
 
     state.request_exit()
     assert state.consume_exit_request() == "interrupt"
@@ -82,13 +89,20 @@ def test_interrupt_state_consumes_exit_requests() -> None:
 
 
 @pytest.mark.anyio
-async def test_idle_ctrl_c_exits_and_precedes_queued_message() -> None:
+async def test_double_ctrl_c_exits_and_precedes_queued_message() -> None:
     runtime = TuiRuntime()
     runtime.submissions.queued_messages.append(TuiSubmission(
         value="queued",
         editable_text="queued",
         paste_store={},
     ))
+
+    assert runtime.submissions.interrupt_input() is (
+        InterruptDisposition.EXIT_ARMED
+    )
+    assert "Ctrl + C again to exit" == _fragments_text(
+        runtime.screen._footer_fragments()
+    )
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.EXIT_REQUESTED
@@ -100,7 +114,7 @@ async def test_idle_ctrl_c_exits_and_precedes_queued_message() -> None:
 
 
 @pytest.mark.anyio
-async def test_idle_ctrl_c_wakes_pending_message_reader() -> None:
+async def test_double_ctrl_c_wakes_pending_message_reader() -> None:
     runtime = TuiRuntime()
 
     async def read_until_interrupted() -> str:
@@ -114,11 +128,15 @@ async def test_idle_ctrl_c_wakes_pending_message_reader() -> None:
     await asyncio.sleep(0)
 
     runtime.submissions.interrupt_input()
+    await asyncio.sleep(0)
+    assert not reader.done()
+
+    runtime.submissions.interrupt_input()
     assert await reader == "interrupted"
 
 
 @pytest.mark.anyio
-async def test_idle_ctrl_c_returns_normally_from_session_loop(
+async def test_double_ctrl_c_returns_normally_from_session_loop(
     monkeypatch,
 ) -> None:
     runtime = TuiRuntime()
@@ -156,11 +174,43 @@ async def test_idle_ctrl_c_returns_normally_from_session_loop(
     ))
     await asyncio.sleep(0)
     runtime.submissions.interrupt_input()
+    runtime.submissions.interrupt_input()
 
     await asyncio.wait_for(session_task, timeout=1.0)
 
     assert lifecycle.exit_code == 130
     assert lifecycle.stop_event.is_set()
+
+
+@pytest.mark.anyio
+async def test_exit_confirmation_task_expires_footer() -> None:
+    runtime = TuiRuntime()
+    runtime.submissions.interrupt_state = TuiInterruptState(
+        timeout_sec=0.1, clock=Mock(return_value=1.0),
+    )
+    runtime.screen.interrupt_state = runtime.submissions.interrupt_state
+
+    runtime.submissions.interrupt_input()
+
+    expiry_task = runtime.submissions.exit_expiry_task
+    assert expiry_task is not None
+    assert runtime.submissions.interrupt_state.exit_armed
+    assert "again to exit" in _fragments_text(runtime.screen._footer_fragments())
+
+    await asyncio.wait_for(expiry_task, timeout=1.0)
+
+    assert runtime.submissions.exit_expiry_task is None
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert "again to exit" not in _fragments_text(
+        runtime.screen._footer_fragments()
+    )
+
+    disposition = runtime.submissions.interrupt_input()
+
+    assert disposition is InterruptDisposition.EXIT_ARMED
+    assert runtime.submissions.interrupt_state.exit_armed
+    assert not runtime.submissions.interrupt_state.exit_requested
+    await runtime.submissions.close()
 
 
 @pytest.mark.anyio
@@ -179,14 +229,71 @@ async def test_ctrl_d_requests_clean_exit_before_queued_message() -> None:
     assert runtime.submissions.queued_messages.active
 
 
-def test_ctrl_c_clears_idle_draft_without_exiting() -> None:
+@pytest.mark.anyio
+async def test_editing_clears_exit_confirmation() -> None:
+    runtime = TuiRuntime()
+
+    runtime.submissions.interrupt_input()
+    runtime.screen.input.buffer.text = "new direction"
+
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert runtime.submissions.exit_expiry_task is None
+    assert "again to exit" not in _fragments_text(
+        runtime.screen._footer_fragments()
+    )
+
+
+@pytest.mark.anyio
+async def test_non_ctrl_c_key_breaks_double_press_exit_sequence() -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
+        runtime.set_execution_active(True)
+        runtime.bind_interrupt_handler(interrupt)
+
+        await runtime.open()
+        reader = asyncio.create_task(
+            runtime.read_message(PromptContext(model="test"))
+        )
+        try:
+            pipe_input.send_text("\x03")
+            for _ in range(100):
+                if runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+            assert runtime.submissions.interrupt_state.exit_armed
+
+            pipe_input.send_text("\x1b[D")
+            for _ in range(100):
+                if not runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+            assert not runtime.submissions.interrupt_state.exit_armed
+
+            pipe_input.send_text("\x03")
+            for _ in range(100):
+                if runtime.submissions.interrupt_state.exit_armed:
+                    break
+                await asyncio.sleep(0.001)
+
+            assert runtime.submissions.interrupt_state.exit_armed
+            assert not reader.done()
+            assert interrupt.call_count == 2
+        finally:
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+            await runtime.close()
+
+
+def test_first_ctrl_c_clears_idle_draft_without_arming_exit() -> None:
     runtime = TuiRuntime()
     runtime.screen.input.buffer.text = "unfinished draft"
 
     runtime.submissions.interrupt_input()
 
     assert runtime.screen.input.buffer.text == ""
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert not runtime.submissions.interrupt_state.exit_armed
+    assert runtime.submissions.exit_expiry_task is None
     assert "again to exit" not in _fragments_text(
         runtime.screen._footer_fragments()
     )
@@ -223,13 +330,13 @@ async def test_ctrl_c_clears_multiline_input_without_top_canvas_spacer() -> None
                     runtime.screen._natural_visible_height()
                 )
                 assert runtime.screen.canvas_spacer not in positions
-                assert not runtime.submissions.interrupt_state.exit_requested
+                assert not runtime.submissions.interrupt_state.exit_armed
             finally:
                 await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_real_input_repeated_ctrl_c_keeps_active_turn_until_ctrl_d() -> None:
+async def test_real_input_double_ctrl_c_exits_active_turn_observer() -> None:
     with create_pipe_input() as pipe_input:
         runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
         interrupt = Mock(return_value=InterruptDisposition.CONSUMED)
@@ -248,19 +355,15 @@ async def test_real_input_repeated_ctrl_c_keeps_active_turn_until_ctrl_d() -> No
                 await asyncio.sleep(0.001)
 
             assert interrupt.call_count == 1
-            assert not runtime.submissions.interrupt_state.exit_requested
+            assert runtime.submissions.interrupt_state.exit_armed
             assert not reader.done()
 
             pipe_input.send_text("\x03")
-            for _ in range(100):
-                if interrupt.call_count == 2:
-                    break
-                await asyncio.sleep(0.001)
-            assert interrupt.call_count == 2
-            assert not reader.done()
-            pipe_input.send_text("\x04")
-            with pytest.raises(EOFError):
+            with pytest.raises(TuiInterruptRequested):
                 await asyncio.wait_for(reader, timeout=1.0)
+
+            assert interrupt.call_count == 2
+            assert not runtime.submissions.interrupt_state.exit_armed
         finally:
             if not reader.done():
                 reader.cancel()
@@ -291,7 +394,7 @@ async def test_real_escape_requests_pending_steer_interrupt() -> None:
 
             interrupt.assert_called_once_with()
             assert runtime.submit_pending_steers_after_interrupt
-            assert not runtime.submissions.interrupt_state.exit_requested
+            assert not runtime.submissions.interrupt_state.exit_armed
         finally:
             await runtime.close()
 
@@ -314,20 +417,20 @@ async def test_real_escape_interrupts_active_turn_without_pending_steer() -> Non
 
             interrupt.assert_called_once_with()
             assert not runtime.submit_pending_steers_after_interrupt
-            assert not runtime.submissions.interrupt_state.exit_requested
+            assert not runtime.submissions.interrupt_state.exit_armed
         finally:
             await runtime.close()
 
 
-def test_ignored_turn_interrupt_does_not_exit() -> None:
+def test_ignored_turn_interrupt_only_arms_exit() -> None:
     runtime = TuiRuntime()
     runtime.set_execution_active(True)
     runtime.bind_interrupt_handler(lambda: InterruptDisposition.IGNORED)
 
     disposition = runtime.submissions.interrupt_input()
 
-    assert disposition is InterruptDisposition.IGNORED
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert disposition is InterruptDisposition.EXIT_ARMED
+    assert runtime.submissions.interrupt_state.exit_armed
 
 
 def test_ctrl_c_during_stream_clears_draft_without_interrupt() -> None:
@@ -343,14 +446,14 @@ def test_ctrl_c_during_stream_clears_draft_without_interrupt() -> None:
 
     assert runtime.screen.input.buffer.text == ""
     interrupt.assert_not_called()
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert not runtime.submissions.interrupt_state.exit_armed
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
 
     interrupt.assert_called_once_with()
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert runtime.submissions.interrupt_state.exit_armed
 
 
 def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
@@ -366,14 +469,14 @@ def test_ctrl_c_during_foreground_barrier_clears_without_interrupt() -> None:
 
     assert runtime.screen.input.buffer.text == ""
     interrupt.assert_not_called()
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert not runtime.submissions.interrupt_state.exit_armed
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
 
     interrupt.assert_called_once_with()
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert runtime.submissions.interrupt_state.exit_armed
 
 
 def test_ctrl_c_clears_at_query_and_completion_without_interrupt() -> None:
@@ -394,7 +497,7 @@ def test_ctrl_c_clears_at_query_and_completion_without_interrupt() -> None:
     assert buffer.complete_state is None
     assert model.completion_menu_completions(buffer.document) is None
     interrupt.assert_not_called()
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert not runtime.submissions.interrupt_state.exit_armed
 
 
 @pytest.mark.anyio
@@ -420,7 +523,7 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     await task
 
     assert not runtime.execution_active
-    assert not runtime.submissions.interrupt_state.exit_requested
+    assert runtime.submissions.interrupt_state.exit_armed
     view = application.emit.call_args.args[0]
     assert view.type == "tui.interrupted"
     assert _fragments_text(view.renderable.fragments) == (
@@ -430,6 +533,11 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     TuiApplicationSink(runtime)._emit_active(view)
     assert runtime.document.blocks[-1].kind == "notice"
     assert _document_text(runtime).endswith(_fragments_text(view.renderable.fragments))
+
+    assert runtime.submissions.interrupt_input() is InterruptDisposition.EXIT_REQUESTED
+    with pytest.raises(TuiInterruptRequested):
+        await runtime.read_message(PromptContext(model="test"))
+    await runtime.close()
 
 
 @pytest.mark.anyio

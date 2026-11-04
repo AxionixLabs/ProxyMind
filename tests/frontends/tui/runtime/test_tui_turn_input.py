@@ -20,6 +20,7 @@ from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.styles import (
     TERMINAL_CYAN_STYLE,
@@ -1402,9 +1403,11 @@ async def test_remote_interrupt_response_loss_does_not_create_status_owner(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("first_key", ("ctrl_c", "escape"))
-async def test_repeated_ctrl_c_waits_for_terminal_and_ctrl_d_exits(
+@pytest.mark.parametrize("exit_key", ("ctrl_c", "ctrl_d"))
+async def test_confirmed_exit_stops_observation_without_remote_terminal(
     protocol_client: ProtocolCommandClient,
     first_key: str,
+    exit_key: str,
 ) -> None:
     turn_started = asyncio.Event()
     turn_cancelled = asyncio.Event()
@@ -1435,6 +1438,12 @@ async def test_repeated_ctrl_c_waits_for_terminal_and_ctrl_d_exits(
     ))
     await turn_started.wait()
 
+    runtime.track_pending_steer(TuiSubmission(
+        value="pending steer", editable_text="pending steer", paste_store={},
+    ))
+    runtime.submissions.queued_messages.append(TuiSubmission(
+        value="queued follow-up", editable_text="queued follow-up", paste_store={},
+    ))
     first_interrupt = (
         runtime.submissions.interrupt_turn
         if first_key == "escape"
@@ -1448,21 +1457,26 @@ async def test_repeated_ctrl_c_waits_for_terminal_and_ctrl_d_exits(
     assert runtime.execution_active
     assert not execution.done()
 
-    assert runtime.submissions.interrupt_input() is (
-        InterruptDisposition.CONSUMED
-    )
-    assert not runtime.submissions.interrupt_state.exit_requested
-    assert runtime.execution_active
-    assert not execution.done()
-    protocol_client.interrupt_turn.assert_awaited_once()
-
-    runtime.submissions.exit_input()
+    if first_key == "escape":
+        assert runtime.submission_wait_pending
+        assert runtime.submissions.interrupt_input() is InterruptDisposition.CONSUMED
+        assert not runtime.submissions.interrupt_state.exit_requested
+        assert not runtime.submission_wait_pending
+        assert not runtime.submit_pending_steers_after_interrupt
+        assert runtime.execution_active
+        assert not execution.done()
+    if exit_key == "ctrl_c":
+        assert runtime.submissions.interrupt_input() is InterruptDisposition.EXIT_REQUESTED
+    else:
+        runtime.submissions.exit_input()
     await asyncio.wait_for(execution, timeout=0.1)
 
     assert turn_cancelled.is_set()
+    protocol_client.interrupt_turn.assert_awaited_once()
     protocol_client.get_turn_status.assert_not_awaited()
+    protocol_client.steer_turn.assert_not_awaited()
     assert not runtime.execution_active
-    with pytest.raises(EOFError):
+    with pytest.raises(TuiInterruptRequested if exit_key == "ctrl_c" else EOFError):
         await runtime.submissions.read_submission()
 
     await runtime.close()

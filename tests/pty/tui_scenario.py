@@ -689,7 +689,7 @@ async def _run_ctrl_c_exit(
     *,
     phase: str,
 ) -> None:
-    """验证各 Turn 阶段重复 Ctrl-C 幂等中断，Ctrl-D 显式退出。"""
+    """验证不同 Turn 阶段的 Ctrl-C 幂等与二次退出。"""
     control, server = _active_turn(runtime, started=phase != "early")
     output_session = None
     activity = None
@@ -767,8 +767,8 @@ async def _run_ctrl_c_exit(
         runtime.read_message(PromptContext(model="test-model"))
     )
     await _wait_until(
-        lambda: counter.value == 1,
-        "first Ctrl-C interrupt",
+        lambda: runtime.submissions.interrupt_state.exit_armed,
+        "first Ctrl-C confirmation",
     )
     if phase == "early":
         await _wait_until(
@@ -790,16 +790,11 @@ async def _run_ctrl_c_exit(
         )
     facts.stage = "interrupted_once"
     facts.write()
-    await _wait_until(lambda: counter.value == 2, "repeated Ctrl-C")
-    if reader.done():
-        raise RuntimeError("repeated Ctrl-C exited an active Turn")
-    facts.stage = "interrupted_twice"
-    facts.write()
     try:
         await asyncio.wait_for(reader, timeout=10.0)
-        raise RuntimeError("Ctrl-D did not exit TUI input")
-    except EOFError:
-        facts.set_detail("exit_kind", "eof")
+        raise RuntimeError("second Ctrl-C did not exit TUI input")
+    except TuiInterruptRequested:
+        facts.set_detail("exit_kind", "interrupt")
     facts.set_detail("interrupt_invocations", counter.value)
     facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
     if activity is not None:
@@ -808,6 +803,56 @@ async def _run_ctrl_c_exit(
         await output_session.close(blink=False)
     if phase != "late":
         _complete_turn(control, server, status="interrupted")
+    await _close_turn(runtime, control)
+
+
+async def _run_ctrl_c_expiry(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证退出确认过期后下一次 Ctrl-C 恢复为首次语义。"""
+    control, server = _active_turn(runtime)
+    counter = _ActionCounter()
+
+    def interrupt() -> InterruptDisposition:
+        """记录确认窗口两侧的幂等中断调用。"""
+        counter.value += 1
+        control.request_interrupt()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    _ready(runtime, facts)
+    runtime.set_execution_active(True)
+    facts.stage = "accepting"
+    facts.write()
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: counter.value == 1,
+        "first Ctrl-C",
+    )
+    await _wait_until(
+        lambda: not runtime.submissions.interrupt_state.exit_armed,
+        "Ctrl-C confirmation expiry",
+        timeout=5.0,
+    )
+    facts.stage = "expired"
+    facts.write()
+    await _wait_until(
+        lambda: (
+            counter.value == 2
+            and runtime.submissions.interrupt_state.exit_armed
+        ),
+        "Ctrl-C confirmation rearm",
+    )
+    facts.stage = "rearmed"
+    facts.write()
+    try:
+        await asyncio.wait_for(reader, timeout=10.0)
+        raise RuntimeError("rearmed Ctrl-C confirmation did not exit")
+    except TuiInterruptRequested:
+        facts.set_detail("exit_kind", "interrupt")
+    facts.set_detail("interrupt_invocations", counter.value)
+    facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
+    _complete_turn(control, server, status="interrupted")
     await _close_turn(runtime, control)
 
 
@@ -836,6 +881,60 @@ async def _run_ctrl_d_active(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     except EOFError:
         facts.set_detail("exit_kind", "eof")
     await _wait_until(lambda: len(server.interrupt_requests) == 1, "interrupt before exit")
+    facts.set_detail("interrupt_invocations", counter.value)
+    facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
+    _complete_turn(control, server, status="interrupted")
+    await _close_turn(runtime, control)
+
+
+async def _run_ctrl_c_intervening_key(
+    runtime: TuiRuntime,
+    facts: ScenarioFacts,
+) -> None:
+    """验证任意非 Ctrl-C 按键会打断连续退出手势。"""
+    control, server = _active_turn(runtime)
+    counter = _ActionCounter()
+
+    def interrupt() -> InterruptDisposition:
+        """记录每次重新武装期间的幂等中断调用。"""
+        counter.value += 1
+        control.request_interrupt()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    _ready(runtime, facts)
+    runtime.set_execution_active(True)
+    facts.stage = "accepting"
+    facts.write()
+    reader = asyncio.create_task(
+        runtime.read_message(PromptContext(model="test-model"))
+    )
+    await _wait_until(
+        lambda: runtime.submissions.interrupt_state.exit_armed,
+        "first Ctrl-C confirmation",
+    )
+    facts.stage = "armed"
+    facts.write()
+    await _wait_until(
+        lambda: not runtime.submissions.interrupt_state.exit_armed,
+        "intervening editor key",
+    )
+    facts.stage = "broken"
+    facts.write()
+    await _wait_until(
+        lambda: (
+            counter.value == 2
+            and runtime.submissions.interrupt_state.exit_armed
+        ),
+        "Ctrl-C confirmation rearm",
+    )
+    facts.stage = "rearmed"
+    facts.write()
+    try:
+        await asyncio.wait_for(reader, timeout=10.0)
+        raise RuntimeError("consecutive Ctrl-C did not exit TUI input")
+    except TuiInterruptRequested:
+        facts.set_detail("exit_kind", "interrupt")
     facts.set_detail("interrupt_invocations", counter.value)
     facts.set_detail("interrupt_request_count", len(server.interrupt_requests))
     _complete_turn(control, server, status="interrupted")
@@ -923,7 +1022,7 @@ async def _run_interrupt_restore_order(
     facts.stage = "accepting"
     facts.write()
     await _wait_until(
-        lambda: len(server.interrupt_requests) == 1,
+        lambda: runtime.submissions.interrupt_state.exit_armed,
         "restore-order interrupt",
     )
     facts.stage = "interrupted"
@@ -1441,8 +1540,12 @@ async def _run(scenario: str, facts_path: Path) -> None:
                 facts,
                 phase=scenario.removeprefix("ctrl_c_"),
             )
+        elif scenario == "ctrl_c_expiry":
+            await _run_ctrl_c_expiry(runtime, facts)
         elif scenario == "ctrl_d_active":
             await _run_ctrl_d_active(runtime, facts)
+        elif scenario == "ctrl_c_intervening_key":
+            await _run_ctrl_c_intervening_key(runtime, facts)
         elif scenario == "queue_edit":
             await _run_queue_edit(runtime, facts)
         elif scenario == "interrupt_restore_order":
