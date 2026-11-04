@@ -12,6 +12,7 @@ from protocol.schema.stream_events import (
     parse_stream_event,
 )
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 from protocol.transport.reports import open_report_session
 
 
@@ -32,7 +33,7 @@ async def recover_session_context(cid: str, sid: str, *, after_seq: int = 0) -> 
             raise ValueError("context recovery requires a report view token")
         cursor = after_seq
         compactions: list[ContextCompactionEvent] = []
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=10)) as client:
             while True:
                 response = await client.get(
                     service_endpoints.endpoint("/mind-replay"),

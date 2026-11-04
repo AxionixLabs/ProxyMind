@@ -7,6 +7,7 @@ import httpx
 
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 
 
 async def post_stream_event(
@@ -23,7 +24,7 @@ async def post_stream_event(
         "sid": sid,
         "event": event
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
         r = await client.post(service_endpoints.endpoint("/events-ingest"), headers=headers, json=payload)
         r.raise_for_status()
 
@@ -44,7 +45,7 @@ async def open_report_session(
     if isinstance(proto, str) and proto.strip():
         payload["proto"] = proto.strip()
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
         r = await client.post(service_endpoints.endpoint("/reports/open"), headers=headers, json=payload)
         r.raise_for_status()
         body = r.json()

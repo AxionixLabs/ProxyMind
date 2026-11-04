@@ -35,6 +35,7 @@ from protocol.schema.tool_output import (
 from protocol.schema.json_value import JsonObject
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 from protocol.transport.reliable import (
     get_json_reliably,
     is_retryable_response,
@@ -314,7 +315,7 @@ async def reconcile_tool_approval_snapshot(
         raise ToolApprovalSnapshotRequestError(str(error)) from error
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
             response = await client.post(
                 service_endpoints.endpoint("/turn/approval-snapshot"),
                 json={

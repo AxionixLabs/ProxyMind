@@ -8,6 +8,7 @@ import typing
 import httpx
 
 from protocol.schema.json_value import JsonObject
+from protocol.transport.http_client import open_http_client
 
 
 class _AsyncJsonClient(typing.Protocol):
@@ -61,7 +62,11 @@ class _AsyncJsonClient(typing.Protocol):
 
 
 class _AsyncJsonClientFactory(typing.Protocol):
-    """描述按超时创建异步 JSON 客户端的工厂。"""
+    """描述按超时创建请求作用域客户端的工厂。
+
+    工厂在线程中仅构造客户端，不访问运行中的事件循环；返回的异步上下文
+    由请求方在原事件循环内进入和关闭，取消期间仍须回收构造结果。
+    """
 
     def __call__(self, *, timeout: float) -> _AsyncJsonClient:
         """创建一次请求作用域内的客户端。"""
@@ -130,7 +135,7 @@ async def post_json_reliably(
         if delay:
             await asyncio.sleep(delay)
         try:
-            async with client_factory(timeout=timeout) as client:
+            async with open_http_client(lambda: client_factory(timeout=timeout)) as client:
                 response = await client.post(
                     url,
                     params=params,
@@ -178,7 +183,7 @@ async def send_json_reliably(
         if delay:
             await asyncio.sleep(delay)
         try:
-            async with client_factory(timeout=timeout) as client:
+            async with open_http_client(lambda: client_factory(timeout=timeout)) as client:
                 response = await client.request(
                     normalized_method,
                     url,
@@ -221,7 +226,7 @@ async def get_json_reliably(
         if delay:
             await asyncio.sleep(delay)
         try:
-            async with client_factory(timeout=timeout) as client:
+            async with open_http_client(lambda: client_factory(timeout=timeout)) as client:
                 response = await client.get(
                     url,
                     params=params,

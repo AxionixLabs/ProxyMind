@@ -618,7 +618,7 @@ async def test_empty_composer_question_mark_opens_runtime_shortcuts() -> None:
             )
             assert "Ctrl+O" in text
             assert "copy last response" in text
-            assert "press twice within 2s to exit" in text
+            assert "clear draft; interrupt active task; exit when idle" in text
             assert runtime.screen.input.buffer.text == ""
         finally:
             await runtime.close()

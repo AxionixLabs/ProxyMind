@@ -123,7 +123,7 @@ class TurnRuntimePort(typing.Protocol):
         ...
 
     def finish_interrupted_presentation(self) -> None:
-        """在权威中断终态后收束当前 Turn 展示。"""
+        """收束旧轮活动展示，保留已经上屏的待执行问题。"""
         ...
 
     def set_turn_start_pending(self, pending: bool) -> None:
@@ -168,6 +168,10 @@ class TurnRuntimePort(typing.Protocol):
 
     async def wait_for_application_failure(self) -> BaseException:
         """等待输入应用异常停止并返回原始错误。"""
+        ...
+
+    async def wait_for_exit_request(self) -> None:
+        """等待会话的显式退出；实现方不得把它视为远端 Turn 终态。"""
         ...
 
 

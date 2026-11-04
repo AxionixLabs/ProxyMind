@@ -15,11 +15,11 @@ from agent.ports import (
     ProtocolCommandClient,
     ProtocolCommandError,
 )
+from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.interrupt import InterruptDisposition
-from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.core.styles import (
     TERMINAL_CYAN_STYLE,
     prompt_style,
@@ -1400,8 +1400,10 @@ async def test_remote_interrupt_response_loss_does_not_create_status_owner(
 
 
 @pytest.mark.anyio
-async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
+@pytest.mark.parametrize("first_key", ("ctrl_c", "escape"))
+async def test_repeated_ctrl_c_waits_for_terminal_and_ctrl_d_exits(
     protocol_client: ProtocolCommandClient,
+    first_key: str,
 ) -> None:
     turn_started = asyncio.Event()
     turn_cancelled = asyncio.Event()
@@ -1414,7 +1416,6 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
             turn_cancelled.set()
 
     runtime = TuiRuntime()
-    runtime.submissions.interrupt_state.timeout_sec = 0.01
     control = TuiTurnInputControl(
         SimpleNamespace(attach=_Attachments()),
         runtime,
@@ -1433,7 +1434,12 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
     ))
     await turn_started.wait()
 
-    assert runtime.submissions.interrupt_input() is (
+    first_interrupt = (
+        runtime.submissions.interrupt_turn
+        if first_key == "escape"
+        else runtime.submissions.interrupt_input
+    )
+    assert first_interrupt() is (
         InterruptDisposition.CONSUMED
     )
     while protocol_client.interrupt_turn.await_count < 1:
@@ -1441,26 +1447,33 @@ async def test_second_ctrl_c_abandons_remote_settlement_and_exits(
     assert runtime.execution_active
     assert not execution.done()
 
-    await asyncio.sleep(0.02)
-    assert not runtime.submissions.interrupt_state.exit_armed
-
     assert runtime.submissions.interrupt_input() is (
-        InterruptDisposition.EXIT_REQUESTED
+        InterruptDisposition.CONSUMED
     )
+    assert not runtime.submissions.interrupt_state.exit_requested
+    assert runtime.execution_active
+    assert not execution.done()
+    protocol_client.interrupt_turn.assert_awaited_once()
+
+    runtime.submissions.exit_input()
     await asyncio.wait_for(execution, timeout=0.1)
 
     assert turn_cancelled.is_set()
     protocol_client.get_turn_status.assert_not_awaited()
     assert not runtime.execution_active
-    with pytest.raises(TuiInterruptRequested):
+    with pytest.raises(EOFError):
         await runtime.submissions.read_submission()
 
     await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_escape_interrupt_submits_pending_steers_after_terminal(
+@pytest.mark.parametrize("accepted_count", (0, 1, 2))
+@pytest.mark.parametrize("terminal_status", ("interrupted", "completed"))
+async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inputs(
     protocol_client: ProtocolCommandClient,
+    accepted_count: int,
+    terminal_status: str,
 ) -> None:
     release_terminal = asyncio.Event()
     turn_started = asyncio.Event()
@@ -1476,8 +1489,8 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
     async def turn() -> SimpleNamespace:
         turn_started.set()
         await release_terminal.wait()
-        control.handle_event(_completed(status="interrupted", event_seq=3))
-        return SimpleNamespace(status="interrupted")
+        control.handle_event(_completed(status=terminal_status, event_seq=3))
+        return SimpleNamespace(status=terminal_status)
 
     protocol_client.reconcile_turn_inputs = AsyncMock(
         side_effect=retry_pending,
@@ -1513,6 +1526,7 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
     runtime.defer_submission(_submission("tab follow up"))
     buffer.text = "draft remains editable"
     buffer.cursor_position = len(buffer.text)
+    pending_ids = runtime.submissions.pending_steers.active_ids
 
     assert runtime.submissions.interrupt_turn() is (
         InterruptDisposition.CONSUMED
@@ -1521,21 +1535,54 @@ async def test_escape_interrupt_submits_pending_steers_after_terminal(
         runtime.screen._queued_fragments(width=100)
     )
 
-    assert "Queued while interrupted turn settles" in immediate_preview
-    assert "second query" in immediate_preview
-    assert "third query" in immediate_preview
+    assert "second query" not in immediate_preview
+    assert "third query" not in immediate_preview
+    assert "tab follow up" in immediate_preview
+    assert [block.raw_text for block in runtime.document.blocks] == [
+        "second query\nthird query",
+    ]
+    assert not runtime.submissions.rejected_steers.active
+    assert runtime.submissions.message_queue.empty()
+    assert runtime.execution_active
     assert not execution.done()
     application.emit.assert_not_called()
+
+    for client_message_id in pending_ids[:accepted_count]:
+        control.handle_event(TurnInputAcceptedEvent(
+            type="turn.input.accepted",
+            turn_id="turn_001",
+            client_message_id=client_message_id,
+        ))
+    runtime.document.set_display_width(40)
+    visible = fragments_text(runtime.document.fragments(width=40))
+    assert visible.count("second query") == 1
+    assert visible.count("third query") == 1
+    assert all(
+        block.turn_id == "turn_001"
+        for block in runtime.document.blocks[:accepted_count]
+    )
 
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
-    notice = application.emit.call_args.args[0]
-    assert fragments_text(notice.renderable.fragments) == (
-        "• Model interrupted to submit steer instructions."
-    )
-    immediate = await runtime.submissions.read_submission()
-    assert immediate.value == "second query\nthird query"
+    if terminal_status == "interrupted":
+        notice = application.emit.call_args.args[0]
+        assert fragments_text(notice.renderable.fragments) == (
+            "• Model interrupted to submit steer instructions."
+        )
+    else:
+        application.emit.assert_not_called()
+    if accepted_count < 2:
+        immediate = await runtime.read_message(PromptContext(model="test"))
+        assert immediate == "\n".join(("second query", "third query")[accepted_count:])
+        assert runtime.bind_submitted_turn("turn_002", immediate)
+        assert runtime.document.blocks[-1].turn_id == "turn_002"
+    else:
+        assert not runtime.submissions.rejected_steers.active
+        assert not runtime.submissions.pending_steers.active
+    assert len(runtime.document.blocks) == min(accepted_count + 1, 2)
+    assert fragments_text(runtime.document.fragments(width=100)).count("second query") == 1
+    assert fragments_text(runtime.document.fragments(width=100)).count("third query") == 1
     assert runtime.submissions.queued_messages.active
     assert runtime.screen.input.buffer.text == "draft remains editable"
     protocol_client.get_turn_status.assert_not_awaited()

@@ -144,7 +144,7 @@ async def run(directory: Path, url: str, mode: str) -> int:
         runtime.append_block(text_block("DELETE ACCEPTANCE READY"), kind="notice")
         if mode in {"streaming", "tool", "retry"}:
             await _run_ctrl_c_exit(runtime, facts, phase=mode)
-            lifecycle.request_stop(exit_code=130)
+            lifecycle.request_stop()
         elif mode == "stream_command":
             control, server = _active_turn(runtime)
 

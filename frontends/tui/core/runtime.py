@@ -220,6 +220,7 @@ class TuiRuntime(object):
         self._modal_depth: int = 0
         self._turn_progress_active: bool = False
         self._turn_output_suppressed: bool = False
+        self._interrupt_query: TranscriptBlock | None = None
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
         self._approval_activity_sink: (
@@ -236,12 +237,9 @@ class TuiRuntime(object):
                 block,
                 kind="notice",
             ),
+            present_interrupt_submission=self._present_interrupt_submission,
             invalidate=self.invalidate,
         )
-        self.input_model.bind_input_activity(
-            self.submissions.clear_exit_confirmation
-        )
-
         self.viewport = TuiTranscriptViewport(
             document=self.document,
             is_application_active=lambda: self.active,
@@ -291,7 +289,6 @@ class TuiRuntime(object):
             pending_steers=self.submissions.pending_steers,
             rejected_steers=self.submissions.rejected_steers,
             queued_messages=self.submissions.queued_messages,
-            interrupt_state=self.submissions.interrupt_state,
             get_context=lambda: self.context,
             get_placeholder_text=lambda: self.submissions.placeholder_text,
             get_submission_deferred=lambda: self.submission_deferred,
@@ -299,6 +296,7 @@ class TuiRuntime(object):
             get_queued_submission_text=(
                 lambda: self.submissions.queued_submission_text
             ),
+            get_presented_submission_ids=lambda: self.submissions.presented_submission_ids,
             get_surface_submission_pending=(
                 lambda: self.submissions.surface_submission_pending
             ),
@@ -306,7 +304,6 @@ class TuiRuntime(object):
             get_transcript_view_row=lambda: self.viewport.view_row,
             accept_input=self.submissions.accept_input,
             on_input_text_changed=self.submissions.on_input_text_changed,
-            clear_exit_confirmation=self.submissions.clear_exit_confirmation,
             clear_visible_transcript=self.viewport.clear_visible,
             scroll_transcript_page=self.viewport.scroll_page,
             toggle_raw_output_mode=self.toggle_raw_output_mode,
@@ -585,6 +582,7 @@ class TuiRuntime(object):
         """暂缓菜单内的新滚屏提交，但允许尺寸变化时重建已有画面。"""
         return bool(
             self._modal_depth > 0
+            or self._interrupt_query is not None
             or self.foreground_active
             or self.screen.startup_gate_active
             or (self.screen.menu.active and not reflow)
@@ -708,13 +706,13 @@ class TuiRuntime(object):
 
     def _handle_input_interrupt(self) -> InterruptDisposition:
         """按当前前台交互状态分派输入中断。"""
-        if self._inline_process_future is not None:
+        if (
+            self._inline_process_future is not None
+            and not self._inline_process_future.done()
+        ):
             if self.submissions.discard_input_draft():
                 return InterruptDisposition.DRAFT_DISCARDED
             self.resolve_inline_process("interrupt")
-            disposition = self.submissions.interrupt_input()
-            if disposition is InterruptDisposition.EXIT_REQUESTED:
-                return disposition
             return InterruptDisposition.CONSUMED
 
         return self.submissions.interrupt_input()
@@ -1685,6 +1683,61 @@ class TuiRuntime(object):
 
         return True
 
+    def _present_interrupt_submission(self, submission: TuiSubmission | None) -> None:
+        """立即展示中断后的待执行问题，并按输入对账结果原位更新。"""
+        with self.screen.visual_update():
+            previous = self._interrupt_query
+            if submission is None:
+                if previous is None:
+                    return
+                self.document.remove_stable_block(previous)
+                self._interrupt_query = None
+            else:
+                self._turn_output_suppressed = True
+                active = self.document.active_block
+                if active is not None:
+                    self.commit_active_renderable(
+                        active,
+                        transcript_block=self.document.active_transcript_block,
+                        raw_text=self.document.active_raw_text,
+                        source=self.document.active_source,
+                        display_renderer=self.document.active_display_renderer,
+                        display_render_width=self.document.active_display_render_width,
+                    )
+                value = submission.value
+                if not value.strip() and submission.attachments:
+                    labels = [
+                        label for item in submission.attachments
+                        if (label := str(item.get("filename") or item.get("name") or "").strip())
+                    ]
+                    value = f"[Attachment: {', '.join(labels) or 'attachment'}]"
+                renderer = partial(query_display_block, value)
+                width = self.terminal_width
+                block = renderer(width)
+                transcript = query_block(value, command_aware=False)
+                if previous is None:
+                    self._interrupt_query = self.document.append_block(
+                        block, kind="user", transcript_block=transcript,
+                        raw_text=value, display_renderer=renderer,
+                        display_render_width=width,
+                        stable_id=submission.client_message_id,
+                    )
+                    self.viewport.reset_view()
+                else:
+                    if not self.document.replace_stable_block(
+                        previous, block, transcript_block=transcript,
+                        raw_text=value, display_renderer=renderer,
+                        display_render_width=width,
+                    ):
+                        raise RuntimeError("interrupt query is missing from the document")
+                    self._interrupt_query = next(
+                        item for item in self.document.blocks
+                        if item.stable_id == previous.stable_id
+                    )
+            self.screen.transcript_overlay.content_changed()
+            self.viewport.stable_content_changed()
+            self.screen.synchronize_next_render()
+
     def append_turn_input(
         self,
         turn_id: str,
@@ -1717,6 +1770,10 @@ class TuiRuntime(object):
         transcript = query_block(display_text, command_aware=False)
         renderer = partial(query_display_block, display_text)
 
+        interrupt_query = self._interrupt_query
+        if interrupt_query is not None:
+            self.document.remove_stable_block(interrupt_query)
+
         self.append_block(
             renderer(width),
             kind="user",
@@ -1735,6 +1792,18 @@ class TuiRuntime(object):
             extras=submission.extras,
         ):
             raise RuntimeError("accepted turn input payload could not be bound")
+
+        if interrupt_query is not None:
+            self._interrupt_query = self.document.append_block(
+                interrupt_query.display_block, kind="user",
+                transcript_block=interrupt_query.transcript_block,
+                raw_text=interrupt_query.raw_text,
+                display_renderer=interrupt_query.display_renderer,
+                display_render_width=interrupt_query.display_render_width,
+                stable_id=interrupt_query.stable_id,
+            )
+            self.screen.transcript_overlay.content_changed()
+            self.viewport.stable_content_changed()
 
         return True
 
@@ -1928,7 +1997,7 @@ class TuiRuntime(object):
                 ("class:static-pager.key", f"{'Ctrl+C':<18}"),
                 (
                     "class:static-pager.text",
-                    "press twice within 2s to exit; any other key cancels",
+                    "clear draft; interrupt active task; exit when idle",
                 ),
             ),
         ))
@@ -1992,13 +2061,13 @@ class TuiRuntime(object):
         self._transcript.clear_active()
 
     def begin_interrupt_settlement(self) -> None:
-        """投影中断意图下的输入归属，但保留活动 Turn 展示。"""
+        """登记中断意图，保留活动 Turn 和未确认输入的展示。"""
         with self.screen.visual_update():
-            self.submissions.mark_pending_steers_interrupt_settling()
+            self.submissions.begin_interrupt_settlement()
             self.invalidate()
 
     def finish_interrupted_presentation(self) -> None:
-        """在权威中断终态后撤下当前 Turn 的前台展示。"""
+        """收束旧轮活动展示，保留已经上屏的待执行问题。"""
         with self.screen.visual_update():
             self._turn_output_suppressed = True
             self._transcript.clear_active()
@@ -2200,6 +2269,10 @@ class TuiRuntime(object):
         """消费并返回主输入区是否已请求退出。"""
         return self.submissions.consume_exit_request()
 
+    async def wait_for_exit_request(self) -> None:
+        """等待当前会话显式退出，供活动任务结束本地观察。"""
+        await self.submissions.wait_for_exit_request()
+
     def begin_startup_gate(self) -> None:
         """激活启动阶段独占画布并阻止主输入。"""
         self.screen.set_startup_gate(True)
@@ -2261,6 +2334,14 @@ class TuiRuntime(object):
             value = str(submission)
             visible = value
 
+        already_presented = bool(
+            isinstance(submission, TuiSubmission)
+            and self._interrupt_query is not None
+            and self._interrupt_query.stable_id == submission.client_message_id
+        )
+        if already_presented:
+            self._interrupt_query = None
+
         literal_bang_paste = self._is_literal_bang_paste(submission, value)
         model_submission = self._is_model_submission(
             value,
@@ -2280,6 +2361,7 @@ class TuiRuntime(object):
 
         if (
             visible
+            and not already_presented
             and not (
             submission_replaces_query(value)
             and not literal_bang_paste

@@ -831,6 +831,9 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> bool:
         """原位替换稳定正文块并保留其段间位置。"""
         index = next(
@@ -863,6 +866,15 @@ class TuiDocument(object):
             display_block=sanitize_fragment_block(block),
             transcript_block=sanitize_fragment_block(
                 block if transcript_block is None else transcript_block,
+            ),
+            raw_text=current.raw_text if raw_text is None else raw_text,
+            display_renderer=(
+                current.display_renderer
+                if display_renderer is None else display_renderer
+            ),
+            display_render_width=(
+                current.display_render_width
+                if display_render_width is None else display_render_width
             ),
         )
         self._rebuild_stable_lines()

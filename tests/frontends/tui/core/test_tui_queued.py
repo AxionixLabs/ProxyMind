@@ -111,38 +111,6 @@ def test_pending_steer_lists_each_enter_submission() -> None:
     ]
 
 
-def test_pending_steers_show_interrupt_settlement_immediately() -> None:
-    pending = TuiPendingSteers()
-    second = _submission("second query")
-    third = _submission("third query")
-    pending.add(second)
-    pending.add(third)
-
-    assert pending.mark_interrupt_settling()
-    assert not pending.mark_interrupt_settling()
-
-    text = _fragments_text(pending.fragments(
-        width=100,
-        interrupt_binding="esc",
-    ))
-    assert text.splitlines() == [
-        "• Queued while interrupted turn settles",
-        "  ↳ second query",
-        "  ↳ third query",
-    ]
-
-    pending.remove(second.client_message_id)
-    pending.remove(third.client_message_id)
-    pending.add(_submission("new turn steer"))
-
-    assert "Messages to be submitted after next tool call" in (
-        _fragments_text(pending.fragments(
-            width=100,
-            interrupt_binding="esc",
-        ))
-    )
-
-
 def test_submission_identity_cannot_enter_two_runtime_queues() -> None:
     runtime = TuiRuntime()
     submission = _submission("one owner")
@@ -159,19 +127,14 @@ def test_submission_identity_cannot_enter_two_runtime_queues() -> None:
     assert not runtime.submissions.queued_messages.active
 
 
-def test_uncertain_only_projection_is_not_interrupt_settling() -> None:
+def test_uncertain_only_projection_shows_delivery_unconfirmed() -> None:
     pending = TuiPendingSteers()
     submission = _submission("uncertain")
     pending.add(submission)
-    assert pending.mark_interrupt_settling()
 
     pending.retain_uncertain(submission)
 
-    assert not pending.mark_interrupt_settling()
     assert "Delivery unconfirmed" in _fragments_text(
-        pending.fragments(width=100, interrupt_binding="esc")
-    )
-    assert "interrupted turn settles" not in _fragments_text(
         pending.fragments(width=100, interrupt_binding="esc")
     )
 
@@ -187,6 +150,7 @@ async def test_escape_interrupt_submits_only_pending_steers_immediately() -> Non
     runtime.defer_submission(queued)
     runtime.screen.input.buffer.text = "draft remains editable"
     runtime.set_execution_active(True)
+    runtime.set_active_renderable(text_block("partial answer"), raw_text="partial answer")
     runtime.bind_interrupt_handler(
         lambda: InterruptDisposition.CONSUMED
     )
@@ -194,6 +158,13 @@ async def test_escape_interrupt_submits_only_pending_steers_immediately() -> Non
     assert runtime.submissions.interrupt_turn() is (
         InterruptDisposition.CONSUMED
     )
+    assert [block.raw_text for block in runtime.document.blocks] == [
+        "partial answer",
+        "second query\nthird query",
+    ]
+    assert runtime.document.active_block is None
+    assert runtime.turn_output_suppressed
+    assert "second query" not in _fragments_text(runtime.screen._queued_fragments(width=100))
     runtime.begin_interrupt_settlement()
     runtime.finish_interrupted_presentation()
     runtime.defer_rejected_steer(first)
@@ -224,6 +195,59 @@ def test_escape_interrupt_handler_failure_clears_submit_intent() -> None:
     assert runtime.submissions.can_interrupt_turn
     assert not runtime.submit_pending_steers_after_interrupt
     assert runtime.submissions.pending_steers.active
+    assert not runtime.document.blocks
+
+
+@pytest.mark.anyio
+async def test_escape_attachment_only_input_is_displayed_once_and_keeps_payload() -> None:
+    runtime = TuiRuntime()
+    submission = TuiSubmission(
+        value="", editable_text="", paste_store={},
+        attachments=({"kind": "image", "name": "diagram.png"},),
+        payload_bound=True,
+    )
+    runtime.track_pending_steer(submission)
+    runtime.set_execution_active(True)
+    runtime.bind_interrupt_handler(lambda: InterruptDisposition.CONSUMED)
+
+    runtime.submissions.interrupt_turn()
+    assert "diagram.png" in _fragments_text(runtime.document.fragments(width=80))
+    assert not runtime.screen._queued_content_visible()
+
+    runtime.defer_rejected_steer(submission)
+    assert runtime.restore_interrupted_submissions()
+    assert await runtime.read_message(PromptContext(model="test")) == ""
+    consumed = runtime.consume_submission_payload()
+    assert consumed is not None
+    assert consumed.attachments == submission.attachments
+    assert consumed.payload_bound
+    assert len(runtime.document.blocks) == 1
+    await runtime.close()
+
+
+def test_escape_unconfirmed_input_returns_to_queue_without_automatic_retry() -> None:
+    runtime = TuiRuntime()
+    pending = _submission("unconfirmed input")
+    runtime.track_pending_steer(pending)
+    runtime.mark_pending_steer_sent(pending.client_message_id)
+    runtime.defer_submission(_submission("tab remains queued"))
+    runtime.screen.input.buffer.text = "draft remains editable"
+    runtime.set_execution_active(True)
+    runtime.bind_interrupt_handler(lambda: InterruptDisposition.CONSUMED)
+
+    runtime.submissions.interrupt_turn()
+    assert [block.raw_text for block in runtime.document.blocks] == [pending.value]
+    resolution = runtime.close_pending_steers((pending.client_message_id,), settled=False)
+    for submission in resolution.uncertain:
+        runtime.retain_uncertain_steer(submission)
+
+    assert not runtime.restore_interrupted_submissions()
+    assert not runtime.document.blocks
+    assert not runtime.submissions.rejected_steers.active
+    assert runtime.submissions.queued_messages.active
+    assert runtime.submissions.message_queue.empty()
+    assert "Delivery unconfirmed" in _fragments_text(runtime.screen._queued_fragments(width=100))
+    assert runtime.screen.input.buffer.text == "draft remains editable"
 
 
 def test_ordinary_interrupted_queue_restores_everything_to_composer() -> None:

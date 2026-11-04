@@ -174,7 +174,7 @@ def test_windows_output_reserves_one_column_outside_render_width() -> None:
 
 @pytest.mark.parametrize("mode", [
     FooterMode.HISTORY_SEARCH, FooterMode.HISTORY_BACKTRACK,
-    FooterMode.EXIT_ARMED, FooterMode.HIDDEN,
+    FooterMode.HIDDEN,
 ])
 def test_special_modes_own_footer(mode) -> None:
     assert "context left" not in fragments_text(footer_fragments(

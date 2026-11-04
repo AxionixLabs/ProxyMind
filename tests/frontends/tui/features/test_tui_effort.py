@@ -283,9 +283,6 @@ async def test_durable_recovery_stops_automatic_polling_and_observes_exit(
 
     assert turn_application.reconcile_remote_session.await_count == 3
     assert runtime.submissions.interrupt_input() is (
-        InterruptDisposition.EXIT_ARMED
-    )
-    assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.EXIT_REQUESTED
     )
     with pytest.raises(TuiInterruptRequested):
@@ -410,9 +407,6 @@ async def test_durable_recovery_keeps_draft_when_manual_probe_is_pending(
 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.DRAFT_DISCARDED
-    )
-    assert runtime.submissions.interrupt_input() is (
-        InterruptDisposition.EXIT_ARMED
     )
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.EXIT_REQUESTED

@@ -177,12 +177,17 @@ async def execute_tui_model_turn(
         runtime.wait_for_application_failure(),
         name="tui application failure",
     )
+    exit_request = asyncio.create_task(
+        runtime.wait_for_exit_request(),
+        name="tui turn exit request",
+    )
 
     interrupt_state = _TurnInterruptState()
 
     fatal_error: BaseException | None = None
     interrupted: bool = False
     submit_pending_steers: bool = False
+    terminal_status: str = ""
 
     def cancel_local_stream() -> None:
         """取消当前轮次持有的本地事件流。"""
@@ -192,10 +197,7 @@ async def execute_tui_model_turn(
     def cancel_turn() -> InterruptDisposition:
         """登记中断，并继续观察远端权威终态。"""
         if interrupt_state.requested:
-            if turn_input_control is not None:
-                turn_input_control.abandon()
-            cancel_local_stream()
-            return InterruptDisposition.EXIT_REQUESTED
+            return InterruptDisposition.CONSUMED
         if task.done():
             return InterruptDisposition.IGNORED
 
@@ -233,11 +235,18 @@ async def execute_tui_model_turn(
             )
 
         completed, _pending = await asyncio.wait(
-            (task, application_failure),
+            (task, application_failure, exit_request),
             return_when=asyncio.FIRST_COMPLETED,
         )
         if application_failure in completed:
             fatal_error = application_failure.result()
+            result = None
+        elif exit_request in completed:
+            interrupt_state.request()
+            if turn_input_control is not None:
+                turn_input_control.abandon()
+            cancel_local_stream()
+            interrupted = True
             result = None
         else:
             result = await task
@@ -272,10 +281,13 @@ async def execute_tui_model_turn(
             task.cancel()
         if not application_failure.done():
             application_failure.cancel()
+        if not exit_request.done():
+            exit_request.cancel()
 
         await asyncio.gather(
             task,
             application_failure,
+            exit_request,
             return_exceptions=True,
         )
 
@@ -284,7 +296,10 @@ async def execute_tui_model_turn(
         try:
             if turn_input_control is not None:
                 await turn_input_control.close()
-                if interrupted:
+                if interrupted or (
+                    runtime.submit_pending_steers_after_interrupt
+                    and terminal_status in {"completed", "failed", "interrupted", "cancelled"}
+                ):
                     runtime.restore_interrupted_submissions()
                 else:
                     runtime.clear_pending_steer_interrupt_intent()

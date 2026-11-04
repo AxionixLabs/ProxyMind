@@ -9,6 +9,7 @@ import httpx
 
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 
 PromptSource = typing.Literal[
     "none",
@@ -91,7 +92,7 @@ async def request_conversation_fork(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
             response = await client.post(
                 service_endpoints.endpoint("/fork"),
                 headers=build_service_headers(),

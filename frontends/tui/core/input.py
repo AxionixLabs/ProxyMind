@@ -338,10 +338,6 @@ class TuiInputModel(object):
         )
         self.shortcut_help_handler: typing.Callable[[], None] = _ignore_action
         self.exit_handler: typing.Callable[[], None] = _ignore_action
-        self._input_activity_handler: typing.Callable[[], None] = (
-            _ignore_action
-        )
-        self._interrupt_dispatched: bool = False
         self._input_layout_handler: typing.Callable[[], None] = (
             _ignore_input_layout
         )
@@ -2153,20 +2149,6 @@ class TuiInputModel(object):
         """绑定输入内容变化后的当前帧布局刷新动作。"""
         self._input_layout_handler = handler
 
-    def bind_input_activity(self, handler: typing.Callable[[], None]) -> None:
-        """绑定普通按键完成后的临时交互状态清理动作。"""
-        self._input_activity_handler = handler
-
-    def begin_key_dispatch(self) -> None:
-        """开始一次按键分派并清空当前按键的中断身份。"""
-        self._interrupt_dispatched = False
-
-    def finish_key_dispatch(self) -> None:
-        """结束按键分派，并让非 Ctrl+C 按键终止退出确认。"""
-        if not self._interrupt_dispatched:
-            self._input_activity_handler()
-        self._interrupt_dispatched = False
-
     def bind_file_search_refresh(self, handler: typing.Callable[[], None]) -> None:
         """绑定后台文件搜索结果到达后的线程安全刷新动作。"""
         self.file_search.bind_refresh(handler)
@@ -2188,7 +2170,6 @@ class TuiInputModel(object):
 
     def handle_interrupt(self, buffer) -> InterruptDisposition:
         """把 Ctrl+C 交给主运行时统一清理草稿或中断任务。"""
-        self._interrupt_dispatched = True
         disposition = self.interrupt_handler()
         self.notify_input_layout()
         return disposition

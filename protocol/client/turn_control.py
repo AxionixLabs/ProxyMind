@@ -20,6 +20,7 @@ from protocol.schema.turn_lifecycle import (
 from protocol.schema.turn_inputs import TurnInput
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 from protocol.transport.reliable import (
     is_retryable_status,
     post_json_reliably,
@@ -146,7 +147,7 @@ async def get_turn_status(
         raise TurnStatusRequestError(str(error)) from error
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
             response = await client.get(
                 service_endpoints.endpoint("/turn/status"),
                 params={

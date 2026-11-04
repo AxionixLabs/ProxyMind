@@ -13,6 +13,7 @@ from observability import (
     observe,
     observe_exception,
 )
+from protocol.transport.http_client import open_http_client
 
 
 class StreamDecodeError(httpx.DecodingError):
@@ -49,7 +50,10 @@ async def streaming(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=timeout, event_hooks={"response": [cap_response]}) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(
+            timeout=timeout,
+            event_hooks={"response": [cap_response]},
+        )) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
                 observe(
                     "http.stream.response",

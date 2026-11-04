@@ -25,7 +25,6 @@ class FooterMode(str, Enum):
     DEFAULT = "default"
     HISTORY_SEARCH = "history_search"
     HISTORY_BACKTRACK = "history_backtrack"
-    EXIT_ARMED = "exit_armed"
     QUEUE_SUBMISSION = "queue_submission"
     HIDDEN = "hidden"
 
@@ -80,7 +79,6 @@ def resolve_footer_mode(
     *,
     history_search_active: bool = False,
     history_backtrack_primed: bool,
-    exit_armed: bool,
     queue_submission_hint_visible: bool,
     submission_pending: bool,
 ) -> FooterMode:
@@ -89,8 +87,6 @@ def resolve_footer_mode(
         return FooterMode.HISTORY_SEARCH
     if history_backtrack_primed:
         return FooterMode.HISTORY_BACKTRACK
-    if exit_armed:
-        return FooterMode.EXIT_ARMED
     if queue_submission_hint_visible:
         return FooterMode.QUEUE_SUBMISSION
     if submission_pending:
@@ -145,11 +141,6 @@ def footer_fragments(
         return [
             ("class:footer.exit-key", "Esc"),
             ("class:footer.exit-hint", " again to edit previous message"),
-        ]
-    if mode is FooterMode.EXIT_ARMED:
-        return [
-            ("class:footer.exit-key", "Ctrl + C"),
-            ("class:footer.exit-hint", " again to exit"),
         ]
     if mode is FooterMode.QUEUE_SUBMISSION:
         full_hint = "  tab to queue message"

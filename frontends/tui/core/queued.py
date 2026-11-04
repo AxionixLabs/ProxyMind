@@ -182,6 +182,11 @@ class TuiRejectedSteers(object):
         """返回当前是否存在等待轮末重投的输入。"""
         return bool(self._items)
 
+    @property
+    def active_ids(self) -> tuple[str, ...]:
+        """返回仍由重投队列持有的消息身份。"""
+        return tuple(item.client_message_id for item in self._items)
+
     def append(self, item: TuiSubmission) -> None:
         """在队尾追加一条等待轮末重投的输入。"""
         self._items.append(item)
@@ -192,6 +197,13 @@ class TuiRejectedSteers(object):
             item.client_message_id == client_message_id
             for item in self._items
         )
+
+    def get(self, client_message_id: str) -> TuiSubmission | None:
+        """读取指定身份的可重投输入而不转移其所有权。"""
+        return next((
+            item for item in self._items
+            if item.client_message_id == client_message_id
+        ), None)
 
     def prepend(self, item: TuiSubmission) -> None:
         """把显式中断后应立即提交的输入放到重投队首。"""
@@ -224,15 +236,25 @@ class TuiRejectedSteers(object):
             return item
         return None
 
-    def fragments(self, *, width: int, max_rows: int = 6) -> FormattedText:
+    def fragments(
+        self,
+        *,
+        width: int,
+        max_rows: int = 6,
+        exclude_ids: tuple[str, ...] = (),
+    ) -> FormattedText:
         """生成等待轮末重投的消息列表。"""
-        if not self._items:
+        items = tuple(
+            item for item in self._items
+            if item.client_message_id not in exclude_ids
+        )
+        if not items:
             return []
 
         row_limit = max(1, int(max_rows))
         lines: list[FormattedText] = [_rejected_steer_title(width)]
         lines.extend(_submission_lines(
-            self._items,
+            items,
             available=max(0, row_limit - 1),
             width=width,
         ))
@@ -247,7 +269,6 @@ class TuiPendingSteers(object):
             str,
             tuple[TuiSubmission, SteerDeliveryState],
         ] = {}
-        self._interrupt_settling = False
 
     @property
     def active(self) -> bool:
@@ -263,11 +284,6 @@ class TuiPendingSteers(object):
         )
 
     @property
-    def interrupt_settling(self) -> bool:
-        """返回当前即时输入是否正在等待中断终态。"""
-        return self._interrupt_settling
-
-    @property
     def active_ids(self) -> tuple[str, ...]:
         """返回尚未收到权威归属的当前轮次输入标识。"""
         return tuple(
@@ -280,10 +296,15 @@ class TuiPendingSteers(object):
         """返回稳定消息标识是否存在于当前轮次账本。"""
         return client_message_id in self._items
 
+    def get_active(self, client_message_id: str) -> TuiSubmission | None:
+        """读取仍由当前轮次裁决的输入，不包含归属不明项。"""
+        item = self._items.get(client_message_id)
+        if item is None or item[1] is SteerDeliveryState.UNCERTAIN:
+            return None
+        return item[0]
+
     def add(self, item: TuiSubmission) -> None:
         """记录一条等待当前轮次接收的输入。"""
-        if not self.active_ids:
-            self._interrupt_settling = False
         self._items.setdefault(
             item.client_message_id,
             (item, SteerDeliveryState.LOCAL),
@@ -332,8 +353,6 @@ class TuiPendingSteers(object):
     def remove(self, client_message_id: str) -> TuiSubmission | None:
         """移除一条已经确认或转入下一轮的输入。"""
         item = self._items.pop(client_message_id, None)
-        if not self.active_ids:
-            self._interrupt_settling = False
         return item[0] if item is not None else None
 
     def retain_uncertain(self, item: TuiSubmission) -> None:
@@ -342,14 +361,6 @@ class TuiPendingSteers(object):
             item,
             SteerDeliveryState.UNCERTAIN,
         )
-        self._interrupt_settling = False
-
-    def mark_interrupt_settling(self) -> bool:
-        """把未确认即时输入投影为等待中断结算的下一轮候选。"""
-        if not self.active_ids or self._interrupt_settling:
-            return False
-        self._interrupt_settling = True
-        return True
 
     def pop_last_uncertain(self) -> TuiSubmission | None:
         """取回最近一条归属未确认的输入。"""
@@ -364,7 +375,6 @@ class TuiPendingSteers(object):
         """按登记顺序取出全部未确认输入。"""
         items = tuple(submission for submission, _ in self._items.values())
         self._items.clear()
-        self._interrupt_settling = False
         return items
 
     def advance(
@@ -394,8 +404,6 @@ class TuiPendingSteers(object):
             resolved_ids.append(client_message_id)
             if not settled and state is SteerDeliveryState.SENT:
                 uncertain.append(submission)
-        if not self.active_ids:
-            self._interrupt_settling = False
         return SteerResolution(
             retry=(),
             uncertain=tuple(uncertain),
@@ -434,8 +442,6 @@ class TuiPendingSteers(object):
             else:
                 uncertain_items.append(submission)
 
-        if not self.active_ids:
-            self._interrupt_settling = False
         return SteerResolution(
             retry=tuple(retry_items),
             uncertain=tuple(uncertain_items),
@@ -448,6 +454,7 @@ class TuiPendingSteers(object):
         width: int,
         max_rows: int = 6,
         interrupt_binding: str,
+        exclude_ids: tuple[str, ...] = (),
     ) -> FormattedText:
         """生成等待当前轮次接收的消息列表。"""
         if not self.active:
@@ -461,6 +468,7 @@ class TuiPendingSteers(object):
             submission
             for submission, state in self._items.values()
             if state is not SteerDeliveryState.UNCERTAIN
+            and submission.client_message_id not in exclude_ids
         )
         uncertain_items = tuple(
             submission
@@ -470,9 +478,7 @@ class TuiPendingSteers(object):
 
         if pending_items:
             lines.append(
-                _interrupt_settling_title(width)
-                if self._interrupt_settling
-                else _pending_steer_title(
+                _pending_steer_title(
                     width,
                     interrupt_binding=interrupt_binding,
                 )
@@ -541,25 +547,6 @@ def _pending_steer_title(
             return fragments
 
     return [("class:queue.label", titles[-1][0])]
-
-
-def _interrupt_settling_title(width: int) -> FormattedText:
-    """返回等待中断轮次完成对账的输入标题。"""
-    titles = (
-        "Queued while interrupted turn settles",
-        "Queued while settling",
-    )
-    limit = max(1, int(width))
-    for title in titles:
-        if get_cwidth(f"• {title}") <= limit:
-            return [
-                ("class:queue.marker", "• "),
-                ("class:queue.label", title),
-            ]
-    return [
-        ("class:queue.marker", "• "),
-        ("class:queue.label", titles[-1]),
-    ]
 
 
 def _rejected_steer_title(width: int) -> FormattedText:

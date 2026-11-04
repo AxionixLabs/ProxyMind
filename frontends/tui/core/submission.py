@@ -3,6 +3,7 @@
 
 import asyncio
 import typing
+from dataclasses import replace
 
 from prompt_toolkit.buffer import Buffer
 
@@ -91,8 +92,6 @@ class TuiMailboxRunRequested(Exception):
 class TuiSubmissionFlow(object):
     """管理输入提交、可见排队、流式命令和退出中断状态。"""
 
-    EXIT_CONFIRM_TIMEOUT_SEC: typing.Final[float] = 2.0
-
     def __init__(
         self,
         *,
@@ -100,6 +99,7 @@ class TuiSubmissionFlow(object):
         is_submission_deferred: typing.Callable[[], bool],
         get_input_buffer: typing.Callable[[], Buffer],
         append_notice: typing.Callable[[FragmentBlock], None],
+        present_interrupt_submission: typing.Callable[[TuiSubmission | None], None],
         invalidate: typing.Callable[[], None]
     ) -> None:
         self.input_model = input_model
@@ -107,9 +107,7 @@ class TuiSubmissionFlow(object):
         self.queued_messages = TuiQueuedMessages()
         self.pending_steers = TuiPendingSteers()
         self.rejected_steers = TuiRejectedSteers()
-        self.interrupt_state = TuiInterruptState(
-            timeout_sec=self.EXIT_CONFIRM_TIMEOUT_SEC
-        )
+        self.interrupt_state = TuiInterruptState()
         self.placeholder_text = self.input_model.new_placeholder()
         self.queued_submission_text: str | None = None
         self.surface_submission_pending: bool = False
@@ -119,12 +117,13 @@ class TuiSubmissionFlow(object):
         self._recovery_submit_event: asyncio.Event = asyncio.Event()
         self._turn_interrupt_requested: bool = False
         self._submit_after_interrupt_ids: tuple[str, ...] = ()
+        self._interrupt_submission: TuiSubmission | None = None
+        self._present_interrupt_submission = present_interrupt_submission
         self._is_submission_deferred = is_submission_deferred
         self._get_input_buffer = get_input_buffer
         self._append_notice = append_notice
         self._invalidate = invalidate
         self._exit_event = asyncio.Event()
-        self._exit_expiry_task: asyncio.Task[None] | None = None
         self._interrupt_handler: typing.Callable[
             [], InterruptDisposition
         ] = _ignore_interrupt
@@ -146,7 +145,7 @@ class TuiSubmissionFlow(object):
             self.interrupt_turn,
         )
         self.input_model.bind_exit(
-            lambda: not self._is_submission_deferred(),
+            lambda: True,
             self.exit_input,
         )
         self.input_model.bind_queue_submission(
@@ -163,11 +162,6 @@ class TuiSubmissionFlow(object):
             ),
             self.rollback_queued_input,
         )
-
-    @property
-    def exit_expiry_task(self) -> asyncio.Task[None] | None:
-        """返回当前退出确认到期任务。"""
-        return self._exit_expiry_task
 
     @property
     def has_pending_attachments(self) -> bool:
@@ -196,25 +190,39 @@ class TuiSubmissionFlow(object):
         """返回当前中断是否由 Esc 的即时提交意图发起。"""
         return bool(self._submit_after_interrupt_ids)
 
-    def _schedule_exit_expiry(self) -> None:
-        """安排退出确认窗口到期后的界面恢复。"""
-        self._cancel_exit_expiry()
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return None
+    @property
+    def presented_submission_ids(self) -> tuple[str, ...]:
+        """返回已经作为用户问题展示、不再重复出现在队列中的身份。"""
+        submission = self._interrupt_submission
+        if submission is None:
+            return ()
+        return (*self._submit_after_interrupt_ids, submission.client_message_id)
 
-        self._exit_expiry_task = asyncio.create_task(
-            self._expire_exit_confirmation(),
-            name="tui exit confirmation expiry",
+    def _clear_interrupt_submission(self) -> None:
+        """撤下尚未进入下一轮执行的中断提交投影。"""
+        self._interrupt_submission = None
+        self._present_interrupt_submission(None)
+
+    def _refresh_interrupt_submission(self) -> None:
+        """按剩余输入归属更新立即上屏的用户问题，保留展示身份。"""
+        items = tuple(
+            item for client_message_id in self._submit_after_interrupt_ids
+            if (item := (
+                self.pending_steers.get_active(client_message_id)
+                or self.rejected_steers.get(client_message_id)
+            )) is not None
         )
-
-    def _cancel_exit_expiry(self) -> None:
-        """取消尚未完成的退出确认到期任务。"""
-        task = self._exit_expiry_task
-        self._exit_expiry_task = None
-        if task is not None and not task.done():
-            task.cancel()
+        if not items:
+            self._clear_interrupt_submission()
+            return
+        merged = _merge_interrupted_submissions(
+            items, current_text="", current_pastes={}, current_shell_mode=False,
+        )
+        previous = self._interrupt_submission
+        if previous is not None:
+            merged = replace(merged, client_message_id=previous.client_message_id)
+        self._interrupt_submission = merged
+        self._present_interrupt_submission(merged)
 
     def _raise_requested_exit(self) -> None:
         """按退出来源传播终止信号。"""
@@ -366,11 +374,10 @@ class TuiSubmissionFlow(object):
         self._invalidate()
         return resolution
 
-    def mark_pending_steers_interrupt_settling(self) -> None:
-        """立即展示等待中断结算的即时输入。"""
+    def begin_interrupt_settlement(self) -> None:
+        """登记中断意图，保留输入归属直到收到权威终态。"""
         self._turn_interrupt_requested = True
-        if self.pending_steers.mark_interrupt_settling():
-            self._invalidate()
+        self._invalidate()
 
     def interrupt_turn(self) -> InterruptDisposition:
         """按 Esc 中断轮次，并为已有即时输入记录自动提交意图。"""
@@ -389,6 +396,8 @@ class TuiSubmissionFlow(object):
         if disposition is not InterruptDisposition.CONSUMED:
             self._turn_interrupt_requested = False
             self._submit_after_interrupt_ids = ()
+        elif self._submit_after_interrupt_ids:
+            self._refresh_interrupt_submission()
         self._invalidate()
         return disposition
 
@@ -399,6 +408,8 @@ class TuiSubmissionFlow(object):
         """停止展示一条已经确认或转入下一轮的输入。"""
         submission = self.pending_steers.remove(client_message_id)
         if submission is not None:
+            if client_message_id in self._submit_after_interrupt_ids:
+                self._refresh_interrupt_submission()
             self._invalidate()
         return submission
 
@@ -487,7 +498,7 @@ class TuiSubmissionFlow(object):
         return True
 
     def restore_interrupted_submissions(self) -> bool:
-        """按中断意图立即提交 steer，或把普通遗留输入恢复到编辑框。"""
+        """在执行边界放行已上屏且可重投的输入，或恢复编辑框。"""
         self._turn_interrupt_requested = False
         submit_ids = self._submit_after_interrupt_ids
         self._submit_after_interrupt_ids = ()
@@ -495,7 +506,10 @@ class TuiSubmissionFlow(object):
             immediate: list[TuiSubmission] = []
             for client_message_id in submit_ids:
                 submission = self.rejected_steers.remove(client_message_id)
-                if submission is None:
+                if (
+                    submission is None
+                    and self.pending_steers.next_local((client_message_id,)) is not None
+                ):
                     submission = self.pending_steers.remove(client_message_id)
                 if submission is not None:
                     immediate.append(submission)
@@ -506,10 +520,17 @@ class TuiSubmissionFlow(object):
                     current_pastes={},
                     current_shell_mode=False,
                 )
+                previous = self._interrupt_submission
+                if previous is not None:
+                    merged = replace(merged, client_message_id=previous.client_message_id)
+                self._interrupt_submission = merged
+                self._present_interrupt_submission(merged)
                 self.rejected_steers.prepend(merged)
-                self.clear_exit_confirmation()
                 self._invalidate()
                 return True
+            self._clear_interrupt_submission()
+            self._invalidate()
+            return False
 
         pending = (
             self.rejected_steers.drain()
@@ -537,7 +558,6 @@ class TuiSubmissionFlow(object):
                 )
 
         self._queued_restore_handler(merged)
-        self.clear_exit_confirmation()
         self.queued_submission_text = None
         buffer.cancel_completion()
         buffer.text = merged.editable_text
@@ -552,10 +572,10 @@ class TuiSubmissionFlow(object):
         """清除未形成中断终态的 Esc 即时提交意图。"""
         self._turn_interrupt_requested = False
         self._submit_after_interrupt_ids = ()
+        self._clear_interrupt_submission()
 
     def on_input_text_changed(self, buffer: Buffer) -> None:
         """在用户继续编辑时恢复执行期排队提示。"""
-        self.clear_exit_confirmation()
         self.input_model.cancel_history_backtrack()
         submitted_text = self.queued_submission_text
         if submitted_text is not None and buffer.text != submitted_text:
@@ -610,7 +630,7 @@ class TuiSubmissionFlow(object):
         return reason
 
     def discard_input_draft(self) -> bool:
-        """清除当前输入草稿并关闭退出确认。"""
+        """清除当前输入草稿而不中断活动任务。"""
         buffer = self._get_input_buffer()
         if not buffer.text and not self.input_model.shell_mode:
             return False
@@ -623,8 +643,6 @@ class TuiSubmissionFlow(object):
 
         self.input_model.clear_submission_state()
         self.input_model.notify_input_layout()
-        self.interrupt_state.disarm_exit()
-        self._cancel_exit_expiry()
         self._invalidate()
 
         return True
@@ -632,7 +650,6 @@ class TuiSubmissionFlow(object):
     def _request_interrupt_exit(self) -> InterruptDisposition:
         """提交不等待远端结算的中断退出请求。"""
         self.interrupt_state.request_exit()
-        self._cancel_exit_expiry()
         self._exit_event.set()
         self._invalidate()
         return InterruptDisposition.EXIT_REQUESTED
@@ -643,14 +660,10 @@ class TuiSubmissionFlow(object):
             return InterruptDisposition.DRAFT_DISCARDED
 
         self.input_model.cancel_history_backtrack()
-        if self.interrupt_state.exit_armed:
-            self._submit_after_interrupt_ids = ()
-            self._interrupt_handler()
-            return self._request_interrupt_exit()
-
-        self.interrupt_state.arm_exit()
-        self._schedule_exit_expiry()
         self._submit_after_interrupt_ids = ()
+        self._clear_interrupt_submission()
+        if not self._is_submission_deferred():
+            return self._request_interrupt_exit()
         disposition = self._interrupt_handler()
 
         if disposition is InterruptDisposition.EXIT_REQUESTED:
@@ -658,24 +671,20 @@ class TuiSubmissionFlow(object):
 
         self._invalidate()
 
-        if disposition is InterruptDisposition.IGNORED:
-            return InterruptDisposition.EXIT_ARMED
         return disposition
 
     def exit_input(self) -> None:
-        """请求从空闲且空白的主输入区正常退出。"""
-        self.clear_exit_confirmation()
+        """从空白主输入区请求退出，并通知活动任务停止观察。"""
+        self._submit_after_interrupt_ids = ()
+        self._clear_interrupt_submission()
         self.interrupt_state.request_exit("eof")
+        self._interrupt_handler()
         self._exit_event.set()
         self._invalidate()
 
-    def clear_exit_confirmation(self) -> None:
-        """在用户继续交互时关闭退出确认。"""
-        if not self.interrupt_state.exit_armed:
-            return None
-        self.interrupt_state.disarm_exit()
-        self._cancel_exit_expiry()
-        self._invalidate()
+    async def wait_for_exit_request(self) -> None:
+        """等待显式退出意图，供当前任务收束其本地观察生命周期。"""
+        await self._exit_event.wait()
 
     def begin_recovery_gate(self) -> None:
         """阻止草稿在远端恢复门解除前进入执行队列。"""
@@ -718,7 +727,6 @@ class TuiSubmissionFlow(object):
         if self._input_handoff_pending:
             return True
 
-        self.clear_exit_confirmation()
         self.input_model.cancel_history_backtrack()
 
         editable_text = buffer.text
@@ -737,7 +745,6 @@ class TuiSubmissionFlow(object):
             value = f"! {value}" if value else "!"
 
         if self._recovery_gate_active:
-            self.clear_exit_confirmation()
             self._recovery_submit_event.set()
             self._invalidate()
             return True
@@ -845,13 +852,6 @@ class TuiSubmissionFlow(object):
 
         return submission_task.result()
 
-    async def _expire_exit_confirmation(self) -> None:
-        """关闭已到期的退出确认并恢复信息栏。"""
-        await asyncio.sleep(self.interrupt_state.timeout_sec)
-        self._exit_expiry_task = None
-        self.interrupt_state.disarm_exit()
-        self._invalidate()
-
     async def read_submission(self) -> typing.Any:
         """按提交顺序读取下一项输入，并优先传播退出请求。"""
         self._raise_requested_exit()
@@ -866,6 +866,13 @@ class TuiSubmissionFlow(object):
             if queued is not None
             else await self._read_input_event()
         )
+
+        if (
+            isinstance(submission, TuiSubmission)
+            and self._interrupt_submission is not None
+            and submission.client_message_id == self._interrupt_submission.client_message_id
+        ):
+            self._interrupt_submission = None
 
         self._invalidate()
 
@@ -886,19 +893,10 @@ class TuiSubmissionFlow(object):
                     alternate_text=submission.visible_text,
                 )
 
-        self.clear_exit_confirmation()
         return submission
 
     async def close(self) -> None:
-        """清理提交状态和退出确认任务。"""
-        task = self._exit_expiry_task
-
-        self.interrupt_state.disarm_exit()
-        self._cancel_exit_expiry()
-
-        if task is not None:
-            await asyncio.gather(task, return_exceptions=True)
-
+        """清理当前会话的提交和退出状态。"""
         self.interrupt_state.clear()
         self._exit_event.clear()
         self._recovery_gate_active = False
@@ -907,6 +905,7 @@ class TuiSubmissionFlow(object):
         self._input_handoff_pending = False
         self._turn_interrupt_requested = False
         self._submit_after_interrupt_ids = ()
+        self._clear_interrupt_submission()
 
         self._interrupt_handler = _ignore_interrupt
         self._stream_command_handler = _ignore_stream_command

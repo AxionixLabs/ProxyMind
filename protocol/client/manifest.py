@@ -14,6 +14,7 @@ from protocol.transport.auth import (
     build_service_query,
 )
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 
 
 async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
@@ -25,7 +26,7 @@ async def fetch_manifest() -> typing.Optional[dict[str, typing.Any]]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=2.0)) as client:
             resp = await client.request(
                 "GET",
                 service_endpoints.endpoint("/mind-manifest"),

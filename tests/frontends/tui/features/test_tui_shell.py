@@ -1423,7 +1423,7 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
     assert disposition is InterruptDisposition.DRAFT_DISCARDED
     assert not task.done()
     assert runtime.screen.input.buffer.text == ""
-    assert not runtime.submissions.interrupt_state.exit_armed
+    assert not runtime.submissions.interrupt_state.exit_requested
     assert "again to exit" not in "".join(
         text for _style, text in runtime.screen._footer_fragments()
     )
@@ -1435,7 +1435,7 @@ async def test_ctrl_c_clears_draft_before_interrupting_inline_shell() -> None:
 
     assert disposition is InterruptDisposition.CONSUMED
     assert await task == "interrupt"
-    assert runtime.submissions.interrupt_state.exit_armed
+    assert not runtime.submissions.interrupt_state.exit_requested
 
     disposition = runtime.input_model.handle_interrupt(
         runtime.screen.input.buffer

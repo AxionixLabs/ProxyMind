@@ -12,6 +12,7 @@ from protocol.schema.session_deletion import (
 )
 from protocol.transport.auth import build_service_headers
 from protocol.transport.endpoints import service_endpoints
+from protocol.transport.http_client import open_http_client
 
 
 class SessionDeletionRequestError(Exception):
@@ -42,7 +43,7 @@ async def get_session_deletion(command: SessionDeletionRequest, *, timeout: floa
 async def _request(command: SessionDeletionRequest, *, query: bool, timeout: float) -> SessionDeletionReceipt:
     """使用既有鉴权与端点完成一次 HTTP 交换，取消信号由生命周期所有者接管。"""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout)) as client:
             url = service_endpoints.endpoint("/session/delete")
             headers = build_service_headers()
             if query:

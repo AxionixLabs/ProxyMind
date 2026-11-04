@@ -1423,7 +1423,7 @@ async def test_interrupt_request_keeps_activity_until_terminal_presentation() ->
     assert runtime.execution_active
     assert runtime.document.active_block is not None
     assert runtime.activity.lease("wait") is not None
-    assert "Queued while interrupted turn settles" in fragments_text(
+    assert "Messages to be submitted after next tool call" in fragments_text(
         runtime.screen._queued_fragments(width=80)
     )
 
