@@ -188,14 +188,24 @@ class TuiActivity(object):
         """启动覆盖当前交互周期的等待动画。"""
         self._reset_wait()
         self._wait_started_at = time.perf_counter()
-        await self._activate_wait_slot()
+        self._activate_wait_slot()
+
+    def handoff_wait(self) -> ActivityLease:
+        """为新提交接续前景等待动画，重置计时并保留动画相位。"""
+        slot = self._slots.get("foreground")
+        phase = slot.phase if slot is not None else self._wait_phase
+        self._reset_wait()
+        self._wait_started_at = time.perf_counter()
+        self._wait_phase = phase
+        self._activate_wait_slot()
+        return ActivityLease("foreground", "wait", self._generation)
 
     async def ensure_wait(self) -> None:
         """在模型轮次已接管前台时确保等待动画槽存在。"""
         if self.lease("wait") is not None:
             return None
         self._prepare_wait()
-        await self._activate_wait_slot()
+        self._activate_wait_slot()
 
     def _prepare_wait(self) -> None:
         """准备计时状态，保持暂停前的累计耗时和动画相位。"""
@@ -232,7 +242,7 @@ class TuiActivity(object):
         self._compaction_identity = compaction_identity
         slot = self._slots.get("foreground")
         if slot is None:
-            await self._activate_wait_slot()
+            self._activate_wait_slot()
         elif slot.kind == "wait" and not slot.frozen:
             self._render_slots()
 
@@ -249,7 +259,7 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动附件上传动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="attachment",
             kind="upload",
             render=lambda phase: _upload_block(snapshot() or {}, phase=phase),
@@ -261,7 +271,7 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动运行时下载动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="runtime",
             kind="download",
             render=lambda phase: _download_block(snapshot() or {}, phase=phase),
@@ -273,7 +283,7 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动内置运行时状态动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="runtime",
             kind="inbuild",
             render=lambda phase: _mcp_activity_block(
@@ -292,7 +302,7 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动外部 MCP 状态动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="external_mcp",
             kind="external_mcp",
             render=lambda phase: _mcp_activity_block(
@@ -311,7 +321,7 @@ class TuiActivity(object):
         snapshot: CompactionActivitySource,
     ) -> None:
         """启动对话压缩状态动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="compact",
             kind="compact",
             render=lambda phase: _compaction_progress_block(
@@ -328,7 +338,7 @@ class TuiActivity(object):
         snapshot: typing.Callable[[], dict[str, typing.Any]],
     ) -> None:
         """启动通用前台操作动画。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="operation",
             kind="operation",
             render=lambda phase: _operation_activity_block(
@@ -598,7 +608,7 @@ class TuiActivity(object):
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    async def _set_slot(self, slot: _ActivitySlot) -> None:
+    def _set_slot(self, slot: _ActivitySlot) -> None:
         """添加或替换一项活动动画。"""
         self._generation += 1
         slot.generation = self._generation
@@ -791,9 +801,9 @@ class TuiActivity(object):
         self._reset_wait()
         self._completed_wait_elapsed_sec = elapsed_sec
 
-    async def _activate_wait_slot(self) -> None:
+    def _activate_wait_slot(self) -> None:
         """用当前累计状态恢复前景等待槽位。"""
-        await self._set_slot(_ActivitySlot(
+        self._set_slot(_ActivitySlot(
             key="foreground",
             kind="wait",
             render=self._wait_block,

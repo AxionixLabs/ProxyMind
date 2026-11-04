@@ -177,6 +177,7 @@ async def test_escape_interrupt_submits_only_pending_steers_immediately() -> Non
     assert immediate.value == "second query\nthird query"
     assert follow_up.client_message_id == queued.client_message_id
     assert runtime.screen.input.buffer.text == "draft remains editable"
+    await runtime.close()
 
 
 def test_escape_interrupt_handler_failure_clears_submit_intent() -> None:
@@ -225,7 +226,8 @@ async def test_escape_attachment_only_input_is_displayed_once_and_keeps_payload(
     await runtime.close()
 
 
-def test_escape_unconfirmed_input_returns_to_queue_without_automatic_retry() -> None:
+@pytest.mark.anyio
+async def test_escape_unconfirmed_input_returns_to_queue_without_automatic_retry() -> None:
     runtime = TuiRuntime()
     pending = _submission("unconfirmed input")
     runtime.track_pending_steer(pending)
@@ -248,6 +250,8 @@ def test_escape_unconfirmed_input_returns_to_queue_without_automatic_retry() -> 
     assert runtime.submissions.message_queue.empty()
     assert "Delivery unconfirmed" in _fragments_text(runtime.screen._queued_fragments(width=100))
     assert runtime.screen.input.buffer.text == "draft remains editable"
+    assert runtime.activity.lease("wait") is None
+    await runtime.close()
 
 
 def test_ordinary_interrupted_queue_restores_everything_to_composer() -> None:

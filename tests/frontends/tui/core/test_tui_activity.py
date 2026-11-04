@@ -13,6 +13,7 @@ from prompt_toolkit.output import DummyOutput
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.ports import (
+    ApprovalPresentationChanged,
     AssistantBuffered,
     AssistantSegmentCompleted,
     AssistantTextDelta,
@@ -21,6 +22,8 @@ from agent.ports import (
     ModelWaitRequested,
     OutputSurfaceContext,
     ResponseIdentity,
+    RetryChanged,
+    TurnTerminal,
 )
 from agent.ports.presentation import ApplicationView
 from frontends.runtime import FrontendActivity
@@ -41,6 +44,7 @@ from frontends.tui.core.activity import (
     _upload_block,
 )
 from frontends.tui.core.models import FragmentBlock
+from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
@@ -1434,6 +1438,166 @@ async def test_interrupt_request_keeps_activity_until_terminal_presentation() ->
 
     runtime.set_execution_active(False)
     await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("old_body_visible", (False, True))
+@pytest.mark.parametrize("next_surface", ("wait", "content", "approval", "failed"))
+async def test_escape_wait_survives_old_cleanup_and_hands_off_without_empty_frames(
+    old_body_visible: bool,
+    next_surface: str,
+) -> None:
+    with create_pipe_input() as pipe_input:
+        runtime = TuiRuntime(input_obj=pipe_input, output_obj=DummyOutput())
+        old_context = OutputSurfaceContext(
+            surface_id="surface_old", cid="cid", sid="sid", turn_id="old", agent_id="root",
+        )
+        next_context = OutputSurfaceContext(
+            surface_id="surface_next", cid="cid", sid="sid", turn_id="next", agent_id="root",
+        )
+        old = create_tui_output_session("", context=old_context, runtime=runtime, animate=False)
+        following = create_tui_output_session("", context=next_context, runtime=runtime, animate=False)
+        frames = []
+
+        def capture(application):
+            rendered = application.renderer.last_rendered_screen
+            positions = rendered.visible_windows_to_write_positions
+            status = positions.get(runtime.screen.status_window)
+            frames.append((
+                status.height if status is not None else 0,
+                runtime.activity.lease("wait"),
+                runtime.activity._wait_started_at,
+                _absolute_window_row(runtime, rendered, runtime.screen.input.window, rows=24),
+            ))
+
+        with patch.object(runtime.screen.application.output, "get_size", return_value=Size(rows=24, columns=100)):
+            await runtime.open()
+            try:
+                runtime.set_execution_active(True)
+                await runtime.begin_wait_status()
+                await old.open()
+                if old_body_visible:
+                    identity = ResponseIdentity("old", 1, 1, 1)
+                    await old.activity.emit(AssistantBuffered(
+                        surface_id="surface_old", turn_id="old", identity=identity, item_id="old_body",
+                    ))
+                    await old.content.emit(AssistantTextDelta("partial answer\n", identity, item_id="old_body"))
+                    assert runtime.activity.lease("wait") is None
+                await _render_next_frame(runtime)
+                old_phase = (
+                    runtime.activity._wait_phase if old_body_visible
+                    else runtime.activity._slots["foreground"].phase
+                )
+                submission = TuiSubmission(value="next query", editable_text="next query", paste_store={})
+                runtime.track_pending_steer(submission)
+                runtime.bind_interrupt_handler(lambda: InterruptDisposition.CONSUMED)
+                runtime.submissions.interrupt_turn()
+                assert runtime.activity._slots["foreground"].phase == old_phase
+                lease = runtime.activity.lease("wait")
+                assert lease is not None
+                started_at = runtime.activity._wait_started_at
+                assert runtime.submissions.interrupt_turn() is InterruptDisposition.IGNORED
+                assert runtime.activity.lease("wait") == lease
+                runtime.screen.application.after_render += capture
+                await _render_next_frame(runtime)
+
+                await old.activity.emit(RetryChanged(
+                    surface_id="surface_old", turn_id="old", source="transport", state="started",
+                    presentation_epoch=1, round=1, attempt=1,
+                ))
+                await _render_next_frame(runtime)
+                assert "Thinking" in _block_text(runtime.screen.activity_block)
+                await old.activity.emit(TurnTerminal(surface_id="surface_old", turn_id="old", status="interrupted"))
+                await old.close()
+                await runtime.end_activity_status("wait")
+                runtime.defer_rejected_steer(submission)
+                assert runtime.restore_interrupted_submissions()
+                runtime.finish_interrupted_presentation()
+                runtime.set_execution_active(False)
+                runtime.set_turn_start_pending(False)
+                await _render_next_frame(runtime)
+
+                assert await runtime.read_message(PromptContext(model="test")) == "next query"
+                await _render_next_frame(runtime)
+                runtime.set_execution_active(True)
+                runtime.set_turn_start_pending(False)
+                await runtime.begin_wait_status()
+                await following.open()
+                identity = ResponseIdentity("next", 1, 1, 1)
+                await following.activity.emit(AssistantBuffered(
+                    surface_id="surface_next", turn_id="next", identity=identity, item_id="next_body",
+                ))
+                await _render_next_frame(runtime)
+                if next_surface == "wait":
+                    await following.activity.emit(ModelWaitRequested(
+                        surface_id="surface_next", turn_id="next", revision=1, reason="lifecycle",
+                    ))
+                    await _render_next_frame(runtime)
+                    await asyncio.sleep(0.18)
+                    await _render_next_frame(runtime)
+                    assert not runtime.submission_wait_pending
+                assert frames
+                assert all(frame[0] == 1 and frame[1] == lease and frame[2] == started_at for frame in frames)
+                assert len({frame[3] for frame in frames}) == 1
+                runtime.screen.application.after_render -= capture
+
+                if next_surface == "approval":
+                    await following.activity.emit(ApprovalPresentationChanged(
+                        surface_id="surface_next", turn_id="next", active=True,
+                    ))
+                elif next_surface == "failed":
+                    await following.activity.emit(TurnTerminal(
+                        surface_id="surface_next", turn_id="next", status="failed",
+                    ))
+                else:
+                    await following.content.emit(AssistantTextDelta("next answer\n", identity, item_id="next_body"))
+                await _render_next_frame(runtime)
+                assert not runtime.submission_wait_pending
+                assert runtime.activity.lease("wait") is None
+                assert sum(block.kind == "user" for block in runtime.document.blocks) == 1
+            finally:
+                runtime.screen.application.after_render -= capture
+                await old.close()
+                await following.close()
+                runtime.set_execution_active(False)
+                await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cancel", ("ctrl_c", "exit", "accepted", "preflight_failed"))
+async def test_pending_submission_wait_is_removed_when_no_next_turn_will_run(cancel: str) -> None:
+    runtime = TuiRuntime()
+    try:
+        runtime.set_execution_active(True)
+        await runtime.begin_wait_status()
+        await runtime.begin_external_mcp_status(lambda: {
+            "done": False, "items": [{"name": "docs", "state": "linking", "tools": 0}],
+        })
+        auxiliary = runtime.activity.lease("external_mcp")
+        submission = TuiSubmission(value="next query", editable_text="next query", paste_store={})
+        runtime.track_pending_steer(submission)
+        runtime.bind_interrupt_handler(lambda: InterruptDisposition.CONSUMED)
+        runtime.submissions.interrupt_turn()
+        assert runtime.submission_wait_pending
+        if cancel == "ctrl_c":
+            runtime.submissions.interrupt_input()
+        elif cancel == "exit":
+            runtime.submissions.exit_input()
+        elif cancel == "accepted":
+            runtime.resolve_pending_steer(submission.client_message_id)
+        else:
+            runtime.defer_rejected_steer(submission)
+            runtime.restore_interrupted_submissions()
+            runtime.finish_interrupted_presentation()
+            runtime.set_execution_active(False)
+            await runtime.read_message(PromptContext(model="test"))
+            runtime.set_turn_start_pending(False)
+        assert not runtime.submission_wait_pending
+        assert runtime.activity.lease("wait") is None
+        assert runtime.activity.lease("external_mcp") == auxiliary
+    finally:
+        runtime.set_execution_active(False)
+        await runtime.close()
 
 
 @pytest.mark.anyio

@@ -221,6 +221,7 @@ class TuiRuntime(object):
         self._turn_progress_active: bool = False
         self._turn_output_suppressed: bool = False
         self._interrupt_query: TranscriptBlock | None = None
+        self._submission_wait: ActivityLease | None = None
         self._approval_session_lock: asyncio.Lock = asyncio.Lock()
         self._approval_session_active: bool = False
         self._approval_activity_sink: (
@@ -1688,6 +1689,7 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             previous = self._interrupt_query
             if submission is None:
+                self._cancel_submission_wait()
                 if previous is None:
                     return
                 self.document.remove_stable_block(previous)
@@ -1723,6 +1725,7 @@ class TuiRuntime(object):
                         stable_id=submission.client_message_id,
                     )
                     self.viewport.reset_view()
+                    self._submission_wait = self.activity.handoff_wait()
                 else:
                     if not self.document.replace_stable_block(
                         previous, block, transcript_block=transcript,
@@ -1737,6 +1740,22 @@ class TuiRuntime(object):
             self.screen.transcript_overlay.content_changed()
             self.viewport.stable_content_changed()
             self.screen.synchronize_next_render()
+
+    @property
+    def submission_wait_pending(self) -> bool:
+        """返回是否由已上屏输入持有等待动画，直到新轮实际接管。"""
+        return self._submission_wait is not None
+
+    def adopt_submission_wait(self) -> None:
+        """把等待槽交给新轮表面，保留当前帧、相位和累计时间。"""
+        self._submission_wait = None
+
+    def _cancel_submission_wait(self) -> None:
+        """撤销待执行输入拥有的等待槽，不清除后续活动。"""
+        lease = self._submission_wait
+        self._submission_wait = None
+        if lease is not None:
+            self.activity.release(lease)
 
     def append_turn_input(
         self,
@@ -2071,7 +2090,8 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             self._turn_output_suppressed = True
             self._transcript.clear_active()
-            self.activity.finish_wait()
+            if not self.submission_wait_pending:
+                self.activity.finish_wait()
             self.invalidate()
 
     def set_execution_active(self, active: bool) -> None:
@@ -2083,7 +2103,8 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             if active and not was_active:
                 self._turn_output_suppressed = False
-            if not active:
+            if not active and self._interrupt_query is None:
+                self._cancel_submission_wait()
                 self.activity.finish_wait()
             self.execution_active = active
             if not self.execution_active:
@@ -2101,6 +2122,8 @@ class TuiRuntime(object):
     def set_turn_start_pending(self, pending: bool) -> None:
         """更新已提交但尚未开始的模型轮次状态。"""
         self.task_state.set_turn_start_pending(pending)
+        if not pending and not self.execution_active and self._interrupt_query is None:
+            self._cancel_submission_wait()
 
     def set_foreground_active(self, active: bool) -> None:
         """更新下一轮开始前的前台屏障状态。"""
@@ -2349,6 +2372,8 @@ class TuiRuntime(object):
         )
         if model_submission:
             self.set_turn_start_pending(True)
+        elif already_presented:
+            self._cancel_submission_wait()
 
         try:
             await self.detach_inline_process()
@@ -2780,6 +2805,8 @@ class TuiRuntime(object):
         settle: bool = True
     ) -> None:
         """结束运行期活动动画。"""
+        if kind == "wait" and self.submission_wait_pending:
+            return None
         await self.activity.stop(kind, settle=settle)
 
     async def freeze_activity_status(

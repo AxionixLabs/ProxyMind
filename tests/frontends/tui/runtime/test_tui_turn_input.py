@@ -1546,6 +1546,8 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
     assert runtime.execution_active
     assert not execution.done()
     application.emit.assert_not_called()
+    wait_lease = runtime.activity.lease("wait")
+    assert wait_lease is not None
 
     for client_message_id in pending_ids[:accepted_count]:
         control.handle_event(TurnInputAcceptedEvent(
@@ -1573,11 +1575,13 @@ async def test_escape_displays_before_terminal_and_executes_only_unconsumed_inpu
     else:
         application.emit.assert_not_called()
     if accepted_count < 2:
+        assert runtime.activity.lease("wait") == wait_lease
         immediate = await runtime.read_message(PromptContext(model="test"))
         assert immediate == "\n".join(("second query", "third query")[accepted_count:])
         assert runtime.bind_submitted_turn("turn_002", immediate)
         assert runtime.document.blocks[-1].turn_id == "turn_002"
     else:
+        assert runtime.activity.lease("wait") is None
         assert not runtime.submissions.rejected_steers.active
         assert not runtime.submissions.pending_steers.active
     assert len(runtime.document.blocks) == min(accepted_count + 1, 2)
