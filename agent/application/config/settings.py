@@ -103,13 +103,15 @@ def _non_negative_integer(value: typing.Any, field: str) -> int:
     return value
 
 
-DEFAULT_JS_REPL_ENABLED: typing.Final[bool] = False
+DEFAULT_JS_REPL_ENABLED: typing.Final[bool] = True
+DEFAULT_COMPUTER_ENABLED: typing.Final[bool] = True
 DEFAULT_SUBAGENTS_ENABLED: typing.Final[bool] = False
 DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED: typing.Final[bool] = False
 DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED: typing.Final[bool] = False
 
 FEATURE_DEFAULTS: typing.Final[dict[str, bool]] = {
     "js_repl": DEFAULT_JS_REPL_ENABLED,
+    "computer": DEFAULT_COMPUTER_ENABLED,
     "subagents": DEFAULT_SUBAGENTS_ENABLED,
     "exec_permission_approvals": DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED,
     "request_permissions_tool": DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED,
@@ -127,6 +129,7 @@ class FeatureSettings:
     """保存当前工作区生效的本地能力开关快照。"""
 
     js_repl: bool = DEFAULT_JS_REPL_ENABLED
+    computer: bool = DEFAULT_COMPUTER_ENABLED
     subagents: bool = DEFAULT_SUBAGENTS_ENABLED
     exec_permission_approvals: bool = DEFAULT_EXEC_PERMISSION_APPROVALS_ENABLED
     request_permissions_tool: bool = DEFAULT_REQUEST_PERMISSIONS_TOOL_ENABLED
@@ -138,6 +141,7 @@ class FeatureSettings:
         values = normalize_feature_table(root.get("features"))
         return cls(
             js_repl=values["js_repl"],
+            computer=values["computer"],
             subagents=values["subagents"],
             exec_permission_approvals=values["exec_permission_approvals"],
             request_permissions_tool=values["request_permissions_tool"],

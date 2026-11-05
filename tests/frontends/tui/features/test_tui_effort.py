@@ -133,6 +133,7 @@ async def test_durable_queued_recovery_returns_input_to_composer() -> None:
         replace_pending_attachments=Mock(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={"current": True}),
         replace_pending_prompt_extras=Mock(),
     )
@@ -217,6 +218,7 @@ async def test_durable_recovery_observes_remote_turn_before_opening_gate(
         lifecycle=ProcessLifecycle(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={}),
         replace_pending_prompt_extras=Mock(),
     )
@@ -265,6 +267,7 @@ async def test_durable_recovery_stops_automatic_polling_and_observes_exit(
         lifecycle=ProcessLifecycle(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={}),
         replace_pending_prompt_extras=Mock(),
     )
@@ -318,6 +321,7 @@ async def test_durable_recovery_keeps_submit_draft_until_gate_opens(
         lifecycle=ProcessLifecycle(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={}),
         replace_pending_prompt_extras=Mock(),
     )
@@ -380,6 +384,7 @@ async def test_durable_recovery_keeps_draft_when_manual_probe_is_pending(
         lifecycle=ProcessLifecycle(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={}),
         replace_pending_prompt_extras=Mock(),
     )
@@ -454,6 +459,7 @@ async def test_durable_recovery_preserves_submit_during_terminal_probe(
         lifecycle=ProcessLifecycle(),
     )
     state = SimpleNamespace(
+        recovery_retryable=True,
         consume_pending_prompt_extras=Mock(return_value={}),
         replace_pending_prompt_extras=Mock(),
     )

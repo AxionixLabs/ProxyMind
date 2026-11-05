@@ -104,6 +104,7 @@ class _TurnExecutionOutcome:
 
     settled: bool
     exit_requested: bool
+    retryable: bool = True
 
 
 @dataclass(slots=True)
@@ -177,6 +178,16 @@ async def _await_durable_session_recovery(
     runtime.begin_recovery_gate()
     try:
         while not host.lifecycle.stop_event.is_set():
+            if not state.recovery_retryable:
+                runtime.queue_background_block(failure_text_block(
+                    "Automatic recovery stopped after a non-retryable error. "
+                    "Resolve the reported cause before submitting to retry recovery.",
+                ))
+                action = await _wait_for_recovery_action(host.lifecycle.stop_event, runtime, timeout=None)
+                if action == "stop":
+                    return False
+                state.recovery_retryable = True
+                submit_draft = action == "submit"
             recovery = await turn_application.reconcile_remote_session(
                 session_id,
                 protocol_client,
@@ -204,6 +215,8 @@ async def _await_durable_session_recovery(
                         TypeError,
                         ValueError,
                     ) as error:
+                        if isinstance(error, ProtocolCommandError) and not error.retryable:
+                            retry_delays = iter(())
                         if not notice_shown:
                             runtime.queue_background_block(failure_text_block(
                                 "Previous turn replay is required before the "
@@ -216,6 +229,8 @@ async def _await_durable_session_recovery(
                     if outcome.exit_requested:
                         return False
                     if not outcome.settled:
+                        if not outcome.retryable:
+                            retry_delays = iter(())
                         observations_settled = False
                         break
                 if observations_settled:
@@ -248,6 +263,8 @@ async def _await_durable_session_recovery(
                         if outcome.exit_requested:
                             return False
                         if not outcome.settled:
+                            if not outcome.retryable:
+                                retry_delays = iter(())
                             redispatch_settled = False
                             break
                 if redispatch_settled:
@@ -354,6 +371,7 @@ async def _execute_tui_recovered_turn(
         stream_end=turn_input_control.handle_stream_end,
     )
     settled = False
+    retryable = True
     try:
         if isinstance(request, ReviewStreamRequest):
             if not isinstance(protocol_client, ReviewObservationCapability):
@@ -397,6 +415,8 @@ async def _execute_tui_recovered_turn(
             ),
         )
         settled = terminal_authority.terminal_received and result is not None
+        if result is not None:
+            retryable = result.error_details.get("retryable") is not False
         if settled:
             await turn_application.resolve_observed_recovery(recovery, result)
     finally:
@@ -405,6 +425,7 @@ async def _execute_tui_recovered_turn(
     return _TurnExecutionOutcome(
         settled=settled,
         exit_requested=_apply_turn_exit_request(host, runtime),
+        retryable=retryable,
     )
 
 
@@ -797,7 +818,7 @@ async def _run_tui_loop(
                 ),
             )
 
-        await execute_tui_model_turn(
+        submitted = await execute_tui_model_turn(
             application,
             runtime,
             turn_application.submit(
@@ -808,6 +829,11 @@ async def _run_tui_loop(
             stream_command_handler=dispatcher.handle_stream_command,
             show_interrupt_notice=lambda: not host.lifecycle.stop_event.is_set(),
         )
+        if submitted is not None and submitted.value is not None:
+            state.recovery_retryable = (
+                submitted.value.status != "reconciliation_required"
+                or submitted.value.error_details.get("retryable") is not False
+            )
         runtime.set_turn_start_pending(False)
         if _apply_turn_exit_request(host, runtime):
             break
@@ -869,6 +895,7 @@ async def _execute_tui_review_turn(
         dispatcher=dispatcher,
         review_turn_runner=review_turn_runner,
     )
+    state.recovery_retryable = outcome.settled or outcome.retryable
     return outcome.exit_requested
 
 
@@ -889,6 +916,7 @@ async def _execute_tui_review_command(
     request = command.request
     runtime.set_turn_start_pending(True)
     settled = False
+    retryable = True
     try:
         turn_input_control = TuiTurnInputControl(
             host,
@@ -947,6 +975,8 @@ async def _execute_tui_review_command(
                 "cancelled",
             }
         )
+        if result is not None and result.value is not None:
+            retryable = result.value.error_details.get("retryable") is not False
     except (TypeError, ValueError) as error:
         application.emit(build_review_failed_view(
             str(error).strip() or type(error).__name__,
@@ -956,6 +986,7 @@ async def _execute_tui_review_command(
     return _TurnExecutionOutcome(
         settled=settled,
         exit_requested=_apply_turn_exit_request(host, runtime),
+        retryable=retryable,
     )
 
 

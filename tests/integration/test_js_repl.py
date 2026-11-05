@@ -1035,7 +1035,7 @@ async def test_js_repl_client_tool_executes_without_shell_metadata(
         coding,
         javascript=javascript,
         image_reader=FileImageReader(tmp_path),
-        features=FeatureSettings(js_repl=True),
+        features=FeatureSettings(js_repl=True, computer=False),
     )
     session = CompositeToolSession(client_registry=registry)
     turn = TurnContext.create(
@@ -1473,6 +1473,7 @@ def test_js_repl_function_bridge_preserves_mixed_image_content() -> None:
     assert response == {
         "type": "function_call_output",
         "call_id": "call-mixed",
+        "data": {},
         "output": [
             {"type": "input_text", "text": "image note"},
             {

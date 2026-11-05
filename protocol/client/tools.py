@@ -29,8 +29,10 @@ from protocol.schema.turn_lifecycle import (
     parse_turn_runtime_status,
 )
 from protocol.schema.tool_output import (
+    ToolResultBudgetError,
     project_tool_output,
     validate_persistable_json,
+    validate_tool_result_budget,
 )
 from protocol.schema.json_value import JsonObject
 from protocol.transport.auth import build_service_headers
@@ -953,6 +955,7 @@ async def post_tool_result(
     )
 
     validate_persistable_json(payload)
+    validate_tool_result_delivery_budget(payload["result"], call_id=call_id)
     try:
         r = await post_json_reliably(
             service_endpoints.endpoint("/tool-result"),
@@ -973,6 +976,18 @@ async def post_tool_result(
     return _tool_result_ack(r, request_id=payload["request_id"])
 
 
+def validate_tool_result_delivery_budget(result: JsonObject, *, call_id: str) -> None:
+    """在持久结果发送前执行预算预检，将失败保留为不可自动重试的交付错误。"""
+    try:
+        validate_tool_result_budget(result)
+    except ToolResultBudgetError as error:
+        raise ToolResultRequestError(
+            error.code, str(error), retryable=False,
+            details={"call_id": call_id, "path": error.path,
+                     "actual_bytes": error.actual_bytes, "max_bytes": error.max_bytes},
+        ) from error
+
+
 def parse_tool_result_error(response: httpx.Response) -> ToolResultRequestError:
     """把服务端结果投递错误解析为稳定的客户端异常。"""
     try:
@@ -984,6 +999,14 @@ def parse_tool_result_error(response: httpx.Response) -> ToolResultRequestError:
         details = {}
     code = str(details.get("code") or "tool_result_http_error").strip()
     message = str(details.get("message") or "tool result delivery failed").strip()
+    errors = details.get("errors")
+    if isinstance(errors, list):
+        descriptions: list[str] = []
+        for item in errors[:4]:
+            if isinstance(item, dict) and isinstance(item.get("msg"), str):
+                descriptions.append(item["msg"][:512])
+        if descriptions:
+            message += ": " + "; ".join(descriptions)
     return ToolResultRequestError(
         code,
         message,

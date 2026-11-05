@@ -46,6 +46,7 @@ class _ExecutionContext:
     call_tool: NestedToolDispatch
     attachments: list[dict[str, ThawedJsonValue]] = field(default_factory=list)
     request_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    activity_changed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,10 +131,7 @@ class JavaScriptSidecarSession:
                         code=code,
                         timeout_ms=timeout_ms,
                     ))
-                    message = await asyncio.wait_for(
-                        asyncio.shield(request.future),
-                        timeout_ms / 1000,
-                    )
+                    message = await self._wait_for_execution(request, timeout_ms / 1000)
                 except asyncio.TimeoutError as error:
                     request.future.cancel()
                     await self._reset_kernel()
@@ -173,6 +171,32 @@ class JavaScriptSidecarSession:
                     "JavaScript sidecar session is closed",
                 )
             await self._reset_kernel()
+
+    @staticmethod
+    async def _wait_for_execution(request: _ExecutionRequest, remaining: float) -> ExecResultMessage:
+        """仅累计内核执行时间；宿主工具和审批等待由对应生命周期负责超时与取消。"""
+        loop = asyncio.get_running_loop()
+        while not request.future.done():
+            if remaining <= 0:
+                raise TimeoutError
+            context = request.context
+            context.activity_changed.clear()
+            delegated = bool(context.request_tasks)
+            changed = asyncio.create_task(context.activity_changed.wait())
+            started = loop.time()
+            try:
+                done, _ = await asyncio.wait(
+                    (request.future, changed), timeout=None if delegated else remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    raise TimeoutError
+            finally:
+                changed.cancel()
+                await asyncio.gather(changed, return_exceptions=True)
+            if not delegated:
+                remaining -= loop.time() - started
+        return request.future.result()
 
     async def close(self) -> None:
         """关闭 Session 及其进程、任务和临时目录。"""
@@ -271,7 +295,14 @@ class JavaScriptSidecarSession:
                 name="javascript image attachment",
             )
         context.request_tasks.add(task)
-        task.add_done_callback(context.request_tasks.discard)
+        context.activity_changed.set()
+
+        def finished(completed: asyncio.Task[None]) -> None:
+            """唤醒执行预算等待方，同时移除已结束的宿主调用。"""
+            context.request_tasks.discard(completed)
+            context.activity_changed.set()
+
+        task.add_done_callback(finished)
 
     async def _handle_tool_request(
         self,

@@ -292,7 +292,10 @@ def approval_decisions(
 
         kind = str(approval.get("kind") or "command").strip()
 
-        allowed_for_kind = TOOL_APPROVAL_DECISIONS_BY_KIND.get(kind)
+        allowed_for_kind = (
+            frozenset({"accept", "decline", "cancel"})
+            if kind == "computer" else TOOL_APPROVAL_DECISIONS_BY_KIND.get(kind)
+        )
         if allowed_for_kind is None:
             raise ValueError(f"unsupported approval kind: {kind}")
         local_mcp = (
@@ -340,6 +343,7 @@ def approval_decisions(
             "decline",
         ],
         "mcp_tool_call": ["accept", "decline", "cancel"],
+        "computer": ["accept", "decline", "cancel"],
     }
     decisions = list(kind_defaults.get(kind, DEFAULT_APPROVAL_DECISIONS))
     if kind == "command" and approval_execpolicy_amendment(approval) is not None:

@@ -2,6 +2,7 @@
 
 import httpx
 import pytest
+from unittest.mock import AsyncMock
 
 from protocol.client import tools
 from protocol.client import effects
@@ -82,6 +83,28 @@ def test_tool_result_error_classifies_transient_http_status() -> None:
     assert error.code == "tool_result_http_error"
     assert error.status_code == 503
     assert error.retryable
+
+
+@pytest.mark.anyio
+async def test_oversized_result_is_rejected_before_http_without_mutation(monkeypatch):
+    post = AsyncMock()
+    monkeypatch.setattr(tools, "post_json_reliably", post)
+    result = _result_envelope(text="x" * (2 * 1024 * 1024))
+    with pytest.raises(tools.ToolResultRequestError) as failure:
+        await tools.post_tool_result("cid", "sid", "call", "test_tool", True, result)
+    assert failure.value.code == "tool_result_metadata_too_large"
+    assert failure.value.retryable is False
+    assert len(result["text"]) == 2 * 1024 * 1024
+    post.assert_not_awaited()
+
+
+def test_validation_error_shows_safe_server_reason():
+    error = tools.parse_tool_result_error(_response(422, {"details": {
+        "code": "request_validation", "message": "request validation failed", "retryable": False,
+        "errors": [{"loc": ["body", "result"], "msg": "tool_result_too_large at result: 99 bytes, limit 10 bytes"}],
+    }}))
+    assert "99 bytes, limit 10 bytes" in str(error)
+    assert error.retryable is False
 
 
 @pytest.mark.parametrize("status_code", (409, 422, 500, 503))

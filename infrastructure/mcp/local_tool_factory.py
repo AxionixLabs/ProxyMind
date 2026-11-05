@@ -3,6 +3,7 @@
 
 from agent.application.config.settings import FeatureSettings
 from agent.application.tools.coding import coding_tools
+from agent.application.tools.computer import computer_tools
 from agent.application.tools.javascript import (
     JS_REPL_TOOL_NAMES,
     javascript_tools,
@@ -13,6 +14,7 @@ from agent.application.tools.plan_update import update_plan_tools
 from agent.application.tools.planning import planning_tools
 from agent.application.tools.subagents import subagent_tools
 from agent.ports.approvals import ApprovalCoordinatorPort
+from agent.ports.desktop import DesktopExecutionPort
 from agent.ports.javascript import JavaScriptExecutionPort
 from agent.ports.media import ImageReaderPort
 from agent.ports.permissions import PermissionGrantPort
@@ -34,6 +36,7 @@ def build_client_tool_registry(
     *,
     javascript: JavaScriptExecutionPort,
     image_reader: ImageReaderPort,
+    desktop: DesktopExecutionPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
     subagent_runtime: SubagentControlPort | None = None,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
@@ -67,6 +70,10 @@ def build_client_tool_registry(
         *coding_definitions,
         *media_tools(image_reader),
     ]
+    if feature_settings.computer:
+        if desktop is None:
+            raise ValueError("Enabled computer tool requires a desktop executor")
+        tools.extend(computer_tools(desktop, approval_coordinator=approval_coordinator))
     if subagent_runtime is not None and subagent_runtime.enabled:
         tools.extend(subagent_tools(subagent_runtime))
     return ToolRegistry(tools)

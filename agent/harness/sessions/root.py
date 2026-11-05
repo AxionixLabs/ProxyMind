@@ -162,6 +162,7 @@ class RootConversationSession:
         subagent_shutdown: SubagentShutdown,
         hook_session_cleanup: SessionCleanup,
         javascript_session_cleanup: SessionCleanup,
+        desktop_session_cleanup: SessionCleanup,
         command_hook_cleanup: CommandHookCleanup,
         event_session_close: EventSessionClose,
         await_cleanup: CleanupWaiter,
@@ -189,6 +190,7 @@ class RootConversationSession:
         self._subagent_shutdown = subagent_shutdown
         self._hook_session_cleanup = hook_session_cleanup
         self._javascript_session_cleanup = javascript_session_cleanup
+        self._desktop_session_cleanup = desktop_session_cleanup
         self._command_hook_cleanup = command_hook_cleanup
         self._event_session_close = event_session_close
         self._await_cleanup = await_cleanup
@@ -554,11 +556,14 @@ class RootConversationSession:
         for snapshot in subagent_snapshots:
             await self._hook_session_cleanup(snapshot.thread.sid)
         for cleanup_sid in (*[snapshot.thread.sid for snapshot in subagent_snapshots], sid):
-            if reason == "deleted":
-                await self._javascript_session_cleanup(cleanup_sid)
-            else:
-                with contextlib.suppress(Exception):
+            try:
+                await self._desktop_session_cleanup(cleanup_sid)
+            finally:
+                if reason == "deleted":
                     await self._javascript_session_cleanup(cleanup_sid)
+                else:
+                    with contextlib.suppress(Exception):
+                        await self._javascript_session_cleanup(cleanup_sid)
 
         self._command_hook_cleanup(sid)
         await self._session_lifecycle.end(
@@ -1067,7 +1072,10 @@ class RootConversationSession:
             else:
                 for target in plan.targets:
                     await self._hook_session_cleanup(target.sid)
-                    await self._javascript_session_cleanup(target.sid)
+                    try:
+                        await self._desktop_session_cleanup(target.sid)
+                    finally:
+                        await self._javascript_session_cleanup(target.sid)
                     self._command_hook_cleanup(target.sid)
                     await self._event_session_close(target.cid, target.sid)
             await self._await_cleanup(asyncio.to_thread(store.delete, plan))

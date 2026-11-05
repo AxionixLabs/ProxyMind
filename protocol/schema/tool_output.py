@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import base64
+import binascii
+import json
 import math
+import re
 
 from protocol.schema.json_value import (
     JsonObject,
@@ -9,12 +13,80 @@ from protocol.schema.json_value import (
 )
 
 
+TOOL_RESULT_MAX_BYTES = 16 * 1024 * 1024
+TOOL_RESULT_METADATA_MAX_BYTES = 2 * 1024 * 1024
+TOOL_RESULT_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+
+
+class ToolResultBudgetError(ValueError):
+    """描述结果预算校验失败，不携带结果正文或图像内容。"""
+
+    def __init__(self, code: str, path: str, actual_bytes: int, max_bytes: int) -> None:
+        """保存机器可读的原因、位置和大小边界。"""
+        self.code = code
+        self.path = path
+        self.actual_bytes = actual_bytes
+        self.max_bytes = max_bytes
+        super().__init__(
+            f"{code} at {path}: {actual_bytes} bytes, limit {max_bytes} bytes"
+        )
+
+
+def _json_bytes(value: JsonValue) -> int:
+    """按正式协议的紧凑 UTF-8 JSON 计算大小。"""
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+
+
+def validate_tool_result_budget(result: JsonObject) -> None:
+    """限制完整信封和普通内容，仅有效的内联图片使用独立预算。"""
+    total = _json_bytes(result)
+    if total > TOOL_RESULT_MAX_BYTES:
+        raise ToolResultBudgetError("tool_result_too_large", "result", total, TOOL_RESULT_MAX_BYTES)
+    attachments = result.get("attachments")
+    if not isinstance(attachments, list):
+        raise ValueError("tool result attachments must be a list")
+    metadata_attachments: list[JsonValue] = []
+    for index, attachment in enumerate(attachments):
+        if not isinstance(attachment, dict) or attachment.get("kind") != "image":
+            metadata_attachments.append(attachment)
+            continue
+        data_url = attachment.get("data_url")
+        if data_url is None:
+            metadata_attachments.append(attachment)
+            continue
+        mime = attachment.get("mime_type")
+        path = f"result.attachments[{index}].data_url"
+        if (
+            mime not in ("image/png", "image/jpeg", "image/gif", "image/webp")
+            or not isinstance(data_url, str)
+            or not data_url.startswith(f"data:{mime};base64,")
+        ):
+            raise ToolResultBudgetError("tool_result_image_invalid", path, 0, TOOL_RESULT_IMAGE_MAX_BYTES)
+        encoded = data_url.partition(",")[2]
+        if len(encoded) > ((TOOL_RESULT_IMAGE_MAX_BYTES + 2) // 3) * 4:
+            raise ToolResultBudgetError("tool_result_image_too_large", path, len(encoded) * 3 // 4, TOOL_RESULT_IMAGE_MAX_BYTES)
+        try:
+            content = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ToolResultBudgetError("tool_result_image_invalid", path, 0, TOOL_RESULT_IMAGE_MAX_BYTES) from error
+        if not content:
+            raise ToolResultBudgetError("tool_result_image_invalid", path, 0, TOOL_RESULT_IMAGE_MAX_BYTES)
+        if len(content) > TOOL_RESULT_IMAGE_MAX_BYTES:
+            raise ToolResultBudgetError("tool_result_image_too_large", path, len(content), TOOL_RESULT_IMAGE_MAX_BYTES)
+        metadata_attachments.append({**attachment, "data_url": ""})
+    metadata_bytes = _json_bytes({**result, "attachments": metadata_attachments})
+    if metadata_bytes > TOOL_RESULT_METADATA_MAX_BYTES:
+        raise ToolResultBudgetError(
+            "tool_result_metadata_too_large", "result", metadata_bytes, TOOL_RESULT_METADATA_MAX_BYTES
+        )
+
+
 def validate_persistable_json(value: JsonValue, path: str = "$", depth: int = 0) -> None:
     """校验线上 JSON 的字符、数值和深度，不改写参数或身份。"""
     if depth > 64:
         raise ValueError(f"JSON nesting exceeds 64 levels at {path}")
     if isinstance(value, str):
-        if "\x00" in value or any(0xD800 <= ord(char) <= 0xDFFF for char in value):
+        if "\x00" in value or re.search(r"[\ud800-\udfff]", value):
             raise ValueError(f"unsupported text character at {path}")
     elif isinstance(value, float):
         if not math.isfinite(value):

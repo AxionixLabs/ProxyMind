@@ -102,6 +102,7 @@ async def run(directory: Path, url: str, mode: str) -> int:
         hook_scope_provider=hooks,
         session_lifecycle=SessionLifecycleGateway(scope_factory=hooks.hook_scope, cleanup_session=cleanup),
         subagent_shutdown=shutdown, hook_session_cleanup=cleanup, javascript_session_cleanup=cleanup,
+        desktop_session_cleanup=cleanup,
         command_hook_cleanup=lambda _sid: None, event_session_close=cleanup,
         await_cleanup=lifecycle.await_cleanup,
         session_deletion_store=backend, session_deletion_remote=ProtocolSessionDeletionAdapter(),

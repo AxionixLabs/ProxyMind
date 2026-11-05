@@ -333,6 +333,8 @@ def _network_target_label(payload: dict[str, typing.Any]) -> str | None:
 def approval_request_kind(payload: dict[str, typing.Any]) -> ApprovalRequestKind:
     """按显式 kind 和工具名归一化审批类别。"""
     raw_kind = _text(payload.get("kind")).lower()
+    if raw_kind == "computer":
+        return "computer"
     if raw_kind in {"exec", "execve", "command"}:
         return "command"
     if raw_kind == "write_stdin":
@@ -403,6 +405,8 @@ def _presentation_prompt(
     kind: ApprovalRequestKind,
 ) -> str:
     """按规范化动作类别生成审批标题。"""
+    if kind == "computer":
+        return "Allow this desktop operation?"
     if kind in {"command", "write_stdin", "network_access"}:
         if kind == "network_access":
             host = _text(payload.get("host")) or "the requested host"
@@ -735,6 +739,8 @@ def _tool_operation_values(
 ) -> tuple[ApprovalCommand, ...]:
     """读取未细分工具审批中的操作并转换为不可变值。"""
     tool = _text(payload.get("tool")).lower()
+    if payload.get("kind") == "computer":
+        return (json.dumps(payload.get("arguments"), ensure_ascii=False, sort_keys=True),)
     if tool in {"shell_command", "exec_command", "write_stdin"}:
         return _command_values(payload)
 

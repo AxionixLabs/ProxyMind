@@ -41,7 +41,11 @@ def record_unhandled_tool_error(
     if error.is_deterministic_terminal:
         outcome.mark_delivery_incomplete(message, error_code=error.code)
         return "turn.incomplete"
-    outcome.require_reconciliation(message)
+    outcome.require_reconciliation(
+        message, error_code=error.code,
+        error_details={**error.details, "retryable": error.retryable,
+                       "status_code": error.status_code, "trace_id": error.trace_id},
+    )
     return "turn.tool_result_delivery_failed"
 
 

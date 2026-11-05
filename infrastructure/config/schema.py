@@ -299,6 +299,7 @@ STRING_CONFIG_PATHS = frozenset({
 
 BOOL_CONFIG_PATHS = frozenset({
     ("features", "js_repl"),
+    ("features", "computer"),
     ("features", "subagents"),
     ("features", "exec_permission_approvals"),
     ("features", "request_permissions_tool"),

@@ -1,0 +1,10 @@
+include requirements.txt
+include ARCHITECTURE.md
+include ARCHITECTURE_SYSTEM.md
+include CUA_IMPLEMENTATION_CHECKLIST.md
+include docs/desktop-sidecar.md
+recursive-include sidecars/cua_windows *.cs *.csproj global.json packages.lock.json *.pubxml
+prune sidecars/cua_windows/bin
+prune sidecars/cua_windows/obj
+prune sidecars/cua_windows/artifacts
+global-exclude *.pdb *.pyc

@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock
 
 from mind import (
     create_javascript_provider,
@@ -17,13 +18,15 @@ from infrastructure.config.session import ConfigSession
 from infrastructure.config.store import ConfigStore
 from infrastructure.platform.images import FileImageReader
 from agent.application.config.settings import FeatureSettings
+from agent.ports.desktop import DesktopExecutionPort
 
 
 def test_feature_settings_use_normalized_defaults() -> None:
     config = normalize_config({})
 
     assert config["features"] == {
-        "js_repl": False,
+        "js_repl": True,
+        "computer": True,
         "subagents": False,
         "exec_permission_approvals": False,
         "request_permissions_tool": False,
@@ -31,10 +34,22 @@ def test_feature_settings_use_normalized_defaults() -> None:
     assert FeatureSettings.from_config(config) == FeatureSettings()
 
 
+def test_default_registry_exposes_computer_and_javascript_lazily(tmp_path) -> None:
+    desktop = Mock(spec=DesktopExecutionPort)
+    tools = build_client_tool_registry(
+        create_workspace_coding(root=tmp_path, application_layout=None),
+        javascript=create_javascript_provider(workspace_root=tmp_path, application_layout=None),
+        desktop=desktop, image_reader=FileImageReader(tmp_path),
+    ).list_tools().tools
+    assert {"computer", "js_repl", "js_repl_reset"}.issubset(tool.name for tool in tools)
+    desktop.execute.assert_not_called()
+
+
 def test_feature_settings_read_explicit_config() -> None:
     config = normalize_config({
         "features": {
             "js_repl": False,
+            "computer": False,
             "subagents": False,
             "exec_permission_approvals": False,
             "request_permissions_tool": False,
@@ -43,6 +58,7 @@ def test_feature_settings_read_explicit_config() -> None:
 
     assert FeatureSettings.from_config(config) == FeatureSettings(
         js_repl=False,
+        computer=False,
         subagents=False,
         exec_permission_approvals=False,
         request_permissions_tool=False,
@@ -53,11 +69,13 @@ def test_optional_tool_features_can_be_enabled_explicitly() -> None:
     config = normalize_config({
         "features": {
             "js_repl": True,
+            "computer": True,
             "subagents": True,
         },
     })
 
     assert FeatureSettings.from_config(config).js_repl is True
+    assert FeatureSettings.from_config(config).computer is True
     assert FeatureSettings.from_config(config).subagents is True
 
 
@@ -65,6 +83,7 @@ def test_optional_tool_features_can_be_enabled_explicitly() -> None:
     ("features", "message"),
     [
         ({"js_repl": 1}, "features.js_repl must be a boolean"),
+        ({"computer": "yes"}, "features.computer must be a boolean"),
         ({"subagents": "yes"}, "features.subagents must be a boolean"),
         ({"unknown": True}, "unknown features key"),
     ],
@@ -82,7 +101,7 @@ def test_js_repl_feature_removes_both_repl_tools(tmp_path) -> None:
             application_layout=None,
         ),
         image_reader=FileImageReader(tmp_path),
-        features=FeatureSettings(js_repl=False),
+        features=FeatureSettings(js_repl=False, computer=False),
     ).list_tools().tools
     names = {tool.name for tool in tools}
 
@@ -100,6 +119,7 @@ def test_permission_features_control_tool_surface(tmp_path) -> None:
         ),
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
+            computer=False,
             request_permissions_tool=False,
             exec_permission_approvals=False,
         ),
@@ -125,6 +145,7 @@ def test_permission_features_are_disabled_by_default(tmp_path) -> None:
                 application_layout=None,
             ),
             image_reader=FileImageReader(tmp_path),
+            features=FeatureSettings(computer=False),
         ).list_tools().tools
     }
     assert "request_permissions" not in names
@@ -139,6 +160,7 @@ def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
         ),
         image_reader=FileImageReader(tmp_path),
         features=FeatureSettings(
+            computer=False,
             request_permissions_tool=True,
             exec_permission_approvals=True,
         ),
@@ -156,14 +178,15 @@ def test_permission_features_can_be_enabled_explicitly(tmp_path) -> None:
     assert [tool.name for tool in builtin_tools] == ["request_permissions"]
 
 
-def test_feature_switch_supports_temporary_cli_override(tmp_path) -> None:
+@pytest.mark.parametrize(("feature", "enabled"), [("js_repl", False), ("computer", False)])
+def test_feature_switch_supports_temporary_cli_override(tmp_path, feature: str, enabled: bool) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     session = ConfigSession(
         store,
-        (parse_config_override("features.js_repl=false"),),
+        (parse_config_override(f"features.{feature}={str(enabled).lower()}"),),
     )
 
     resolution = session.resolve()
 
-    assert resolution.config["features"]["js_repl"] is False
-    assert store.read_raw()["features"]["js_repl"] is False
+    assert resolution.config["features"][feature] is enabled
+    assert store.read_raw()["features"][feature] is True

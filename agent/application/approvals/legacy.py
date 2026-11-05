@@ -39,6 +39,7 @@ from agent.domain.approvals import (
     ApprovalResolutionReason,
     ApprovalReviewRecord,
     CommandApprovalAction,
+    DesktopApprovalAction,
     ExecutionIdentity,
     McpApprovalAction,
     McpApprovalMode,
@@ -267,6 +268,11 @@ def domain_action_from_request(request: ApprovalRequest) -> ApprovalAction:
     )
     fingerprint = approval_action_fingerprint(payload, request.key.kind)
     kind = request.key.kind
+    if kind == "computer":
+        arguments = payload.get("arguments")
+        if not isinstance(arguments, dict) or not isinstance(arguments.get("action"), str):
+            raise ValueError("Desktop approval arguments are required")
+        return DesktopApprovalAction(identity, execution, fingerprint, arguments["action"])
     if kind in {"command", "write_stdin"}:
         command = payload.get("command")
         if command in (None, ""):

@@ -15,6 +15,7 @@ class ApprovalActionKind(enum.StrEnum):
     PERMISSION = "permission"
     MCP = "mcp"
     NETWORK = "network"
+    DESKTOP = "desktop"
 
 
 class ApprovalDecisionKind(enum.StrEnum):
@@ -430,12 +431,31 @@ class NetworkApprovalAction:
         _require_text("reason", self.reason)
 
 
+@dataclass(frozen=True, slots=True)
+class DesktopApprovalAction:
+    """描述本地桌面观察审批，不使用命令、MCP 或线上审批类型代替。"""
+
+    identity: ApprovalIdentity
+    execution: ExecutionIdentity
+    fingerprint: ActionFingerprint
+    operation: str
+    kind: typing.ClassVar[ApprovalActionKind] = ApprovalActionKind.DESKTOP
+
+    def __post_init__(self) -> None:
+        """限定当前桌面审批只接受已实现的观察动作。"""
+        _require_action_components(self.identity, self.execution, self.fingerprint)
+        if self.operation not in {"list_windows", "observe", "validate_observation", "activate", "click", "move",
+                                  "drag", "scroll", "press_key", "type_text"}:
+            raise ValueError("Unsupported desktop approval operation")
+
+
 ApprovalAction: typing.TypeAlias = (
     CommandApprovalAction
     | PatchApprovalAction
     | PermissionApprovalAction
     | McpApprovalAction
     | NetworkApprovalAction
+    | DesktopApprovalAction
 )
 
 

@@ -23,6 +23,7 @@ from agent.domain.policies import (
     PermissionSettings,
 )
 from agent.harness.execution.compaction import compact_conversation
+from agent.harness.sessions.desktop import DesktopRuntime
 from agent.harness.execution.root_runner import run_root_turn
 from agent.harness.execution.review_runner import run_review_turn
 from agent.harness.hooks.registry import HookRegistry
@@ -98,6 +99,7 @@ from infrastructure.services.turn_environment import (
 )
 from infrastructure.services.configuration_host import ConfigServiceRuntime
 from infrastructure.sidecars.javascript.provider import JavaScriptSidecarProvider
+from infrastructure.sidecars.desktop.factory import DesktopSidecarFactory
 from infrastructure.skills import skills_payload
 from infrastructure.workspace.runtime import WorkspaceCoding
 from observability.reporting import RunReport
@@ -248,6 +250,9 @@ def create_application_host(
         workspace_root=workspace_root,
         application_layout=application_layout,
     )
+    desktop = DesktopRuntime(DesktopSidecarFactory(
+        (application_layout.root if application_layout is not None else Path(__file__).resolve().parent) / "sidecars",
+    ))
     return ApplicationHost(
         workspace_root=(
             os.fspath(workspace_root)
@@ -258,6 +263,8 @@ def create_application_host(
         runtime_services=runtime_services,
         javascript_execution=javascript,
         javascript_lifecycle=javascript,
+        desktop_execution=desktop,
+        desktop_lifecycle=desktop,
         config_session=config_session,
         configuration_service=configuration_service,
         preferences=preferences,

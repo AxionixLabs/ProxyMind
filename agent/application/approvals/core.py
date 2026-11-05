@@ -148,6 +148,7 @@ class _RegisteredApproval:
     action_kind: ApprovalActionKind
     action_fingerprint: str
     task: asyncio.Task[ApprovalFact]
+    waiters: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,20 +209,29 @@ class RunApprovalRegistry:
                     operation(),
                     name=f"approval {identity.approval_id}",
                 )
-                self._entries[registry_key] = _RegisteredApproval(
+                current = _RegisteredApproval(
                     action_kind=action.kind,
                     action_fingerprint=action.fingerprint.value,
                     task=task,
                 )
+                self._entries[registry_key] = current
+            current.waiters += 1
 
         try:
             return await asyncio.shield(task)
         finally:
-            if task.done():
-                async with self._lock:
-                    current = self._entries.get(registry_key)
-                    if current is not None and current.task is task:
+            cancel_orphan = False
+            async with self._lock:
+                current = self._entries.get(registry_key)
+                if current is not None and current.task is task:
+                    current.waiters -= 1
+                    if current.waiters == 0:
+                        cancel_orphan = not task.done()
+                        if cancel_orphan:
+                            task.cancel()
                         del self._entries[registry_key]
+            if cancel_orphan:
+                await asyncio.gather(task, return_exceptions=True)
 
     async def close(self) -> None:
         """取消全部未完成审批任务并清空注册表。"""

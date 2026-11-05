@@ -13,6 +13,11 @@ _ACTION_DECISIONS: dict[
     ApprovalActionKind,
     frozenset[ApprovalDecisionKind],
 ] = {
+    ApprovalActionKind.DESKTOP: frozenset({
+        ApprovalDecisionKind.ALLOW_ONCE,
+        ApprovalDecisionKind.DECLINE,
+        ApprovalDecisionKind.CANCEL,
+    }),
     ApprovalActionKind.COMMAND: frozenset({
         ApprovalDecisionKind.ALLOW_ONCE,
         ApprovalDecisionKind.ALLOW_FOR_SESSION,

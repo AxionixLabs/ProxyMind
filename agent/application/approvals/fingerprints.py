@@ -16,6 +16,7 @@ from agent.protocol.json_value import (
 from protocol.transport import config
 
 _ACTION_FIELDS = {
+    "computer": ("environment_id", "cwd", "arguments"),
     "command": (
         "environment_id",
         "command",

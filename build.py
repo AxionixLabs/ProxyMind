@@ -27,6 +27,7 @@ from infrastructure.errors import AppError
 from infrastructure.platform.macos_security import remove_macos_quarantine_tree
 from infrastructure.platform.shell_tools import SHELL_TOOL_LAYOUT
 from infrastructure.platform.terminal import Terminal
+from infrastructure.sidecars.assets import desktop_publish_files
 from metadata import const
 
 nuitka_version = "2.8.9"  # 编译器版本
@@ -467,7 +468,7 @@ async def packaging() -> tuple[
         f"--assume-yes-for-downloads", f"--show-progress", f"--show-memory",
         f"--include-package=pygments",
         f"--include-data-dir=infrastructure/services/configuration_host/assets=web",
-        f"--include-data-dir=sidecars=sidecars",
+        f"--include-data-dir=sidecars/js_repl=sidecars/js_repl",
         f"--output-dir={app}", f"{const.APP_NAME}.py"
     ]
 
@@ -541,6 +542,8 @@ async def post_build() -> None:
 
             task = progress.add_task(description="Dependencies", total=len(done_list))
             for src, dst in done_list:
+                if src.is_file():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(
                     src, dst, dirs_exist_ok=True) if src.is_dir() else shutil.copy2(src, dst)
                 progress.advance(task)
@@ -608,6 +611,15 @@ async def post_build() -> None:
             sandbox,
             target / schematic.name / "sandbox" / support,
         ))
+
+    if ops == "win32":
+        asset_root = app.parent / "sidecars"
+        try:
+            desktop_assets = desktop_publish_files(asset_root)
+        except (OSError, ValueError) as error:
+            raise AppError(f"桌面运行资产未准备好，请先发布 Windows 自包含 sidecar: {error}") from error
+        for source in desktop_assets:
+            local_file.append((source, target / "sidecars" / source.relative_to(asset_root)))
 
     dependencies = {
         "本地模块": local_pack,

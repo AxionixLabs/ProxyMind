@@ -19,6 +19,7 @@ from agent.domain.approvals import (
     ApprovalDecision,
     ApprovalDecisionKind,
     ApprovalDecisionSource,
+    ApprovalFact,
     ApprovalFactState,
     ApprovalIdentity,
     CommandApprovalAction,
@@ -176,6 +177,36 @@ async def test_registry_deduplicates_same_identity_and_rejects_conflict() -> Non
     release.set()
     assert (await first) == (await second)
     assert calls == ["request"]
+
+
+@pytest.mark.anyio
+async def test_shared_approval_only_cancels_when_last_waiter_leaves() -> None:
+    registry = RunApprovalRegistry()
+    entered, release, ended = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    action = _action("cancellation")
+
+    async def pending() -> ApprovalFact:
+        entered.set()
+        try:
+            await release.wait()
+            return ApprovalFact.requested(action)
+        finally:
+            ended.set()
+
+    first = asyncio.create_task(registry.run(action, pending))
+    await entered.wait()
+    second = asyncio.create_task(registry.run(action, pending))
+    await asyncio.sleep(0)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert not ended.is_set() and not second.done()
+    second.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await second
+    assert ended.is_set()
+    release.set()
+    assert await registry.run(action, pending) == ApprovalFact.requested(action)
 
 
 @pytest.mark.anyio

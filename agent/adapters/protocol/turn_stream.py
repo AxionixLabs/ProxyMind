@@ -619,6 +619,8 @@ async def stream_turn(
             code=error.code,
             status_code=error.status_code,
             trace_id=error.trace_id,
+            retryable=error.retryable,
+            message=str(error),
         )
         await project_terminal_activity()
         await run_presentation.emit_failure(
@@ -660,22 +662,15 @@ async def stream_turn(
         )
         await command_projection.failure(outcome)
     except ModelCapabilityError as error:
-        if error.retryable or event_count > 0:
-            outcome.require_reconciliation(
-                error.message,
-                error_code=error.code,
-                error_details=error.details,
-                additional_context=failed_tool_context,
-            )
-            failure_phase = "turn.reconciliation_required"
-        else:
-            outcome.fail(
-                error.message,
-                error_code=error.code,
-                error_details=error.details,
-                additional_context=failed_tool_context,
-            )
-            failure_phase = "turn.failed"
+        needs_reconciliation = error.retryable or event_count > 0
+        record_failure = outcome.require_reconciliation if needs_reconciliation else outcome.fail
+        record_failure(
+            error.message,
+            error_code=error.code,
+            error_details={**error.details, "retryable": error.retryable},
+            additional_context=failed_tool_context,
+        )
+        failure_phase = "turn.reconciliation_required" if needs_reconciliation else "turn.failed"
         if outcome.additional_context and turn_context.agent.depth == 0:
             session_state.queue_turn_context(outcome.additional_context)
         observe(

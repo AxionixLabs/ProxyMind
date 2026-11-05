@@ -53,6 +53,7 @@ class TuiSessionState(object):
         self.reasoning_effort_override: str | None = None
         self.workspace_label = workspace_label
         self.permissions = permissions
+        self.recovery_retryable = True
 
         self._pending_prompt_extras: dict[str, typing.Any] | None = None
 

@@ -312,14 +312,19 @@ async def test_runtime_assigns_stable_child_transcript_path(tmp_path) -> None:
 async def test_runtime_close_cleans_target_and_descendant_sessions() -> None:
     controller = _Controller()
     cleaned = []
+    desktop_cleaned = []
 
     async def cleanup(session_id: str) -> None:
         cleaned.append(session_id)
+
+    async def cleanup_desktop(session_id: str) -> None:
+        desktop_cleaned.append(session_id)
 
     runtime = SubagentRuntime(
         controller,
         settings=AgentSettings(max_depth=2),
         javascript_session_cleanup=cleanup,
+        desktop_session_cleanup=cleanup_desktop,
     )
     parent = _parent_turn()
     child = await runtime.spawn(
@@ -345,6 +350,7 @@ async def test_runtime_close_cleans_target_and_descendant_sessions() -> None:
     await runtime.close(parent.sid, child.agent_id)
 
     assert set(cleaned) == {child.thread.sid, descendant.thread.sid}
+    assert set(desktop_cleaned) == set(cleaned)
     await runtime.shutdown()
 
 

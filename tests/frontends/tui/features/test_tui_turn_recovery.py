@@ -169,6 +169,46 @@ async def test_cold_run_recovery_replays_without_resubmitting_user_message(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("retryable,expected_timeout", [(False, None), (True, 0.25)])
+async def test_recovery_automatically_waits_only_for_retryable_failure(monkeypatch, retryable, expected_timeout):
+    request = _request()
+    snapshot = RunSnapshot(command=_command(request), status=RunStatus.RECONCILIATION_REQUIRED,
+                           sequence=3, snapshot_version=1, effect_id="", effect_status="reconciliation_required",
+                           recovery_action=RecoveryAction.RECONCILE, updated_at="2026-11-05T00:00:00Z")
+    observed = RemoteTurnRecovery(snapshot=snapshot, request=request, replay_target_seq=9)
+    application = SimpleNamespace(reconcile_remote_session=AsyncMock(return_value=SessionRecoveryResult(
+        pending=(snapshot,), restore_commands=(), resolved_run_ids=(), observe_turns=(observed,))))
+    execute = AsyncMock(return_value=session_loop._TurnExecutionOutcome(False, False, retryable))
+    wait = AsyncMock(return_value="stop")
+    monkeypatch.setattr(session_loop, "_execute_tui_recovered_turn", execute)
+    monkeypatch.setattr(session_loop, "_wait_for_recovery_action", wait)
+    runtime = _RecoveryRuntime()
+    host = SimpleNamespace(lifecycle=SimpleNamespace(stop_event=asyncio.Event()))
+    assert await session_loop._await_durable_session_recovery(
+        host, runtime, SimpleNamespace(recovery_retryable=True), SimpleNamespace(emit=Mock()), application,
+        AsyncMock(spec=ProtocolCommandClient), session_id=snapshot.command.session_id,
+    ) is False
+    execute.assert_awaited_once()
+    assert wait.await_args.kwargs["timeout"] == expected_timeout
+    runtime.finish_recovery_gate.assert_called_once_with(submit_draft=False)
+
+
+@pytest.mark.anyio
+async def test_permanent_delivery_failure_does_not_start_automatic_attach(monkeypatch):
+    wait = AsyncMock(return_value="stop")
+    monkeypatch.setattr(session_loop, "_wait_for_recovery_action", wait)
+    application = SimpleNamespace(reconcile_remote_session=AsyncMock())
+    runtime = _RecoveryRuntime()
+    assert await session_loop._await_durable_session_recovery(
+        SimpleNamespace(lifecycle=SimpleNamespace(stop_event=asyncio.Event())), runtime,
+        SimpleNamespace(recovery_retryable=False), SimpleNamespace(emit=Mock()), application,
+        AsyncMock(spec=ProtocolCommandClient), session_id="session-failed-delivery",
+    ) is False
+    application.reconcile_remote_session.assert_not_awaited()
+    assert wait.await_args.kwargs["timeout"] is None
+
+
+@pytest.mark.anyio
 async def test_cold_review_recovery_uses_review_observer_without_resubmit(
     monkeypatch,
 ) -> None:
@@ -320,7 +360,7 @@ async def test_queued_review_recovery_redispatches_exact_frozen_command(
     ready = await session_loop._await_durable_session_recovery(
         host,
         runtime,
-        SimpleNamespace(),
+        SimpleNamespace(recovery_retryable=True),
         SimpleNamespace(emit=Mock()),
         turn_application,
         protocol_client,

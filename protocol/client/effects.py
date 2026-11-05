@@ -8,6 +8,7 @@ import httpx
 from protocol.client.tools import (
     normalize_tool_result_payload,
     parse_tool_result_error,
+    validate_tool_result_delivery_budget,
 )
 from protocol.schema.tool_output import (
     project_tool_output_text,
@@ -38,6 +39,9 @@ async def post_effect_reconciliation(
         "metadata": dict(metadata or {}),
     }
     validate_persistable_json(payload)
+    frozen_result = payload["result_payload"]
+    if frozen_result:
+        validate_tool_result_delivery_budget(frozen_result["result"], call_id=frozen_result["call_id"])
     response = await post_json_reliably(
         service_endpoints.endpoint("/effect/reconcile"),
         headers=build_service_headers(),

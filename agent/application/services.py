@@ -29,6 +29,7 @@ from agent.ports import (
     TurnObservationCapability,
 )
 from agent.ports.media import ImageReaderPort
+from agent.ports.desktop import DesktopExecutionPort
 from agent.ports.workspace import (
     ExecutionPolicy,
     WorkspaceCodingPort,
@@ -76,6 +77,7 @@ class ClientToolRegistryBuilder(typing.Protocol):
         *,
         javascript: JavaScriptExecutionPort,
         image_reader: ImageReaderPort,
+        desktop: DesktopExecutionPort,
         execution_policy: ExecutionPolicy | None,
         subagent_runtime: SubagentControlPort | None,
         approval_coordinator: ApprovalCoordinatorPort | None,

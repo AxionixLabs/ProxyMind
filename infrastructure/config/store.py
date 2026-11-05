@@ -55,7 +55,8 @@ enabled = []
 disabled = []
 
 [features]
-js_repl = false
+js_repl = true
+computer = true
 subagents = false
 exec_permission_approvals = false
 request_permissions_tool = false

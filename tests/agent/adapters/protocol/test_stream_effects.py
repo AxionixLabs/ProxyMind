@@ -37,7 +37,7 @@ def _delivery(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("code", ("repository_database_failure", "tool_call_not_ready"))
+@pytest.mark.parametrize("code", ("repository_database_failure", "tool_call_not_ready", "request_validation", "tool_result_too_large"))
 async def test_explicit_permanent_error_is_never_reposted(code):
     post = AsyncMock(side_effect=ToolResultRequestError(code, "rejected", retryable=False))
     status = AsyncMock(return_value={"tool_status": "waiting_result", "result_received": False})

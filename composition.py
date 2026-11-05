@@ -53,6 +53,10 @@ from agent.ports import (
     SubscriptionRuntime,
     TurnCompletionPresenterPort,
 )
+from agent.ports.desktop import (
+    DesktopExecutionPort,
+    DesktopSessionLifecyclePort,
+)
 from agent.stores import AgentGraphStore
 from agent.stores.effects.journal import LocalEffectJournal
 from agent.stores.runs.store import SQLiteRunStore
@@ -163,6 +167,8 @@ class ApplicationHost:
         runtime_services: RuntimeServices,
         javascript_execution: JavaScriptExecutionPort,
         javascript_lifecycle: JavaScriptSessionLifecyclePort,
+        desktop_execution: DesktopExecutionPort,
+        desktop_lifecycle: DesktopSessionLifecyclePort,
         config_session: ConfigSession,
         configuration_service: ConfigServiceRuntime | None,
         preferences: Preferences,
@@ -201,6 +207,8 @@ class ApplicationHost:
         self.turn_observer = runtime_services.turn_observer
         self.javascript_execution = javascript_execution
         self.javascript_lifecycle = javascript_lifecycle
+        self.desktop_execution = desktop_execution
+        self.desktop_lifecycle = desktop_lifecycle
         self.frontend = frontend
         self.lifecycle = lifecycle
         self.activity = activity
@@ -340,6 +348,7 @@ class ApplicationHost:
                 lambda: runtime_services.create_client_tool_registry(
                     self.workspace_runtime.coding,
                     javascript=self.javascript_execution,
+                    desktop=self.desktop_execution,
                     image_reader=self.workspace_runtime.image_reader,
                     execution_policy=self.workspace_runtime.execution_policy,
                     subagent_runtime=self.subagents,
@@ -408,6 +417,7 @@ class ApplicationHost:
             subagent_shutdown=lambda sid: self.subagents.shutdown_root(sid),
             hook_session_cleanup=self.hooks.cleanup_session,
             javascript_session_cleanup=self.javascript_lifecycle.close_session,
+            desktop_session_cleanup=self.desktop_lifecycle.close_session,
             command_hook_cleanup=self.command_hook_sessions.clear_root,
             event_session_close=self.execution.event_reporting.close_session,
             await_cleanup=self.lifecycle.await_cleanup,
@@ -436,6 +446,7 @@ class ApplicationHost:
             transcript_path_for=self.conversation.transcript_path_for_session,
             transcript_entries_for=lambda path: transcripts.reader(path).read(),
             javascript_session_cleanup=self.javascript_lifecycle.close_session,
+            desktop_session_cleanup=self.desktop_lifecycle.close_session,
             graph_store=graph_store,
         )
         self.service_runtime = ServiceRuntimeOwner()
@@ -455,6 +466,7 @@ class ApplicationHost:
             clear_command_hooks=self.command_hook_sessions.clear,
             close_hooks=self.hooks.close,
             close_javascript=self.javascript_lifecycle.close,
+            close_desktop=self.desktop_lifecycle.close,
             close_workspace=self.workspace_runtime.close,
             close_execution=self.execution.close,
             close_service=self._close_services,
@@ -573,6 +585,7 @@ class ApplicationHost:
             client = self.runtime_services.create_client_tool_registry(
                 resources.coding,
                 javascript=self.javascript_execution,
+                desktop=self.desktop_execution,
                 image_reader=resources.image_reader,
                 execution_policy=resources.execution_policy,
                 subagent_runtime=self.subagents,

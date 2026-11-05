@@ -22,7 +22,10 @@ from agent.harness.hooks.scope import HookExecutionScope
 from agent.harness.agents.runtime import SubagentRuntime
 from agent.harness.execution.turn_runner import execute_turn
 from protocol.client.reports import EventReportRuntimeOwner
-from agent.application.config.settings import AgentSettings
+from agent.application.config.settings import (
+    AgentSettings,
+    FeatureSettings,
+)
 from agent.domain.policies import preset_permissions
 from protocol.schema.identifiers import new_cid, new_sid
 
@@ -175,6 +178,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
         javascript=javascript,
         image_reader=FileImageReader(tmp_path),
         subagent_runtime=enabled,
+        features=FeatureSettings(computer=False),
     ).list_tools().tools
     enabled_names = {tool.name for tool in enabled_tools}
     disabled_names = {
@@ -184,6 +188,7 @@ def test_default_registry_exposes_agent_tools_only_when_enabled(tmp_path) -> Non
             javascript=javascript,
             image_reader=FileImageReader(tmp_path),
             subagent_runtime=disabled,
+            features=FeatureSettings(computer=False),
         ).list_tools().tools
     }
     agent_names = {

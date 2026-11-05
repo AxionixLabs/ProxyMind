@@ -166,6 +166,7 @@ def _nested_tool_response(
             "type": "function_call_output",
             "call_id": call_id,
             "output": content_items,
+            "data": normalized.data,
         })
 
     images = [
@@ -209,6 +210,7 @@ def _nested_tool_response(
         "type": "function_call_output",
         "call_id": call_id,
         "output": output,
+        "data": normalized.data,
     })
 
 

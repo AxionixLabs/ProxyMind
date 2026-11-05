@@ -57,7 +57,7 @@ from agent.stores.agents.graph import (
 )
 
 TranscriptPathResolver = typing.Callable[[str], str]
-JavaScriptSessionCleanup = typing.Callable[[str], typing.Awaitable[None]]
+SessionResourceCleanup = typing.Callable[[str], typing.Awaitable[None]]
 
 
 class SubagentRuntime:
@@ -74,7 +74,8 @@ class SubagentRuntime:
         skills_provider: SkillsProvider | None = None,
         transcript_path_for: TranscriptPathResolver | None = None,
         transcript_entries_for: TranscriptEntriesReader | None = None,
-        javascript_session_cleanup: JavaScriptSessionCleanup | None = None,
+        javascript_session_cleanup: SessionResourceCleanup | None = None,
+        desktop_session_cleanup: SessionResourceCleanup | None = None,
         execution_policy: ExecutionPolicy | None = None,
         approval_coordinator: ApprovalCoordinatorPort | None = None,
         permission_grants: PermissionGrantReader | None = None,
@@ -102,6 +103,7 @@ class SubagentRuntime:
         self._transcript_path_for = transcript_path_for or (lambda _sid: "")
         self._transcript_entries_for = transcript_entries_for
         self._javascript_session_cleanup = javascript_session_cleanup
+        self._desktop_session_cleanup = desktop_session_cleanup
         self._execution_policy = execution_policy
         self._approval_coordinator = approval_coordinator
         self._approval_ledger = approval_ledger
@@ -395,14 +397,15 @@ class SubagentRuntime:
             path_prefix=target_snapshot.thread.agent.task_path,
         )
 
-        if self._javascript_session_cleanup is not None:
-            await asyncio.gather(
-                *(
-                    self._javascript_session_cleanup(snapshot.thread.sid)
-                    for snapshot in snapshots
-                ),
-                return_exceptions=True,
-            )
+        try:
+            if self._desktop_session_cleanup is not None:
+                await asyncio.gather(*(self._desktop_session_cleanup(snapshot.thread.sid) for snapshot in snapshots))
+        finally:
+            if self._javascript_session_cleanup is not None:
+                await asyncio.gather(
+                    *(self._javascript_session_cleanup(snapshot.thread.sid) for snapshot in snapshots),
+                    return_exceptions=True,
+                )
 
         return previous
 

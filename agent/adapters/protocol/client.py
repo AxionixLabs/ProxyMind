@@ -1067,6 +1067,10 @@ def _classify_model_error(error: BaseException) -> ModelCapabilityError:
     """将传输异常映射为不依赖具体 HTTP 客户端的稳定能力错误。"""
     if isinstance(error, ModelCapabilityError):
         return error
+    if isinstance(error, ProtocolCommandError):
+        return ModelCapabilityError(
+            error.code, error.message, retryable=error.retryable, details=error.details,
+        )
     details: dict[str, typing.Any] = {
         "exception_type": type(error).__name__,
     }

@@ -25,7 +25,7 @@ ApprovalDecisionSource = typing.Literal[
     "auto_review",
 ]
 
-ApprovalRequestKind: typing.TypeAlias = ToolApprovalKind | typing.Literal["mcp_elicitation"]
+ApprovalRequestKind: typing.TypeAlias = ToolApprovalKind | typing.Literal["mcp_elicitation", "computer"]
 
 ApprovalResolutionReason = typing.Literal[
     "user",

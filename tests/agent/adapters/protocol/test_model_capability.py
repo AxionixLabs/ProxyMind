@@ -1283,6 +1283,16 @@ def test_model_capability_error_freezes_details() -> None:
     }
 
 
+def test_replayed_delivery_error_preserves_protocol_identity_and_retry_decision():
+    source = ProtocolCommandError("request_validation", "result exceeds size limit", retryable=False,
+                                  details={"status_code": 422, "trace_id": "trace-delivery", "call_id": "call-observe"})
+    error = model_adapter._classify_model_error(source)
+    assert error.code == source.code
+    assert error.message == source.message
+    assert error.details == source.details
+    assert error.retryable is False
+
+
 def test_model_http_conflict_preserves_server_runtime_details() -> None:
     request = httpx.Request("POST", "https://example.com/mind-chat")
     response = httpx.Response(
