@@ -65,10 +65,24 @@ async def test_real_click_unicode_keys_and_stale_observation(native_executable: 
         observation = await session.observe(window.reference, screenshot=False)
         await session.input(DesktopInput(window.reference, observation.reference, DesktopKey(("CTRL", "A"))))
         observation = await session.observe(window.reference, screenshot=False)
-        await session.input(DesktopInput(window.reference, observation.reference, DesktopText("CUA 中文 🐱")))
+        text = "CUA 中文 🐱" * 10
+        cursor_before_text = _cursor_visible()
+        active = asyncio.create_task(session.input(
+            DesktopInput(window.reference, observation.reference, DesktopText(text))))
+        hidden = False
+        for _ in range(100):
+            if not _cursor_visible():
+                hidden = True
+                break
+            if active.done():
+                break
+            await asyncio.sleep(0.01)
+        assert hidden
+        await active
         await asyncio.sleep(0.1)
         state = json.loads(await controlled_window.exchange("state"))
-        assert state["text"] == "CUA 中文 🐱" and not state["held"]
+        assert state["text"] == text and not state["held"]
+        assert _cursor_visible() == cursor_before_text
     finally:
         await session.close()
     assert session._process.returncode == 0, session.stderr_tail
@@ -108,6 +122,12 @@ async def test_cross_process_exclusion_and_crash_release(native_executable: Path
             await asyncio.sleep(0.01)
         else:
             pytest.fail("Mouse button remained held after native process death")
+        for _ in range(100):
+            if _cursor_visible():
+                break
+            await asyncio.sleep(0.01)
+        else:
+            pytest.fail("System cursor manager did not restore the cursor after native process death")
     finally:
         await asyncio.gather(session.close(), other.close())
     assert session._process.returncode != 0

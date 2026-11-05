@@ -18,6 +18,7 @@ internal sealed class NativeInput : IDisposable
     internal static readonly nuint InjectionTag = (nuint)RandomNumberGenerator.GetInt32(1, int.MaxValue);
     private InputSurface? surface;
     private Process? guardian;
+    private Process? cursorManager;
     private readonly HashSet<string> held = new(StringComparer.Ordinal);
     private int submitted;
     private Action? validate;
@@ -32,6 +33,7 @@ internal sealed class NativeInput : IDisposable
         submitted = 0;
         validate = check;
         cancellation = token;
+        bool cursorSuppressed = false;
         try
         {
             EnsureInteractiveDesktop();
@@ -41,6 +43,9 @@ internal sealed class NativeInput : IDisposable
                 if (!Activate(target)) throw new DesktopError("activation_failed", "Windows did not grant foreground activation.");
                 Thread.Sleep(50);
             }
+            EnsureCursorManager();
+            CursorManagerCommand("suppress");
+            cursorSuppressed = true;
             surface ??= new InputSurface();
             surface.Begin(target, bounds, allowBackground);
             surface.HideNativeCursor(target);
@@ -68,11 +73,22 @@ internal sealed class NativeInput : IDisposable
                     try { surface?.End(); }
                     finally
                     {
-                        validate = null;
-                        if (guardian is not null)
+                        try
                         {
-                            try { GuardCommand("end"); }
-                            catch (DesktopError) { StopGuardian(); throw; }
+                            if (cursorSuppressed) CursorManagerCommand("restore");
+                        }
+                        finally
+                        {
+                            try { StopCursorManager(); }
+                            finally
+                            {
+                                validate = null;
+                                if (guardian is not null)
+                                {
+                                    try { GuardCommand("end"); }
+                                    catch (DesktopError) { StopGuardian(); throw; }
+                                }
+                            }
                         }
                     }
                 }
@@ -174,12 +190,22 @@ internal sealed class NativeInput : IDisposable
     /// <summary>使用 Unicode 包逐字符提交，不改写用户剪贴板。</summary>
     internal void Text(string text)
     {
-        foreach (char value in text)
+        const int chunkSize = 64;
+        for (int offset = 0; offset < text.Length; offset += chunkSize)
         {
             Check();
-            Send(Key(0, value, 4), Key(0, value, 4 | 2));
-            Thread.Sleep(1);
+            int count = Math.Min(chunkSize, text.Length - offset);
+            var inputs = new Input[count * 2];
+            for (int index = 0; index < count; index++)
+            {
+                char value = text[offset + index];
+                inputs[index * 2] = Key(0, value, 4);
+                inputs[index * 2 + 1] = Key(0, value, 4 | 2);
+            }
+            Send(inputs);
+            Thread.Sleep(count);
         }
+        Check();
     }
 
     /// <summary>组合键只在本次操作持有，所有退出路径释放已按下键。</summary>
@@ -249,6 +275,31 @@ internal sealed class NativeInput : IDisposable
             start.ArgumentList.Add(typeof(Program).Assembly.Location);
         start.ArgumentList.Add("--release-input");
         guardian = Process.Start(start) ?? throw new DesktopError("input_guard_unavailable", "Cannot start input release guard.");
+    }
+
+    private void EnsureCursorManager()
+    {
+        if (cursorManager is not null) return;
+        cursorManager = SystemCursorManager.Start(Process.GetCurrentProcess().Id);
+    }
+
+    private void CursorManagerCommand(string command)
+    {
+        try
+        {
+            if (cursorManager is null)
+                throw new DesktopError("cursor_unavailable", "System cursor manager is not running.");
+            cursorManager.StandardInput.WriteLine(command);
+            cursorManager.StandardInput.Flush();
+            string? reply = cursorManager.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(2))
+                .GetAwaiter().GetResult();
+            if (reply != "ok")
+                throw new DesktopError("cursor_unavailable", "System cursor manager did not acknowledge the operation.");
+        }
+        catch (Exception error) when (error is IOException or TimeoutException)
+        {
+            throw new DesktopError("cursor_unavailable", "System cursor manager failed to acknowledge within its deadline.");
+        }
     }
 
     private void Send(params Input[] inputs)
@@ -354,7 +405,33 @@ internal sealed class NativeInput : IDisposable
             try { surface?.Dispose(); }
             finally
             {
-                StopGuardian();
+                try { StopCursorManager(); }
+                finally { StopGuardian(); }
+            }
+        }
+    }
+
+    private void StopCursorManager()
+    {
+        if (cursorManager is null) return;
+        Process current = cursorManager;
+        cursorManager = null;
+        try
+        {
+            current.StandardInput.Close();
+            if (!current.WaitForExit(2000))
+            {
+                current.Kill(entireProcessTree: true);
+                current.WaitForExit(2000);
+            }
+        }
+        finally
+        {
+            current.Dispose();
+            try { SystemCursorManager.RestoreSystemCursors(); }
+            catch (Win32Exception error)
+            {
+                throw new DesktopError("cursor_unavailable", $"Cannot restore the Windows cursor scheme ({error.NativeErrorCode}).");
             }
         }
     }

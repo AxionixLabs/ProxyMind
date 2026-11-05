@@ -18,6 +18,9 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         if (args.Length == 1 && args[0] == "--release-input") return NativeInput.RunReleaseGuard();
+        if (args.Length == 3 && args[0] == "--system-cursor-manager" && args[1] == "--parent-pid" &&
+            int.TryParse(args[2], out int cursorManagerParent) && cursorManagerParent > 0)
+            return await SystemCursorManager.Run(cursorManagerParent);
         if (args.Length > 0 && args[0] == "--preview-glow")
         {
             if (args.Length != 2 || !int.TryParse(args[1], out int seconds) || seconds is < 1 or > 120)
