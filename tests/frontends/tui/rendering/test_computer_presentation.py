@@ -8,6 +8,7 @@ from agent.application.views import (
     NativeToolResultView,
     ToolStartView,
 )
+from agent.application.views.builders.tools import build_generic_tool_result_view
 from agent.ports import (
     ApprovalPresentationChanged,
     OutputSurfaceContext,
@@ -255,5 +256,127 @@ async def test_computer_terminal_seals_empty_and_inflight_presentations(boundary
         resume.set()
         if pending is not None:
             await pending
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("previous_completed", [False, True])
+@pytest.mark.parametrize("first_name", ["computer", "remote_tool"])
+async def test_interleaved_results_update_original_record_without_displacing_current_tool(first_name, previous_completed):
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    second_name = "remote_tool" if first_name == "computer" else "computer"
+    first = ToolStartView(first_name, {"action": "observe"}, "one")
+    result = _result("one") if first_name == "computer" else build_generic_tool_result_view(first_name, "FIRST RESULT", ok=True, call_id="one")
+    try:
+        await session.presentation.emit(first)
+        if previous_completed:
+            await session.presentation.emit(result)
+        await session.activity.emit(ToolStarted(**_scope(), tool_id="two", tool_kind="client", name=second_name))
+        await session.presentation.emit(ToolStartView(second_name, {"action": "click"}, "two"))
+        active = runtime.document.active_source
+        frame = runtime.document.active_block
+        assert runtime.document.blocks[0].transcript_stable is previous_completed
+        assert runtime.viewport._scrollback_prefix_line_count() == (runtime.document.stable_line_count if previous_completed else 0)
+        for view in (result, first, result):
+            await session.presentation.emit(view)
+            assert runtime.document.active_source is active
+            assert runtime.document.active_block == frame
+        assert len(runtime.document.blocks) == 1
+        assert "unconfirmed" not in _stable(runtime)
+        assert runtime.document.blocks[0].transcript_stable
+        assert runtime.viewport._scrollback_prefix_line_count() == runtime.document.stable_line_count
+        if first_name == "computer":
+            assert "FULL RESULT" in (runtime.document.blocks[0].raw_text or "")
+        else:
+            assert "FIRST RESULT" in _stable(runtime)
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("first_name", ["computer", "remote_tool"])
+async def test_concurrent_tool_presentations_share_one_tail_handoff(first_name):
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+    prepare = session.control.prepare_active_presentation
+
+    async def delayed_prepare():
+        if not entered.is_set():
+            entered.set()
+            await resume.wait()
+        await prepare()
+
+    tasks = []
+    try:
+        with patch.object(session.control, "prepare_active_presentation", side_effect=delayed_prepare):
+            tasks.append(asyncio.create_task(session.presentation.emit(ToolStartView(first_name, {"action": "observe"}, "one"))))
+            await entered.wait()
+            second_name = "remote_tool" if first_name == "computer" else "computer"
+            tasks.append(asyncio.create_task(session.presentation.emit(ToolStartView(second_name, {"action": "click"}, "two"))))
+            await asyncio.sleep(0)
+            resume.set()
+            await asyncio.gather(*tasks)
+        assert len(runtime.document.blocks) == 1
+        assert runtime.document.blocks[0].source.call_id == "one"
+        assert runtime.document.active_source.call_id == "two"
+    finally:
+        resume.set()
+        await asyncio.gather(*tasks)
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_anonymous_computer_action_does_not_retain_scrollback_after_handoff():
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    try:
+        await session.presentation.emit(ToolStartView("computer", {"action": "observe"}))
+        await session.presentation.emit(ToolStartView("remote_tool", {}, "current"))
+        assert "1 unconfirmed" in _stable(runtime)
+        assert runtime.document.blocks[0].transcript_stable
+        assert runtime.viewport._scrollback_prefix_line_count() == runtime.document.stable_line_count
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_committed_computer_group_accepts_multiple_results_and_terminal_without_mutating_old_snapshot():
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    try:
+        for call_id in ("one", "two", "three"):
+            await _start(session, call_id)
+        await session.presentation.emit(ToolStartView("remote_tool", {}, "current"))
+        before = runtime.document.blocks[0]
+        assert not before.transcript_stable
+        assert before.display_renderer is not None
+        frozen = before.display_renderer(100)
+        await session.presentation.emit(_result("one"))
+        assert runtime.viewport._scrollback_prefix_line_count() == 0
+        await session.presentation.emit(_result("two", ok=False, error="stale_observation"))
+        await session.activity.emit(TurnTerminal(**_scope(), status="interrupted"))
+        assert len(runtime.document.blocks) == 2
+        assert all(block.transcript_stable for block in runtime.document.blocks)
+        assert runtime.viewport._scrollback_prefix_line_count() == runtime.document.stable_line_count
+        display = "".join(text for _, text in runtime.document.blocks[0].display_block.fragments)
+        assert "3 actions" in display and "1 failed" in display and "1 interrupted" in display
+        assert "FULL RESULT" in (runtime.document.blocks[0].raw_text or "")
+        assert "stale_observation" in (runtime.document.blocks[0].raw_text or "")
+        assert before.display_renderer(100) == frozen
+        await session.presentation.emit(_result("three"))
+        assert len(runtime.document.blocks) == 2
+        assert runtime.document.active_block is None
+    finally:
         await session.close()
         await runtime.activity.clear()

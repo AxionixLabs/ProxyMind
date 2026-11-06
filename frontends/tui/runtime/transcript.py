@@ -112,7 +112,8 @@ class TranscriptCoordinator(object):
         source_render_width: int | None,
         display_renderer: WidthBlockRenderer | None,
         display_render_width: int | None,
-        stable_id: str | None = None
+        stable_id: str | None = None,
+        transcript_stable: bool = True,
     ) -> TranscriptBlock:
         """把动态正文提交为稳定块并清理流式状态。"""
         with self._screen.visual_update():
@@ -127,6 +128,7 @@ class TranscriptCoordinator(object):
                 display_renderer=display_renderer,
                 display_render_width=display_render_width,
                 stable_id=stable_id,
+                transcript_stable=transcript_stable,
             )
             self._overlay.content_changed()
             if assistant_stream:

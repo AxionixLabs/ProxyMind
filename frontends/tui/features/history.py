@@ -365,7 +365,7 @@ def _render_replay_blocks(
         if computer_entries and (not is_computer or entry.turn_id != computer_entries[-1].turn_id):
             blocks.append(_computer_history_block(
                 computer_entries, terminal_width, hyperlinks, terminal_capabilities,
-                interrupted=entry.event == "turn.interrupted",
+                interrupted=computer_entries[-1].turn_id in interrupted_turns,
             ))
             computer_entries.clear()
         if is_computer:
@@ -403,7 +403,10 @@ def _render_replay_blocks(
             blocks.append(_notice_block(entry))
 
     if computer_entries:
-        blocks.append(_computer_history_block(computer_entries, terminal_width, hyperlinks, terminal_capabilities))
+        blocks.append(_computer_history_block(
+            computer_entries, terminal_width, hyperlinks, terminal_capabilities,
+            interrupted=computer_entries[-1].turn_id in interrupted_turns,
+        ))
     return tuple(blocks)
 
 

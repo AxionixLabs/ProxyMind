@@ -1295,6 +1295,7 @@ class TuiRuntime(object):
         raw_text: str | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
+        transcript_stable: bool | None = None,
     ) -> bool:
         """在视觉事务中按稳定身份更新已让出尾部的展示块。"""
         with self.screen.visual_update():
@@ -1306,6 +1307,7 @@ class TuiRuntime(object):
                 raw_text=raw_text,
                 display_renderer=display_renderer,
                 display_render_width=display_render_width,
+                transcript_stable=transcript_stable,
             )
             if replaced:
                 self.screen.transcript_overlay.content_changed()
@@ -2079,6 +2081,7 @@ class TuiRuntime(object):
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
         stable_id: str | None = None,
+        transcript_stable: bool = True,
     ) -> TranscriptBlock:
         """把当前动态正文替换为同位置的稳定块。"""
         return self._transcript.commit_active(
@@ -2091,6 +2094,7 @@ class TuiRuntime(object):
             display_renderer=display_renderer,
             display_render_width=display_render_width,
             stable_id=stable_id,
+            transcript_stable=transcript_stable,
         )
 
     def commit_active_stream_prefix(

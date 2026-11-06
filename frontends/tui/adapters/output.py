@@ -933,7 +933,9 @@ class TuiOutputControl(OutputControlPort):
         )
 
     async def prepare_active_presentation(self) -> None:
-        """提交 assistant 正文，为动态展示 cell 保留当前位置。"""
+        """提交当前工具和 assistant 正文，为新的动态展示保留当前位置。"""
+        self.computer.suspend()
+        self.tool_calls.suspend()
         self.assistant.discard_boundary()
         await self._commit_current()
 

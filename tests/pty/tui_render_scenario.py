@@ -735,6 +735,11 @@ async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     async def checkpoint(name: str) -> None:
         """为父进程标记可观察阶段，持续收集等候期间的动画帧。"""
         stage[0] = name
+        _record_document(facts, runtime)
+        facts.set_detail("display_blocks", [
+            {"stable_id": block.stable_id, "text": "".join(text for _, text in block.display_block.fragments)}
+            for block in runtime.document.blocks
+        ])
         await _checkpoint(facts, name)
 
     def interrupt() -> InterruptDisposition:
@@ -746,9 +751,18 @@ async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     runtime.bind_interrupt_handler(interrupt)
     reader = asyncio.create_task(runtime.read_message(PromptContext(model="pty-model")))
     try:
+        await session.activity.emit(ToolStarted(**scope, tool_id="earlier-desktop", tool_kind="client", name="computer"))
+        earlier_desktop = build_tool_start_view("computer", {"action": "observe"}, call_id="earlier-desktop")
+        await session.presentation.emit(earlier_desktop)
         await session.activity.emit(ToolStarted(**scope, tool_id="one", tool_kind="client", name="remote_tool"))
         await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "one"}, call_id="one"))
         await checkpoint("handoff_tool")
+        desktop_result = build_native_tool_result_view("computer", {"action": "observe"}, ok=True, data={"image": {}}, call_id="earlier-desktop")
+        await session.presentation.emit(desktop_result)
+        await session.activity.emit(ToolCompleted(**scope, tool_id="earlier-desktop", tool_kind="client", name="computer"))
+        await session.presentation.emit(earlier_desktop)
+        await session.presentation.emit(desktop_result)
+        await checkpoint("handoff_late_computer")
         await session.activity.emit(RetryChanged(**scope, source="transport", state="started", presentation_epoch=1, round=1, attempt=1))
         await checkpoint("handoff_retry")
         await runtime.begin_approval_session()
@@ -775,9 +789,18 @@ async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
             ToolCompleted(**scope, tool_id="two", tool_kind="client", name="remote_tool"),
             ModelWaitRequested(**scope, revision=2, reason="tool_result"),
         ))
+        await session.activity.emit(ToolStarted(**scope, tool_id="earlier-tool", tool_kind="client", name="remote_tool"))
+        earlier_tool = build_tool_start_view("remote_tool", {"query": "backfill"}, call_id="earlier-tool")
+        await session.presentation.emit(earlier_tool)
         await session.activity.emit(ToolStarted(**scope, tool_id="desktop", tool_kind="client", name="computer"))
         await checkpoint("handoff_computer_start")
         await session.presentation.emit(build_tool_start_view("computer", {"action": "observe"}, call_id="desktop"))
+        tool_result = build_generic_tool_result_view("remote_tool", "BACKFILLED RESULT", ok=True, call_id="earlier-tool")
+        await session.presentation.emit(tool_result)
+        await session.activity.emit(ToolCompleted(**scope, tool_id="earlier-tool", tool_kind="client", name="remote_tool"))
+        await session.presentation.emit(earlier_tool)
+        await session.presentation.emit(tool_result)
+        await checkpoint("handoff_late_generic")
         await session.presentation.emit(build_native_tool_result_view("computer", {"action": "observe"}, ok=True, data={"image": {}}, call_id="desktop"))
         await session.activity.emit_batch((
             ToolCompleted(**scope, tool_id="desktop", tool_kind="client", name="computer"),

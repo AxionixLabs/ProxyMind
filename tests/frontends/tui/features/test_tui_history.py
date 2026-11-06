@@ -812,6 +812,23 @@ def test_history_transcript_restores_responsive_markdown_tables() -> None:
     assert "Name  Status" in wide_text
 
 
+def test_computer_history_uses_own_turn_interruption_across_intervening_body() -> None:
+    entries = tuple(TranscriptEntry(
+        timestamp="2026-11-06T00:00:00Z", event=event, session_id="sid", turn_id=turn_id,
+        actor="tool" if event == "tool.started" else "assistant", payload=payload,
+    ) for event, turn_id, payload in (
+        ("tool.started", "first", {"call_id": "one", "name": "computer", "arguments": {"action": "observe"}}),
+        ("message.created", "first", {"content": "Interleaved body"}),
+        ("turn.interrupted", "first", {}),
+        ("tool.started", "second", {"call_id": "two", "name": "computer", "arguments": {"action": "observe"}}),
+        ("turn.interrupted", "third", {}),
+    ))
+    blocks = history._render_replay_blocks(entries, terminal_width=100)
+    computers = [fragments_text(block.display_block.fragments) for block in blocks if block.kind == "operation"]
+    assert "1 interrupted" in computers[0]
+    assert "1 unconfirmed" in computers[1]
+
+
 def test_history_shell_display_reflows_without_changing_transcript() -> None:
     command = "python3 -c \"print('" + "界" * 80 + "')\""
     output_lines = [

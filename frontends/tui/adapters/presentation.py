@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import typing
 from functools import partial
 
@@ -142,6 +143,7 @@ class TuiPresentationSink(PresentationSink):
         self._compaction_terminals: set[tuple[str, str]] = set()
         self._stable_patch_call_ids: set[str] = set()
         self._pending_terminal_waits: dict[str, list[NativeToolResultView]] = {}
+        self._lock = asyncio.Lock()
 
     @staticmethod
     def _native_payload(view: NativeToolResultView) -> dict[str, typing.Any]:
@@ -370,23 +372,27 @@ class TuiPresentationSink(PresentationSink):
             self.output.note_work_activity()
 
     async def emit(self, view: PresentationView) -> None:
-        """渲染并发送一项结构化展示数据。"""
+        """串行接收展示事件，避免不同工具在正文交接期间争抢同一动态尾部。"""
+        async with self._lock:
+            await self._emit(view)
+
+    async def _emit(self, view: PresentationView) -> None:
+        """按记录身份派发事件，只有新记录才准备动态尾部。"""
         if (
             isinstance(view, (ToolStartView, GenericToolResultView))
             and view.call_id
             and tool_display_spec(view.name).kind is ToolDisplayKind.GENERIC
             and tool_display_spec(view.name).two_stage
         ):
-            self.output.computer.suspend()
             await self._flush_all_terminal_waits()
             await self.output.tool_calls.emit(view)
             return
-        if not isinstance(view, (ApprovalView, ApprovalReviewView, ProgressView)):
-            self.output.tool_calls.suspend()
         if isinstance(view, (ToolStartView, NativeToolResultView)) and view.name == "computer":
             await self._flush_all_terminal_waits()
             await self.output.computer.emit(view)
             return
+        if not isinstance(view, (ApprovalView, ApprovalReviewView, ProgressView)):
+            self.output.tool_calls.suspend()
         if isinstance(view, (ApprovalView, ApprovalReviewView)) and self.output.computer.retain_approval(view):
             return
         self.output.computer.suspend()

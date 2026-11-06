@@ -713,6 +713,35 @@ def test_scrollback_commit_rejects_changed_visible_prefix() -> None:
     assert document.scrollback_line_count == 1
 
 
+@pytest.mark.parametrize("resolve", ["result", "remove"])
+def test_scrollback_retains_unresolved_record_across_reflow_and_state_restore(resolve):
+    document = TuiDocument()
+    document.append_block(_block("earlier"), kind="assistant")
+    document.set_active(_block("Calling tool"), kind="operation")
+    target = document.commit_active(
+        _block("Calling tool"), stable_id="tool:pending", transcript_stable=False,
+        display_renderer=lambda width: _block("Calling tool" if width > 40 else "Calling\ntool"),
+        display_render_width=80,
+    )
+    document.append_block(_block("later\n" * 20), kind="assistant")
+    assert document.complete_scrollback_prefix_line_count(required_line_count=100, maximum_line_count=100) == 1
+    assert document.commit_scrollback_prefix(1, expected_start=0)
+    snapshot = document.capture_state()
+    document.replace_blocks([])
+    document.restore_state(snapshot)
+    document.set_display_width(30)
+    document.rewind_scrollback(max_line_count=5)
+    assert document.visible_prefix_line_count <= 1
+    assert document.complete_scrollback_prefix_line_count(required_line_count=100, maximum_line_count=100) == 1
+    assert document.commit_scrollback_prefix(1, expected_start=0)
+    assert document.complete_scrollback_prefix_line_count(required_line_count=100, maximum_line_count=100) == 0
+    if resolve == "result":
+        assert document.replace_stable_block(target, _block("Called tool\nSUCCESS"), transcript_stable=True)
+    else:
+        assert document.remove_stable_block(document.blocks[1])
+    assert document.complete_scrollback_prefix_line_count(required_line_count=100, maximum_line_count=100) == document.stable_line_count - 1
+
+
 def test_scrollback_prefix_includes_every_complete_stable_block() -> None:
     runtime = TuiRuntime()
     runtime.append_block(_block("prior 0\nprior 1"), kind="assistant")

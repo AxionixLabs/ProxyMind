@@ -171,6 +171,7 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
     with _spawn_render_scenario("handoffs", facts_path, size=TerminalSize(rows=38, columns=columns)) as terminal:
         for stage, expected in (
             ("handoff_tool", "query='one'"),
+            ("handoff_late_computer", "Captured screenshot"),
             ("handoff_retry", "Retrying"),
             ("handoff_approval", "Calling remote_tool"),
             ("handoff_retry_restored", "Retrying"),
@@ -179,6 +180,7 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
             ("handoff_same_name", "Calling remote_tool"),
             ("handoff_resize", "query='two'"),
             ("handoff_computer_start", "Using computer"),
+            ("handoff_late_generic", "BACKFILLED RESULT"),
             ("handoff_reviewing", "reviewing result"),
             ("handoff_body", "HANDOFF body after tools"),
             ("handoff_cancel_paused", "query='cancel'"),
@@ -187,10 +189,10 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
         ):
             _wait_for_stage(facts_path, stage)
             terminal.wait_for_screen_text(expected)
-            if stage == "handoff_resize":
+            if stage in {"handoff_tool", "handoff_resize"}:
                 for width in (40, 110, columns):
                     terminal.resize(TerminalSize(rows=38, columns=width))
-                    terminal.wait_for_screen_text("query='two'")
+                    terminal.wait_for_screen_text(expected)
                     time.sleep(0.08)
             samples = []
             for _ in range(6):
@@ -213,9 +215,16 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
                 if stage == "handoff_same_name":
                     assert "Called remote_tool" in snapshot.visible_text
                     assert snapshot.visible_text.count("Calling remote_tool") == 1
+                if stage == "handoff_late_computer":
+                    assert "1 unconfirmed" not in snapshot.visible_text
+                    assert snapshot.visible_text.count("Used computer") == 1
+                    assert "Calling remote_tool" in snapshot.visible_text
+                if stage == "handoff_late_generic":
+                    assert snapshot.visible_text.count("Using computer") == 1
+                    assert "Calling remote_tool" not in snapshot.visible_text
                 if stage == "handoff_terminal":
                     assert all(label not in snapshot.visible_text for label in ("Calling", "Using computer", "LATE RESULT"))
-            if stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready"}:
+            if stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready", "handoff_late_computer", "handoff_late_generic"}:
                 assert len(set(samples)) > 1
             if stage in {"handoff_approval", "handoff_cancel_paused", "handoff_terminal"}:
                 assert len(set(samples)) == 1

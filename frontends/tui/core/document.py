@@ -58,7 +58,7 @@ WidthBlockRenderer: typing.TypeAlias = typing.Callable[
 
 @dataclass(frozen=True, slots=True)
 class TranscriptBlock(object):
-    """保存一项正文的普通表示、完整表示及视觉间距。"""
+    """保存正文表示与视觉间距；未稳定的记录不得提交到原生滚动区。"""
     display_block: FragmentBlock
     transcript_block: FragmentBlock
     kind: TuiBlockKind
@@ -119,6 +119,7 @@ class TuiDocumentState(object):
     active_tail: tuple[TranscriptBlock, ...]
     stable_lines: tuple[FormattedText, ...]
     stable_block_end_lines: tuple[int, ...]
+    scrollback_barrier_line: int | None
     stable_tail_kind: TuiBlockKind | None
     stable_snapshot_cells: tuple[TranscriptBlock, ...]
     stable_snapshot_revision: int
@@ -151,6 +152,7 @@ class TuiDocument(object):
         self._active_tail: list[TranscriptBlock] = []
         self._stable_lines: list[FormattedText] = []
         self._stable_block_end_lines: list[int] = []
+        self._scrollback_barrier_line: int | None = None
         self._stable_tail_kind: TuiBlockKind | None = None
         self._stable_snapshot_cells: tuple[TranscriptBlock, ...] = ()
         self._stable_snapshot_revision: int = -1
@@ -463,9 +465,12 @@ class TuiDocument(object):
         """根据稳定块重新生成逻辑行缓存。"""
         self._stable_lines.clear()
         self._stable_block_end_lines.clear()
+        self._scrollback_barrier_line = None
         self._stable_tail_kind = None
 
         for item in self.blocks:
+            if not item.transcript_stable and self._scrollback_barrier_line is None:
+                self._scrollback_barrier_line = len(self._stable_lines)
             own_lines = self._block_lines(item)
             if not own_lines:
                 continue
@@ -490,6 +495,8 @@ class TuiDocument(object):
 
         for item in items:
             self.blocks.append(item)
+            if not item.transcript_stable and self._scrollback_barrier_line is None:
+                self._scrollback_barrier_line = len(self._stable_lines)
 
             own_lines = self._block_lines(item)
             if not own_lines:
@@ -835,6 +842,7 @@ class TuiDocument(object):
         raw_text: str | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
+        transcript_stable: bool | None = None,
     ) -> bool:
         """原位替换稳定正文块并保留其段间位置。"""
         index = next(
@@ -864,6 +872,7 @@ class TuiDocument(object):
         current = self.blocks[index]
         self.blocks[index] = replace(
             current,
+            transcript_stable=current.transcript_stable if transcript_stable is None else transcript_stable,
             source=current.source if source is None else source,
             display_block=sanitize_fragment_block(block),
             transcript_block=sanitize_fragment_block(
@@ -1019,6 +1028,7 @@ class TuiDocument(object):
             active_tail=deepcopy(tuple(self._active_tail)),
             stable_lines=deepcopy(tuple(self._stable_lines)),
             stable_block_end_lines=tuple(self._stable_block_end_lines),
+            scrollback_barrier_line=self._scrollback_barrier_line,
             stable_tail_kind=self._stable_tail_kind,
             stable_snapshot_cells=deepcopy(self._stable_snapshot_cells),
             stable_snapshot_revision=self._stable_snapshot_revision,
@@ -1051,6 +1061,7 @@ class TuiDocument(object):
         self._active_tail = deepcopy(list(state.active_tail))
         self._stable_lines = deepcopy(list(state.stable_lines))
         self._stable_block_end_lines = list(state.stable_block_end_lines)
+        self._scrollback_barrier_line = state.scrollback_barrier_line
         self._stable_tail_kind = state.stable_tail_kind
         self._stable_snapshot_cells = deepcopy(state.stable_snapshot_cells)
         self._stable_snapshot_revision = state.stable_snapshot_revision
@@ -1166,6 +1177,7 @@ class TuiDocument(object):
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
         stable_id: str | None = None,
+        transcript_stable: bool = True,
     ) -> TranscriptBlock:
         """把当前动态正文替换为相同位置的稳定块。"""
         if self.active_kind is None:
@@ -1204,6 +1216,7 @@ class TuiDocument(object):
                 else self.active_display_render_width
             ),
             stable_id=str(stable_id or "").strip(),
+            transcript_stable=transcript_stable,
         ), *self._active_tail]
 
         self._extend_stable(items)
@@ -1331,14 +1344,17 @@ class TuiDocument(object):
         required_line_count: int,
         maximum_line_count: int
     ) -> int:
-        """返回满足目标且不拆分稳定块的滚屏前缀行数。"""
+        """返回不拆分块且不越过待更新记录的滚屏前缀行数。"""
         start = self.visible_prefix_line_count
         required = max(1, int(required_line_count))
+        stable_end = self._scrollback_barrier_line
+        if stable_end is None:
+            stable_end = self._stable_line_count()
 
         maximum = max(
             0,
             min(
-                self._stable_line_count() - start,
+                stable_end - start,
                 int(maximum_line_count),
             ),
         )
@@ -1390,6 +1406,8 @@ class TuiDocument(object):
     def rewind_scrollback(self, *, max_line_count: int) -> None:
         """把原生滚屏游标回退到最近一段可重新输出的稳定内容。"""
         line_count = self._stable_line_count()
+        if self._scrollback_barrier_line is not None:
+            line_count = min(line_count, self._scrollback_barrier_line)
 
         replay_start = max(
             self.cleared_line_count,

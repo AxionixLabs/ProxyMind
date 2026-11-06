@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import asyncio
 import typing
 from dataclasses import (
     dataclass,
@@ -94,40 +93,37 @@ class ToolCallPresentation:
         self._active: _CallEntry | None = None
         self._last_frame: FragmentBlock | None = None
         self._terminal = False
-        self._lock = asyncio.Lock()
 
     async def emit(self, view: ToolStartView | GenericToolResultView) -> None:
         """配对正式调用身份；重复事件不重开已经完成的记录。"""
         if not view.call_id:
             raise ValueError("inline tool presentation requires call_id")
-        async with self._lock:
+        if self._terminal:
+            return
+        entry = self._calls.get(view.call_id)
+        if entry is not None:
+            if entry.snapshot.view.name != view.name:
+                raise ValueError("tool presentation identity was reused")
+            if not entry.snapshot.pending or isinstance(view, ToolStartView):
+                return
+            if not view.arguments:
+                view = replace(view, arguments=dict(entry.snapshot.view.arguments))
+            entry.update(ToolCallSnapshot(view))
+        else:
+            await self.output.prepare_active_presentation()
             if self._terminal:
                 return
-            entry = self._calls.get(view.call_id)
-            if entry is not None:
-                if entry.snapshot.view.name != view.name:
-                    raise ValueError("tool presentation identity was reused")
-                if not entry.snapshot.pending or isinstance(view, ToolStartView):
-                    return
-                if not view.arguments:
-                    view = replace(view, arguments=dict(entry.snapshot.view.arguments))
-                entry.update(ToolCallSnapshot(view))
-            else:
-                self.suspend()
-                await self.output.prepare_active_presentation()
-                if self._terminal:
-                    return
-                entry = _CallEntry(ToolCallSnapshot(view), self.output.runtime.keymap.open_transcript_label)
-                self._calls[view.call_id] = entry
-                self._active = entry
-            self.output.record_presentation_block(call_transcript(ToolCallSnapshot(view)))
-            self._last_frame = None
-            if isinstance(view, GenericToolResultView):
-                self._commit(entry)
-                self.output.note_work_activity()
-            else:
-                self.render(None)
-            self.output.runtime.activity.bind_tool_renderer(self)
+            entry = _CallEntry(ToolCallSnapshot(view), self.output.runtime.keymap.open_transcript_label)
+            self._calls[view.call_id] = entry
+            self._active = entry
+        self.output.record_presentation_block(call_transcript(ToolCallSnapshot(view)))
+        self._last_frame = None
+        if isinstance(view, GenericToolResultView):
+            self._commit(entry)
+            self.output.note_work_activity()
+        else:
+            self.render(None)
+        self.output.runtime.activity.bind_tool_renderer(self)
 
     def render(self, phase: float | None, *, tool_id: str = "", reviewing: bool = False) -> bool:
         """只在调用仍待结果时消费当前前景帧；暂停时保持静态标记。"""
@@ -170,6 +166,7 @@ class ToolCallPresentation:
                 entry.target, block, transcript_block=entry.transcript, source=snapshot.view,
                 raw_text=entry.raw, display_renderer=entry.renderer,
                 display_render_width=self.output.terminal_width,
+                transcript_stable=not snapshot.pending,
             )
         elif self._active is entry:
             if runtime.document.active_block is None:
@@ -180,6 +177,7 @@ class ToolCallPresentation:
                 raw_text=entry.raw, display_renderer=entry.renderer,
                 display_render_width=self.output.terminal_width,
                 stable_id=f"tool:{context.surface_id if context is not None else ''}:{snapshot.view.call_id}",
+                transcript_stable=not snapshot.pending,
             )
         if self._active is entry:
             self._active = None
