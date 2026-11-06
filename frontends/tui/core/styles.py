@@ -23,10 +23,12 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
+from frontends.terminal.palette import best_color
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     TerminalSemanticStyles,
     TerminalStyle,
+    TerminalThemeTone,
     resolve_terminal_render_policy,
     resolve_terminal_semantic_styles,
     semantic_role_for_ansi_color,
@@ -287,7 +289,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "input.notice.example",
                 "process-status.background",
                 "directory-trust.hint",
-                "footer.workspace",
                 "footer.queue-hint",
                 "footer.exit-hint",
                 "shell.title.dot",
@@ -348,10 +349,7 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "prompt.exec",
                 "skill-token",
                 "token-menu.file-mention",
-                "footer.access",
                 "footer.mailbox",
-                "footer.model",
-                "footer.raw",
                 "tui-menu.input-gutter",
                 "shell.title.dot.running",
                 "ps.stream.command",
@@ -399,7 +397,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "paste-placeholder",
                 "process-status.exec",
                 "directory-trust.warning",
-                "footer.access.full",
                 "footer.exit-key",
                 "ps.warning",
                 "approval-command-number",
@@ -413,7 +410,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
                 "prompt.command.slash",
                 "token-menu.plugin-mention",
                 "tui-menu.footer.right.plugins.current",
-                "footer.brand",
                 "resume-picker.toolbar.focused",
             ),
         ),
@@ -461,7 +457,6 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
             styles[style_class] = value
 
     for style_class in (
-        "footer.separator",
         "ps.separator",
         "transcript.overlay.rule",
         "static-pager.rule",
@@ -485,6 +480,43 @@ def _terminal_semantic_style(semantics: TerminalSemanticStyles) -> BaseStyle:
     )
 
     return Style.from_dict(styles)
+
+
+def _footer_style(semantics: TerminalSemanticStyles, capabilities: TerminalCapabilities) -> BaseStyle:
+    """为状态栏建立低饱和层次，沿用冻结主题、共享量化与无色降级。"""
+    styles = {
+        "footer.brand": TerminalStyle(foreground=semantics.brand.foreground, bold=True),
+        "footer.model": semantics.primary,
+        "footer.access.full": semantics.attention,
+        "footer.workspace": semantics.secondary,
+        "footer.separator": semantics.separator,
+    }
+    if semantics.tone is not TerminalThemeTone.UNKNOWN:
+        palette = {
+            "footer.brand": (49, 105, 94),
+            "footer.model": (62, 71, 82),
+            "footer.access.full": (130, 96, 45),
+            "footer.workspace": (102, 112, 124),
+            "footer.separator": (138, 147, 157),
+        } if semantics.tone is TerminalThemeTone.LIGHT else {
+            "footer.brand": (146, 190, 181),
+            "footer.model": (197, 203, 210),
+            "footer.access.full": (199, 175, 136),
+            "footer.workspace": (141, 151, 164),
+            "footer.separator": (91, 102, 115),
+        }
+        for style_class, rgb in palette.items():
+            color = best_color(rgb, capabilities.color_support.render_level)
+            if color is not None:
+                styles[style_class] = TerminalStyle(
+                    foreground=color, bold=style_class == "footer.brand",
+                )
+    styles["footer.access"] = styles["footer.workspace"]
+    styles["footer.raw"] = styles["footer.workspace"]
+    return Style.from_dict({
+        style_class: _terminal_text_style(style)
+        for style_class, style in styles.items()
+    })
 
 
 def _terminal_text_style(style: TerminalStyle, *modifiers: str) -> str:
@@ -610,6 +642,7 @@ def build_tui_application_style(
         TUI_APPLICATION_OVERRIDES,
         _surface_style(semantics),
         _terminal_semantic_style(semantics),
+        _footer_style(semantics, capabilities),
     ]
     if capabilities.identity.is_ide_terminal:
         styles.append(Style.from_dict({

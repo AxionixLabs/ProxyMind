@@ -278,7 +278,16 @@ def test_real_tui_color_matrix_preserves_screen_and_business_facts(
                 input_details,
                 expect_color=expect_color,
             )
-            terminal.wait_for_screen_text("color-model")
+            footer = terminal.wait_for_screen_text("color-workspace")
+            row = next(index for index, line in enumerate(footer.visible_lines) if "color-model" in line)
+            cells = [terminal.screen.cell(row, footer.visible_lines[row].index(label))
+                     for label in ("Mind", "color-model", "full access", "color-workspace", "·")]
+            assert cells[0].bold
+            assert all(cell.background == "default" for cell in cells)
+            if expected_level in {"truecolor", "ansi256"}:
+                assert len({cell.foreground for cell in cells}) == len(cells)
+                assert all(not cell.bold for cell in cells[1:])
+            terminal.save_failure_artifacts(tmp_path / "footer")
             terminal.write_user_text("/f")
             _acknowledge(facts_path, "input_ready")
 

@@ -887,8 +887,11 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
     assert selected.color == "005F87"
     assert selected.bold
     assert shortcut.color == "default"
-    assert model.color == "005F87"
-    assert brand.color == "00695C"
+    assert model.color == "3E4752"
+    assert brand.color == "31695E"
+    assert brand.bold and not model.bold
+    assert style.get_attrs_for_style_str("class:footer.access.full").color == "82602D"
+    assert style.get_attrs_for_style_str("class:footer.workspace").color == "66707C"
     assert style.get_attrs_for_style_str(
         "class:transcript.overlay.selection"
     ).color == "default"
@@ -897,8 +900,8 @@ def test_light_terminal_uses_darkened_surface_and_readable_selection() -> None:
 @pytest.mark.parametrize(
     ("level", "selection_background", "brand_color", "reverse"),
     (
-        (TerminalColorLevel.TRUECOLOR, "1F1F1F", "2DD4BF", False),
-        (TerminalColorLevel.ANSI256, "1C1C1C", "5FD7AF", False),
+        (TerminalColorLevel.TRUECOLOR, "1F1F1F", "92BEB5", False),
+        (TerminalColorLevel.ANSI256, "1C1C1C", "87AFAF", False),
         (TerminalColorLevel.ANSI16, "default", "ansibrightcyan", True),
     ),
 )
@@ -930,6 +933,7 @@ def test_dark_terminal_uses_cyan_selection_semantics(
     assert selected.color == "ansicyan"
     assert selected.bold
     assert brand.color == brand_color
+    assert brand.bold
     assert transcript.bgcolor == selection_background
     assert transcript.color == "default"
     assert transcript.reverse is reverse
@@ -1107,10 +1111,11 @@ def test_theme_foreground_drives_separator_contrast() -> None:
         ),
     )
 
-    separator = style.get_attrs_for_style_str("class:footer.separator")
+    separator = style.get_attrs_for_style_str("class:ps.separator")
 
     assert separator.color == "282828"
     assert not separator.dim
+    assert style.get_attrs_for_style_str("class:footer.separator").color == "5B6673"
 
 
 def test_selected_session_shortcut_uses_118_style() -> None:
