@@ -719,6 +719,7 @@ class TuiOutputControl(OutputControlPort):
                 await self.record_writer.close()
                 raise
         self.runtime.activity.bind_tool_renderer(self.tool_calls)
+        self.runtime.activity.bind_tool_renderer(self.computer)
 
     async def _approval_presentation_changed(self, active: bool) -> None:
         """把真实人工审批批次的占用交给当前会话的唯一活动所有者。"""
@@ -796,7 +797,7 @@ class TuiOutputControl(OutputControlPort):
 
     async def prepare_assistant_output(self) -> None:
         """先提交前段正文和工作分隔线，避免清除下一 Item 的可见性绑定。"""
-        self.computer.finish()
+        self.computer.suspend()
         self.tool_calls.suspend()
         await self._append_pending_separator(elapsed_sec=None)
 

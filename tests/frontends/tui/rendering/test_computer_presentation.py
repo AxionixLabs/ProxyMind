@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import patch
 
 import pytest
 
@@ -211,5 +212,48 @@ async def test_computer_other_tool_boundary_and_resize_preserve_details():
                 narrow = "".join(text for _, text in block.display_renderer(30).fragments)
                 assert all(len(line) <= 30 for line in narrow.splitlines())
     finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("boundary", ["before_first", "after_group", "inflight", "closed"])
+async def test_computer_terminal_seals_empty_and_inflight_presentations(boundary):
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    started = asyncio.Event()
+    resume = asyncio.Event()
+
+    async def prepare():
+        started.set()
+        await resume.wait()
+
+    pending = None
+    try:
+        if boundary == "after_group":
+            await _start(session, "one")
+            await _complete(session, "one")
+            await session.control.prepare_assistant_output()
+        with patch.object(session.control, "prepare_active_presentation", side_effect=prepare):
+            if boundary == "inflight":
+                pending = asyncio.create_task(session.presentation.emit(ToolStartView("computer", {"action": "observe"}, "late")))
+                await started.wait()
+            if boundary == "closed":
+                await session.close()
+            else:
+                await session.activity.emit(TurnTerminal(**_scope(), status="interrupted"))
+            before = tuple(runtime.document.blocks)
+            resume.set()
+            if pending is not None:
+                await pending
+        await session.presentation.emit(_result("late"))
+        assert tuple(runtime.document.blocks) == before
+        assert runtime.document.active_block is None
+        assert runtime.screen.activity_block is None
+    finally:
+        resume.set()
+        if pending is not None:
+            await pending
         await session.close()
         await runtime.activity.clear()

@@ -90,6 +90,8 @@ class ComputerPresentation:
             return
         if not self._actions:
             await self.output.prepare_active_presentation()
+            if self._terminal:
+                return
             self._source = view
         action = computer_action(view)
         index = next((i for i, item in enumerate(self._actions)
@@ -127,36 +129,46 @@ class ComputerPresentation:
         self.output.record_presentation_block(text)
         self._last_frame = None
 
-    def render(self, phase: float | None, *, reviewing: bool = False) -> bool:
+    def render(self, phase: float | None, *, tool_id: str = "", reviewing: bool = False) -> bool:
         """原位更新动作或核对结果的指示符，暂停与回放期间使用静态符号。"""
         if not self._actions or self.output.runtime.turn_output_suppressed:
             return False
         runtime = self.output.runtime
         if runtime.document.active_block is not None and runtime.document.active_source is not self._source:
             return False
+        reviewing = reviewing and not any(action.pending for action in self._actions)
+        owns_activity = reviewing or any(action.call_id == tool_id for action in self._actions)
         renderer = self._reviewing_renderer if reviewing else self._renderer
         if renderer is None:
             return False
         block = renderer(self.output.terminal_width)
-        if phase is not None and self.output.animate and self.output.terminal_width >= 4 and (reviewing or any(action.pending for action in self._actions)):
+        if owns_activity and phase is not None and self.output.animate and self.output.terminal_width >= 4 and (reviewing or any(action.pending for action in self._actions)):
             fragments = list(block.fragments)
             style, symbol = spinner_indicator_fragment(phase, family="wait", color_level=runtime.activity.color_level)
             fragments[0] = (style, symbol + " ")
             block = FragmentBlock(tuple(fragments))
         if block == self._last_frame:
-            return True
+            return owns_activity
         runtime.set_active_renderable(
             block, kind="operation", transcript_block=self._transcript,
             source=self._source, raw_text=self._raw,
             display_renderer=renderer, display_render_width=self.output.terminal_width,
         )
         self._last_frame = block
-        return True
+        return owns_activity
 
     def finish(self, status: str = "") -> None:
+        """封闭整个会话，即使尚无分组或正在等待正文交接也不再接收展示。"""
+        self._terminal = True
+        self._commit_group(status)
+        self.output.runtime.activity.unbind_tool_renderer(self)
+
+    def suspend(self) -> None:
+        """提交当前相邻分组，保留会话对后续桌面调用和终态的观察。"""
+        self._commit_group()
+
+    def _commit_group(self, status: str = "") -> None:
         """在明确展示边界冻结一组；缺失结果单独保留，不伪造成功。"""
-        if status:
-            self._terminal = True
         if not self._actions:
             return
         runtime = self.output.runtime
@@ -181,7 +193,6 @@ class ComputerPresentation:
             self._renderer = None
             self._reviewing_renderer = None
             self._last_frame = None
-            runtime.activity.unbind_tool_renderer(self)
 
 
 if __name__ == '__main__':

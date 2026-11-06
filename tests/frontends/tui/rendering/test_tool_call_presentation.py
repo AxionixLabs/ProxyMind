@@ -24,6 +24,7 @@ from agent.ports import (
 )
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.features.history import _render_replay_blocks
 
 
@@ -164,6 +165,73 @@ async def test_replayed_call_matches_live_display_and_preserves_arguments():
         assert len(replay) == 1
         assert _text(replay[0].display_block) == _text(runtime.document.blocks[0].display_block)
         assert _text(replay[0].transcript_block) == _text(runtime.document.blocks[0].transcript_block)
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("completed", [False, True])
+@pytest.mark.parametrize("name,title", [("remote_tool", "Calling remote_tool"), ("next_tool", "Calling next_tool"), ("computer", "Using computer"), ("shell_command", "Thinking")])
+async def test_new_tool_activity_cannot_be_consumed_by_previous_call(completed, name, title):
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+    await session.open()
+    try:
+        await _start(session, "one")
+        if completed:
+            await session.presentation.emit(build_generic_tool_result_view("remote_tool", "done", ok=True, call_id="one"))
+        await session.activity.emit(ToolStarted(**SCOPE, tool_id="two", tool_kind="client", name=name))
+        assert title in _text(runtime.screen.activity_block)
+        if not completed:
+            assert _text(runtime.document.active_block).startswith("• Calling remote_tool")
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name", ["remote_tool", "computer"])
+async def test_steer_submission_settles_tools_once_before_next_query(name):
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+    await session.open()
+    try:
+        await session.activity.emit(ToolStarted(**SCOPE, tool_id="one", tool_kind="client", name=name))
+        await session.presentation.emit(ToolStartView(name, {"action": "observe"}, "one"))
+        runtime._present_interrupt_submission(TuiSubmission(value="NEXT QUERY", editable_text="NEXT QUERY", paste_store={}))
+        lease = runtime.activity.lease("wait")
+        await session.activity.emit(TurnTerminal(**SCOPE, status="interrupted"))
+        await session.close()
+        assert runtime.activity.lease("wait") == lease
+        assert len(runtime.document.blocks) == 2
+        assert runtime.document.blocks[-1].raw_text == "NEXT QUERY"
+        previous = _text(runtime.document.blocks[0].display_block)
+        assert "unconfirmed" in previous.lower()
+        assert "Calling" not in previous and "Using computer" not in previous
+        assert runtime.document.active_block is None
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name,title", [("remote_tool", "Calling"), ("computer", "Using computer")])
+async def test_tool_title_style_is_stable_before_and_after_presentation(name, title):
+    runtime = TuiRuntime()
+    session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+    await session.open()
+    try:
+        await session.activity.emit(ToolStarted(**SCOPE, tool_id="one", tool_kind="client", name=name))
+        status = runtime.screen.activity_block
+        assert status is not None
+        before = next(style for style, text in status.fragments if title in text)
+        await session.presentation.emit(ToolStartView(name, {"action": "observe"}, "one"))
+        active = runtime.document.active_block
+        assert active is not None
+        after = next(style for style, text in active.fragments if title in text)
+        assert before == after
     finally:
         await session.close()
         await runtime.activity.clear()

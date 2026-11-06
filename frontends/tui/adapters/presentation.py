@@ -377,7 +377,7 @@ class TuiPresentationSink(PresentationSink):
             and tool_display_spec(view.name).kind is ToolDisplayKind.GENERIC
             and tool_display_spec(view.name).two_stage
         ):
-            self.output.computer.finish()
+            self.output.computer.suspend()
             await self._flush_all_terminal_waits()
             await self.output.tool_calls.emit(view)
             return
@@ -389,7 +389,7 @@ class TuiPresentationSink(PresentationSink):
             return
         if isinstance(view, (ApprovalView, ApprovalReviewView)) and self.output.computer.retain_approval(view):
             return
-        self.output.computer.finish()
+        self.output.computer.suspend()
         if isinstance(view, ContextCompactionView) and view.status != "in_progress":
             if (view.turn_id, view.item_id) in self._compaction_terminals:
                 return
@@ -437,7 +437,7 @@ class TuiPresentationSink(PresentationSink):
 
     async def flush_terminal_waits_before_assistant_output(self) -> None:
         """在助手正文开始前提交后台终端等待记录。"""
-        self.output.computer.finish()
+        self.output.computer.suspend()
         self.output.tool_calls.suspend()
         await self._flush_all_terminal_waits()
 

@@ -1720,6 +1720,7 @@ class TuiRuntime(object):
                 self._interrupt_query = None
             else:
                 self._turn_output_suppressed = True
+                self.activity.finish_tool_presentations("")
                 active = self.document.active_block
                 if active is not None:
                     self.commit_active_renderable(
@@ -2122,6 +2123,7 @@ class TuiRuntime(object):
         """收束旧轮活动展示，保留已经上屏的待执行问题。"""
         with self.screen.visual_update():
             self._turn_output_suppressed = True
+            self.activity.finish_tool_presentations("")
             self._transcript.clear_active()
             if not self.submission_wait_pending:
                 self.activity.finish_wait()

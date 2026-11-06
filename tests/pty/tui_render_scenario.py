@@ -5,6 +5,8 @@ import typing
 from pathlib import Path
 from types import SimpleNamespace
 
+from prompt_toolkit.application import Application
+
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.builders.tools import build_generic_tool_result_view
 from agent.application.views.builders.tools import build_native_tool_result_view
@@ -18,6 +20,7 @@ from agent.ports import AssistantSegmentCompleted
 from agent.ports import AssistantSettled
 from agent.ports import AssistantTextDelta
 from agent.ports import ResponseIdentity
+from agent.ports import RecoveryChanged
 from agent.ports import RetryChanged
 from agent.ports import TerminalWaitCompleted
 from agent.ports import TerminalWaitStarted
@@ -711,6 +714,109 @@ async def _run_tool_calls(runtime: TuiRuntime, facts: ScenarioFacts, *, animate:
         runtime.set_execution_active(False)
 
 
+async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """连续记录真实 renderer 帧，覆盖工具身份、审批、恢复、正文与中断交接。"""
+    runtime.append_submitted_query("HANDOFF visual acceptance", _SURFACE.turn_id)
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=_SURFACE, runtime=runtime)
+    await session.open()
+    scope = {"surface_id": _SURFACE.surface_id, "turn_id": _SURFACE.turn_id}
+    frames: list[ThawedJsonValue] = []
+    stage = ["initial"]
+    interrupted = asyncio.Event()
+
+    def capture(application: Application[None]) -> None:
+        """保存每次真实终端提交的文字，包含阶段间过渡帧。"""
+        screen = application.renderer.last_rendered_screen
+        lines = ["".join(cells[column].char for column in sorted(cells)).rstrip()
+                 for _, cells in sorted(screen.data_buffer.items())]
+        frames.append({"stage": stage[0], "revision": application.render_counter, "text": "\n".join(lines)})
+
+    async def checkpoint(name: str) -> None:
+        """为父进程标记可观察阶段，持续收集等候期间的动画帧。"""
+        stage[0] = name
+        await _checkpoint(facts, name)
+
+    def interrupt() -> InterruptDisposition:
+        """接收真实终端的取消按键。"""
+        interrupted.set()
+        return InterruptDisposition.CONSUMED
+
+    runtime.screen.application.after_render += capture
+    runtime.bind_interrupt_handler(interrupt)
+    reader = asyncio.create_task(runtime.read_message(PromptContext(model="pty-model")))
+    try:
+        await session.activity.emit(ToolStarted(**scope, tool_id="one", tool_kind="client", name="remote_tool"))
+        await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "one"}, call_id="one"))
+        await checkpoint("handoff_tool")
+        await session.activity.emit(RetryChanged(**scope, source="transport", state="started", presentation_epoch=1, round=1, attempt=1))
+        await checkpoint("handoff_retry")
+        await runtime.begin_approval_session()
+        await checkpoint("handoff_approval")
+        await runtime.end_approval_session()
+        await checkpoint("handoff_retry_restored")
+        await session.activity.emit(RecoveryChanged(**scope, mode="replaying", event_seq=1))
+        await session.activity.emit(RetryChanged(**scope, source="transport", state="completed", presentation_epoch=1, round=1, attempt=1))
+        await checkpoint("handoff_recovery")
+        await session.activity.emit(RecoveryChanged(**scope, mode="caught_up", event_seq=2))
+        await _wait_until(lambda: runtime.activity._turn_surface_indicator == "tool", "recovered tool animation")
+        await checkpoint("handoff_resumed")
+        await session.presentation.emit(build_generic_tool_result_view("remote_tool", "FIRST RESULT", ok=True, call_id="one"))
+        await session.activity.emit_batch((
+            ToolCompleted(**scope, tool_id="one", tool_kind="client", name="remote_tool"),
+            ModelWaitRequested(**scope, revision=1, reason="tool_result"),
+        ))
+        await session.activity.emit(ToolStarted(**scope, tool_id="two", tool_kind="client", name="remote_tool"))
+        await checkpoint("handoff_same_name")
+        await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "two"}, call_id="two"))
+        await checkpoint("handoff_resize")
+        await session.presentation.emit(build_generic_tool_result_view("remote_tool", "SECOND RESULT", ok=True, call_id="two"))
+        await session.activity.emit_batch((
+            ToolCompleted(**scope, tool_id="two", tool_kind="client", name="remote_tool"),
+            ModelWaitRequested(**scope, revision=2, reason="tool_result"),
+        ))
+        await session.activity.emit(ToolStarted(**scope, tool_id="desktop", tool_kind="client", name="computer"))
+        await checkpoint("handoff_computer_start")
+        await session.presentation.emit(build_tool_start_view("computer", {"action": "observe"}, call_id="desktop"))
+        await session.presentation.emit(build_native_tool_result_view("computer", {"action": "observe"}, ok=True, data={"image": {}}, call_id="desktop"))
+        await session.activity.emit_batch((
+            ToolCompleted(**scope, tool_id="desktop", tool_kind="client", name="computer"),
+            ModelWaitRequested(**scope, revision=3, reason="tool_result"),
+        ))
+        await checkpoint("handoff_reviewing")
+        identity = ResponseIdentity(_SURFACE.turn_id, 1, 1, 1)
+        await session.activity.emit(AssistantBuffered(**scope, identity=identity, item_id="answer", phase="commentary"))
+        await session.content.emit(AssistantTextDelta("HANDOFF body after tools\n", identity, item_id="answer", phase="commentary"))
+        await session.control.settle_stream()
+        await checkpoint("handoff_body")
+        await session.content.emit(AssistantSegmentCompleted(identity=identity, item_id="answer", phase="commentary"))
+        await session.activity.emit(AssistantSettled(**scope, identity=identity, item_id="answer", phase="commentary"))
+        await session.activity.emit(ToolStarted(**scope, tool_id="cancel", tool_kind="client", name="remote_tool"))
+        await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "cancel"}, call_id="cancel"))
+        await runtime.begin_approval_session()
+        await checkpoint("handoff_cancel_paused")
+        await runtime.end_approval_session()
+        await checkpoint("handoff_cancel_ready")
+        await asyncio.wait_for(interrupted.wait(), timeout=10)
+        stage[0] = "handoff_terminal"
+        await session.activity.emit(TurnTerminal(**scope, status="interrupted"))
+        await session.close()
+        await session.presentation.emit(build_tool_start_view("computer", {"action": "click"}, call_id="late"))
+        await session.presentation.emit(build_generic_tool_result_view("remote_tool", "LATE RESULT", ok=True, call_id="cancel"))
+        await checkpoint("handoff_terminal")
+        facts.set_detail("frames", frames)
+        facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
+        _record_document(facts, runtime)
+    finally:
+        runtime.screen.application.after_render -= capture
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        runtime.bind_interrupt_handler(None)
+        await session.close()
+        runtime.end_terminal_progress()
+        runtime.set_execution_active(False)
+
+
 async def _run(scenario: str, facts_path: Path) -> None:
     """在原生终端中运行指定渲染与生命周期场景。"""
     reset_sinks()
@@ -726,7 +832,9 @@ async def _run(scenario: str, facts_path: Path) -> None:
     ))
     await runtime.open()
     try:
-        if scenario in {"tool_calls", "tool_calls_static"}:
+        if scenario == "handoffs":
+            await _run_handoffs(runtime, facts)
+        elif scenario in {"tool_calls", "tool_calls_static"}:
             await _run_tool_calls(runtime, facts, animate=scenario == "tool_calls")
         elif scenario in {"computer", "computer_static"}:
             await _run_computer(runtime, facts, animate=scenario == "computer")

@@ -183,6 +183,7 @@ def test_reducer_tracks_content_wait_and_terminal_idempotently() -> None:
     assert project_turn_surface(state) == SurfaceProjection(
         "thinking",
         title="Thinking",
+        model_wait=True,
         revision=2,
     )
     assert reduce_turn_surface(state, wait) is state
@@ -420,6 +421,7 @@ def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
     assert project_turn_surface(state) == SurfaceProjection(
         "tool",
         title="Calling delegate",
+        tool_id="call_second",
         revision=4,
     )
     assert reduce_turn_surface(state, first_done) is state
@@ -1832,7 +1834,8 @@ async def test_tool_completion_atomically_hands_surface_to_model_wait() -> None:
         name="shell_command",
     )
 
-    assert projections == []
+    assert len(projections) == 1
+    assert projections[0].model_wait and not projections[0].tool_id
     assert project_turn_surface(coordinator.state).indicator == "thinking"
     assert coordinator.state.tools == ()
     assert coordinator.state.model_wait_reason == "tool_result"
@@ -1978,7 +1981,10 @@ async def test_tool_handoff_batch_is_idempotent_for_duplicate_completion() -> No
         ),
     ))
 
-    assert projections == []
+    assert len(projections) == 1
+    assert projections[0].model_wait and not projections[0].tool_id
+    await coordinator.emit(completed)
+    assert len(projections) == 1
     assert project_turn_surface(coordinator.state).indicator == "thinking"
     assert len(coordinator.state.completed_tools) == 1
 

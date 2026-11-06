@@ -32,6 +32,7 @@ from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     semantic_text_style,
 )
+from frontends.terminal.styles import ACTION_TOOL_CALL_STYLE
 from .models import FragmentBlock
 from .status_frames import (
     StatusFamily,
@@ -80,8 +81,8 @@ class InlineToolActivityRenderer(typing.Protocol):
     finish 收束当前会话，非空 status 来自已知 Turn 终态；未知结果不能改写为成功。
     """
 
-    def render(self, phase: float | None, *, reviewing: bool = False) -> bool:
-        """更新工具指示符并返回是否已在正文消费该活动帧。"""
+    def render(self, phase: float | None, *, tool_id: str = "", reviewing: bool = False) -> bool:
+        """按调用身份消费工具帧；reviewing 只表示没有工具 lease 的模型等待。"""
         ...
 
     def finish(self, status: str = "") -> None:
@@ -192,6 +193,8 @@ class TuiActivity(object):
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
+        self._turn_surface_tool_id: str = ""
+        self._turn_surface_model_wait: bool = False
         self._compaction_started_at: float | None = None
         self._compaction_identity: tuple[str, int] | None = None
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
@@ -257,6 +260,8 @@ class TuiActivity(object):
         *,
         title: str = "",
         detail: str = "",
+        tool_id: str = "",
+        model_wait: bool = False,
         compaction_started_at: float | None = None,
         compaction_identity: tuple[str, int] | None = None,
     ) -> None:
@@ -275,6 +280,8 @@ class TuiActivity(object):
         self._turn_surface_indicator = indicator
         self._turn_surface_title = " ".join(str(title or "").split())
         self._turn_surface_detail = _normalize_status_detail(detail)
+        self._turn_surface_tool_id = tool_id
+        self._turn_surface_model_wait = model_wait
         self._compaction_started_at = compaction_started_at
         self._compaction_identity = compaction_identity
         slot = self._slots.get("foreground")
@@ -579,12 +586,13 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
-        if self._turn_surface_indicator == "tool":
-            return _status_block(self._turn_surface_title, family="wait", phase=phase,
-                                 spinner=True, color_level=self.color_level)
-        if self._turn_surface_indicator == "computer":
-            return _status_block("Using computer", family="wait", phase=phase,
-                                 spinner=True, color_level=self.color_level)
+        if self._turn_surface_indicator in {"tool", "computer"}:
+            title = self._turn_surface_title if self._turn_surface_indicator == "tool" else "Using computer"
+            return FragmentBlock((
+                spinner_indicator_fragment(phase, family="wait", color_level=self.color_level),
+                ("", " "),
+                (prompt_style(ACTION_TOOL_CALL_STYLE), title),
+            ))
         if self._turn_surface_indicator == "compacting":
             return _compaction_progress_block(
                 started_at=self._compaction_started_at,
@@ -730,7 +738,8 @@ class TuiActivity(object):
                 for renderer in self._tool_renderers:
                     consumed = renderer.render(
                         None if slot.frozen else slot.phase,
-                        reviewing=self._turn_surface_indicator == "thinking",
+                        tool_id=self._turn_surface_tool_id,
+                        reviewing=self._turn_surface_model_wait,
                     ) or consumed
                 if consumed:
                     continue
@@ -888,6 +897,8 @@ class TuiActivity(object):
         self._compaction_identity = None
         self._turn_surface_title = "Thinking"
         self._turn_surface_detail = ""
+        self._turn_surface_tool_id = ""
+        self._turn_surface_model_wait = False
 
 def _upload_block(data: dict[str, typing.Any], *, phase: float) -> FragmentBlock:
     """生成附件上传活动状态。"""

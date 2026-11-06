@@ -173,6 +173,8 @@ class SurfaceProjection:
     compaction_identity: tuple[str, int] | None = None
     compaction_interrupted: bool = False
     terminal_status: str = ""
+    tool_id: str = ""
+    model_wait: bool = False
     revision: int = 0
 
     @property
@@ -184,7 +186,7 @@ class SurfaceProjection:
         self,
         other: "SurfaceProjection | None",
     ) -> bool:
-        """忽略 reducer revision 比较终端可见内容。"""
+        """忽略 reducer revision，比较可见内容及动画的调用归属。"""
         return other is not None and (
             self.indicator,
             self.title,
@@ -194,6 +196,8 @@ class SurfaceProjection:
             self.compaction_identity,
             self.compaction_interrupted,
             self.terminal_status,
+            self.tool_id,
+            self.model_wait,
         ) == (
             other.indicator,
             other.title,
@@ -203,6 +207,8 @@ class SurfaceProjection:
             other.compaction_identity,
             other.compaction_interrupted,
             other.terminal_status,
+            other.tool_id,
+            other.model_wait,
         )
 
 
@@ -345,18 +351,21 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             revision=revision,
         )
     if state.tools or state.batches:
-        if any(tool.name == "computer" for tool in state.tools):
-            return SurfaceProjection("computer", title="Using computer", revision=revision)
         if state.tools:
-            name = state.tools[-1].name
+            tool = state.tools[-1]
+            name = tool.name
+            if name == "computer":
+                return SurfaceProjection("computer", title="Using computer", tool_id=tool.tool_id, revision=revision)
             spec = tool_display_spec(name)
             if name and spec.kind is ToolDisplayKind.GENERIC and spec.two_stage:
-                return SurfaceProjection("tool", title=f"Calling {name}", revision=revision)
+                return SurfaceProjection("tool", title=f"Calling {name}", tool_id=tool.tool_id, revision=revision)
+            return SurfaceProjection("thinking", title="Thinking", tool_id=tool.tool_id, revision=revision)
         return SurfaceProjection("thinking", title="Thinking", revision=revision)
     if state.status_requested:
         return SurfaceProjection(
             "thinking",
             title="Thinking",
+            model_wait=True,
             revision=revision,
         )
     return SurfaceProjection(

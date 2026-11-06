@@ -163,6 +163,82 @@ def test_tool_calls_update_in_place_and_handoff_without_title_flash(tmp_path: Pa
         assert terminal.wait_for_exit(timeout=10) == 0
 
 
+@pytest.mark.parametrize("columns", [60, 100])
+def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path, columns: int) -> None:
+    facts_path = tmp_path / "facts.json"
+    snapshots = []
+    title_style = None
+    with _spawn_render_scenario("handoffs", facts_path, size=TerminalSize(rows=38, columns=columns)) as terminal:
+        for stage, expected in (
+            ("handoff_tool", "query='one'"),
+            ("handoff_retry", "Retrying"),
+            ("handoff_approval", "Calling remote_tool"),
+            ("handoff_retry_restored", "Retrying"),
+            ("handoff_recovery", "Recovering"),
+            ("handoff_resumed", "Calling remote_tool"),
+            ("handoff_same_name", "Calling remote_tool"),
+            ("handoff_resize", "query='two'"),
+            ("handoff_computer_start", "Using computer"),
+            ("handoff_reviewing", "reviewing result"),
+            ("handoff_body", "HANDOFF body after tools"),
+            ("handoff_cancel_paused", "query='cancel'"),
+            ("handoff_cancel_ready", "query='cancel'"),
+            ("handoff_terminal", "Interrupted remote_tool"),
+        ):
+            _wait_for_stage(facts_path, stage)
+            terminal.wait_for_screen_text(expected)
+            if stage == "handoff_resize":
+                for width in (40, 110, columns):
+                    terminal.resize(TerminalSize(rows=38, columns=width))
+                    terminal.wait_for_screen_text("query='two'")
+                    time.sleep(0.08)
+            samples = []
+            for _ in range(6):
+                time.sleep(0.055)
+                snapshot = terminal.screen.snapshot()
+                samples.append(snapshot.visible_text)
+                assert "Thinking" not in snapshot.visible_text
+                title_rows = [i for i, line in enumerate(snapshot.visible_lines) if "remote_tool" in line]
+                for row in title_rows:
+                    column = snapshot.visible_lines[row].index("remote_tool")
+                    cell = terminal.screen.cell(row, column)
+                    style = (cell.foreground, cell.background, cell.bold)
+                    if title_style is None:
+                        title_style = style
+                    assert style == title_style
+                if stage in {"handoff_retry", "handoff_approval", "handoff_retry_restored", "handoff_recovery", "handoff_cancel_paused"}:
+                    assert "• Calling remote_tool" in snapshot.visible_text
+                if stage in {"handoff_approval", "handoff_cancel_paused"}:
+                    assert "Retrying" not in snapshot.visible_text and "Recovering" not in snapshot.visible_text
+                if stage == "handoff_same_name":
+                    assert "Called remote_tool" in snapshot.visible_text
+                    assert snapshot.visible_text.count("Calling remote_tool") == 1
+                if stage == "handoff_terminal":
+                    assert all(label not in snapshot.visible_text for label in ("Calling", "Using computer", "LATE RESULT"))
+            if stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready"}:
+                assert len(set(samples)) > 1
+            if stage in {"handoff_approval", "handoff_cancel_paused", "handoff_terminal"}:
+                assert len(set(samples)) == 1
+            snapshots.append(f"[{stage}]\n{samples[-1]}")
+            _acknowledge(facts_path, stage)
+            if stage == "handoff_cancel_ready":
+                terminal.send_key(PtyKey.CTRL_C)
+        assert terminal.wait_for_exit(timeout=10) == 0
+        facts = _read_facts(facts_path)
+        assert _detail(facts, "tty") == {"stdin": True, "stdout": True}
+        frames = _detail(facts, "frames")
+        assert isinstance(frames, list) and len(frames) > 30
+        for frame in frames:
+            assert isinstance(frame, dict)
+            text = frame["text"]
+            assert isinstance(text, str)
+            assert "Thinking" not in text
+            if frame["stage"] == "handoff_terminal":
+                assert all(label not in text for label in ("Calling", "Using computer", "Retrying", "Recovering", "LATE RESULT"))
+        (tmp_path / "handoff-frames.txt").write_text("\n\n".join(snapshots), encoding="utf-8")
+        terminal.save_failure_artifacts(tmp_path / "terminal-recording")
+
+
 def test_background_process_finishes_on_screen_without_model_polling(tmp_path: Path) -> None:
     facts_path = tmp_path / "facts.json"
     with _spawn_render_scenario("process_completion", facts_path) as terminal:

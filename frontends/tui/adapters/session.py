@@ -71,24 +71,26 @@ async def _apply_surface_projection(
             return None
         runtime.adopt_submission_wait()
     if not projection.visible:
-        if projection.terminal_status:
-            with runtime.screen.visual_update():
+        with runtime.screen.visual_update():
+            if projection.terminal_status:
                 runtime.activity.finish_tool_presentations(projection.terminal_status)
-        if projection.compaction_interrupted:
-            with runtime.activity_handoff("wait", preserve_title_anchor=True):
-                runtime.append_block(styled_fragment_block(render_compaction_interrupted()), kind="notice")
-        if projection.hidden_wait_timing == "pause":
-            runtime.activity.pause_wait()
-        elif projection.hidden_wait_timing == "continue":
-            runtime.activity.hide_wait()
-        else:
-            runtime.activity.finish_wait()
+            if projection.compaction_interrupted:
+                with runtime.activity_handoff("wait", preserve_title_anchor=True):
+                    runtime.append_block(styled_fragment_block(render_compaction_interrupted()), kind="notice")
+            if projection.hidden_wait_timing == "pause":
+                runtime.activity.pause_wait()
+            elif projection.hidden_wait_timing == "continue":
+                runtime.activity.hide_wait()
+            else:
+                runtime.activity.finish_wait()
         return None
 
     await runtime.activity.show_turn_surface(
         projection.indicator,
         title=projection.title,
         detail=projection.detail,
+        tool_id=projection.tool_id,
+        model_wait=projection.model_wait,
         compaction_started_at=projection.compaction_started_at,
         compaction_identity=projection.compaction_identity,
     )

@@ -94,7 +94,6 @@ class ToolCallPresentation:
         self._active: _CallEntry | None = None
         self._last_frame: FragmentBlock | None = None
         self._terminal = False
-        self._result_handoff = False
         self._lock = asyncio.Lock()
 
     async def emit(self, view: ToolStartView | GenericToolResultView) -> None:
@@ -125,28 +124,27 @@ class ToolCallPresentation:
             self._last_frame = None
             if isinstance(view, GenericToolResultView):
                 self._commit(entry)
-                self._result_handoff = not any(call.snapshot.pending for call in self._calls.values())
                 self.output.note_work_activity()
             else:
                 self.render(None)
             self.output.runtime.activity.bind_tool_renderer(self)
 
-    def render(self, phase: float | None, *, reviewing: bool = False) -> bool:
+    def render(self, phase: float | None, *, tool_id: str = "", reviewing: bool = False) -> bool:
         """只在调用仍待结果时消费当前前景帧；暂停时保持静态标记。"""
         entry = self._active
         runtime = self.output.runtime
-        if reviewing:
-            self._result_handoff = False
         if runtime.turn_output_suppressed:
             return False
         if entry is None:
-            return self._result_handoff and phase is not None
+            completed = self._calls.get(tool_id)
+            return completed is not None and not completed.snapshot.pending and phase is not None
         if not entry.snapshot.pending:
             return False
         if runtime.document.active_block is not None and runtime.document.active_source is not entry.snapshot.view:
             return False
         block = entry.render_at(self.output.terminal_width)
-        if phase is not None and self.output.animate and self.output.terminal_width >= 4:
+        owns_activity = tool_id == entry.snapshot.view.call_id
+        if owns_activity and phase is not None and self.output.animate and self.output.terminal_width >= 4:
             fragments = list(block.fragments)
             style, symbol = spinner_indicator_fragment(phase, family="wait", color_level=runtime.activity.color_level)
             if fragments and fragments[0][1] == "•":
@@ -160,7 +158,7 @@ class ToolCallPresentation:
                 display_render_width=self.output.terminal_width,
             )
             self._last_frame = block
-        return True
+        return owns_activity
 
     def _commit(self, entry: _CallEntry) -> None:
         """以同一视觉事务更新活动尾部或已经提交的原始位置。"""
@@ -189,14 +187,12 @@ class ToolCallPresentation:
 
     def suspend(self) -> None:
         """让出动态尾部，保留未完成调用的原位更新目标。"""
-        self._result_handoff = False
         if self._active is not None:
             self._commit(self._active)
 
     def finish(self, status: str = "") -> None:
         """收束当前会话；没有结果的调用仅标记观察结束。"""
         self._terminal = True
-        self._result_handoff = False
         with self.output.runtime.screen.visual_update():
             for entry in self._calls.values():
                 if entry.snapshot.pending:

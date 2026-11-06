@@ -14,6 +14,7 @@ from agent.ports.presentation import (
     TextStyle,
 )
 from frontends.terminal.text_layout import clip_display_text
+from frontends.terminal.styles import ACTION_TOOL_CALL_STYLE
 from .tool import (
     render_generic_tool_result_raw_text,
     render_generic_tool_result_transcript_view,
@@ -47,12 +48,15 @@ def render_call_snapshot(
     view = snapshot.view
     if snapshot.observation_ended is not None:
         action = "Interrupted" if snapshot.observation_ended == "interrupted" else "Unconfirmed"
-        lines = (f"• {action} {view.name}", "  └ Result unconfirmed")
-        text = "\n".join(
-            clip_display_text(line, width=terminal_width, measure_width=measure_width)
-            for line in lines
+        title = clip_display_text(
+            f"• {action} {view.name}", width=terminal_width, measure_width=measure_width,
         )
-        return StyledBlock(plain_text=text, spans=(TextSpan(text, TextStyle()),))
+        detail = clip_display_text("  └ Result unconfirmed", width=terminal_width, measure_width=measure_width)
+        return StyledBlock(plain_text=f"{title}\n{detail}", spans=(
+            TextSpan(title[:2], TextStyle()),
+            TextSpan(title[2:], ACTION_TOOL_CALL_STYLE),
+            TextSpan(f"\n{detail}", TextStyle(dim=True)),
+        ))
     if isinstance(view, ToolStartView):
         return render_tool_start_view(view, terminal_width=terminal_width, measure_width=measure_width)
     return render_generic_tool_result_view(view, terminal_width=terminal_width, measure_width=measure_width)
