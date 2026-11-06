@@ -116,6 +116,7 @@ internal static class Program
                             case "move": window.Location = new Point(original.X + 80, original.Y + 50); break;
                             case "restore": window.Location = original; window.ClientSize = new Size(600, 320); break;
                             case "resize": window.ClientSize = new Size(680, 360); break;
+                            case "large": window.ClientSize = new Size(1000, 720); break;
                             case "hide": window.Hide(); break;
                             case "show": window.Show(); break;
                             case "minimize": window.WindowState = FormWindowState.Minimized; break;

@@ -12,9 +12,9 @@ namespace DesktopSidecar;
 internal sealed class AgentPointer : Canvas
 {
     private const double DrawingHotspot = 48;
-    private const double VisualScale = 0.8;
-    internal const double Hotspot = DrawingHotspot * VisualScale;
-    internal const double Extent = 144 * VisualScale;
+    private readonly ScaleTransform visualScale = new(0.42, 0.42);
+    internal double Hotspot => DrawingHotspot * visualScale.ScaleX;
+    internal double Extent => 144 * visualScale.ScaleX;
     private readonly ScaleTransform ringScale = new(0.15, 0.15);
     private readonly ScaleTransform pointerScale = new(1, 1);
     private readonly Ellipse ring;
@@ -27,7 +27,7 @@ internal sealed class AgentPointer : Canvas
         HorizontalAlignment = HorizontalAlignment.Left;
         VerticalAlignment = VerticalAlignment.Top;
         IsHitTestVisible = false;
-        LayoutTransform = new ScaleTransform(VisualScale, VisualScale);
+        LayoutTransform = visualScale;
 
         var haloBrush = new RadialGradientBrush();
         haloBrush.GradientStops.Add(new GradientStop(Color.FromArgb(48, 90, 176, 255), 0));
@@ -86,6 +86,17 @@ internal sealed class AgentPointer : Canvas
         SetLeft(glyph, DrawingHotspot);
         SetTop(glyph, DrawingHotspot);
         Children.Add(glyph);
+    }
+
+    /// <summary>按目标逻辑短边温和缩放，限制小窗口可读性与大窗口遮挡范围。</summary>
+    internal bool FitTo(double width, double height)
+    {
+        double shorter = Math.Max(1, Math.Min(width, height));
+        double scale = Math.Round(Math.Clamp(0.42 * Math.Sqrt(shorter / 720), 0.378, 0.448), 3);
+        if (visualScale.ScaleX == scale) return false;
+        visualScale.ScaleX = scale;
+        visualScale.ScaleY = scale;
+        return true;
     }
 
     /// <summary>绘制一次向外扩散的轻光晕与按压回弹。</summary>

@@ -76,6 +76,7 @@ internal sealed class InputSurface : IDisposable
             if (glow is null) glow = new GlowWindow(screen) { ExcludeFromCapture = true };
             else glow.MoveToBounds(screen);
             pointer ??= new OperationPointerWindow { ExcludeFromCapture = true };
+            pointer.SetTargetSize(bounds.Width, bounds.Height);
             Volatile.Write(ref visualError, null);
             lastRender = TimeSpan.MinValue;
             pointer.ResetFeedback();
@@ -266,11 +267,13 @@ internal sealed class InputSurface : IDisposable
 internal sealed class OperationPointerWindow : PreviewOverlayWindow
 {
     private readonly AgentPointer pointer = new();
+    private int targetWidth = 1280;
+    private int targetHeight = 720;
 
     internal OperationPointerWindow() : base("Desktop input pointer")
     {
-        Width = AgentPointer.Extent;
-        Height = AgentPointer.Extent;
+        Width = pointer.Extent;
+        Height = pointer.Extent;
         Content = pointer;
     }
 
@@ -283,8 +286,20 @@ internal sealed class OperationPointerWindow : PreviewOverlayWindow
     internal void MoveTo(int x, int y)
     {
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        MovePhysical((int)Math.Round(x - AgentPointer.Hotspot * dpi.DpiScaleX),
-            (int)Math.Round(y - AgentPointer.Hotspot * dpi.DpiScaleY));
+        if (pointer.FitTo(targetWidth / dpi.DpiScaleX, targetHeight / dpi.DpiScaleY))
+        {
+            Width = pointer.Extent;
+            Height = pointer.Extent;
+        }
+        MovePhysical((int)Math.Round(x - pointer.Hotspot * dpi.DpiScaleX),
+            (int)Math.Round(y - pointer.Hotspot * dpi.DpiScaleY));
+    }
+
+    /// <summary>记录当前目标物理尺寸，下一次定位按指针所在屏幕的 DPI 统一换算。</summary>
+    internal void SetTargetSize(int width, int height)
+    {
+        targetWidth = width;
+        targetHeight = height;
     }
 
     internal void Pulse() => pointer.Pulse();

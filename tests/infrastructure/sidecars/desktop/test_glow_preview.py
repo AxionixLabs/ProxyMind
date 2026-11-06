@@ -30,8 +30,8 @@ async def test_glow_preview_shows_without_activation_and_closes(native_executabl
         pointers = [window for window in first.windows if window.pid == process.pid and window.title == "Desktop pointer preview"]
         assert len(glows) == len(pointers) == started["monitors"]
         for pointer in pointers:
-            assert 0 < pointer.bounds.width / pointer.display_scale < 120
-            assert 0 < pointer.bounds.height / pointer.display_scale < 120
+            assert 53 <= pointer.bounds.width / pointer.display_scale <= 67
+            assert 53 <= pointer.bounds.height / pointer.display_scale <= 67
         await asyncio.sleep(0.3)
         second = await observer.list_windows()
         by_reference = {window.reference: window for window in second.windows}

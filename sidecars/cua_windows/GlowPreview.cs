@@ -229,8 +229,8 @@ internal sealed class PointerPreviewWindow : PreviewOverlayWindow
     internal PointerPreviewWindow(GlowPreview.ScreenBounds screen) : base("Desktop pointer preview")
     {
         this.screen = screen;
-        Width = AgentPointer.Extent;
-        Height = AgentPointer.Extent;
+        Width = pointer.Extent;
+        Height = pointer.Extent;
         Content = pointer;
     }
 
@@ -259,9 +259,15 @@ internal sealed class PointerPreviewWindow : PreviewOverlayWindow
         double y = start.Y + (end.Y - start.Y) * eased;
         double arc = Math.Sin(eased * Math.PI) * 0.035;
         DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        if (pointer.FitTo((screen.Right - screen.Left) / dpi.DpiScaleX,
+            (screen.Bottom - screen.Top) / dpi.DpiScaleY))
+        {
+            Width = pointer.Extent;
+            Height = pointer.Extent;
+        }
         MovePhysical(
-            (int)Math.Round(screen.Left + x * (screen.Right - screen.Left) - AgentPointer.Hotspot * dpi.DpiScaleX),
-            (int)Math.Round(screen.Top + (y - arc) * (screen.Bottom - screen.Top) - AgentPointer.Hotspot * dpi.DpiScaleY));
+            (int)Math.Round(screen.Left + x * (screen.Right - screen.Left) - pointer.Hotspot * dpi.DpiScaleX),
+            (int)Math.Round(screen.Top + (y - arc) * (screen.Bottom - screen.Top) - pointer.Hotspot * dpi.DpiScaleY));
         if (pulse) pointer.Pulse();
     }
 }

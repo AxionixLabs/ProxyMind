@@ -262,12 +262,18 @@ async def test_pointer_tracks_input_and_reuses_hidden_windows(
         idle = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
         handles = set(idle["allocated"])
         assert len(handles) == 2 and not idle["overlays"]
-        for x in (400, 280, 400):
+        pointer_sizes = []
+        for size in ("restore", "large", "restore"):
+            await controlled_window.command(size)
+            window = await find_fixture(session, controlled_window)
             observation = await session.observe(window.reference, screenshot=True)
+            cursor = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))["cursor"]
+            x = 280 if abs(cursor["x"] - window.bounds.x - 400) < 60 else 400
             active = asyncio.create_task(session.input(DesktopInput(window.reference, observation.reference,
                 DesktopMove(DesktopPoint(x, 300), 1200))))
             positions = []
             distances = []
+            widths = []
             try:
                 while not active.done():
                     state = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
@@ -276,6 +282,7 @@ async def test_pointer_tracks_input_and_reuses_hidden_windows(
                     if len(state["overlays"]) == 2:
                         pointer = min(state["overlays"], key=lambda item: item["width"])
                         assert pointer["affinity"] == 0x11 and pointer["transparent"]
+                        widths.append(pointer["width"] / window.display_scale)
                         positions.append((pointer["x"], pointer["y"]))
                         # 热点距小窗口左上角约三分之一宽度，允许一个渲染帧内的位置差。
                         hotspot = pointer["width"] / 3
@@ -288,9 +295,13 @@ async def test_pointer_tracks_input_and_reuses_hidden_windows(
                     active.cancel()
                     await asyncio.gather(active, return_exceptions=True)
             assert len(set(positions)) >= 3
-            assert sorted(distances)[len(distances) // 2] < 32
+            assert sorted(distances)[len(distances) // 2] < 12
+            assert widths and all(53 <= width <= 67 for width in widths)
+            pointer_sizes.append(sorted(widths)[len(widths) // 2])
             idle = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
             assert set(idle["allocated"]) == handles and not idle["overlays"]
+        assert pointer_sizes[0] < pointer_sizes[1]
+        assert pointer_sizes[0] == pointer_sizes[2]
     finally:
         await session.close()
     closed = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
