@@ -6,6 +6,7 @@ import errno
 import hashlib
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import zipfile
@@ -20,7 +21,10 @@ from pydantic import (
 
 from infrastructure.errors import AppError
 from infrastructure.platform.file_lock import FileLease
-from infrastructure.sidecars.assets import desktop_runtime_files
+from infrastructure.sidecars.assets import (
+    MACOS_DESKTOP_EXECUTABLE,
+    desktop_runtime_files,
+)
 from infrastructure.update.runtime import (
     Upgrade,
     UpgradeProgress,
@@ -88,9 +92,13 @@ class DesktopRuntimeInstaller:
 
     def __init__(
         self, cache_root: Path, *, progress: UpgradeProgress | None = None, timeout: float = 900.0,
+        platform: str = "win32",
     ) -> None:
         """保存缓存位置与安装总时限，不创建目录或访问网络。"""
-        self._root = cache_root.expanduser().resolve() / "win-x64"
+        if platform not in {"win32", "darwin"}:
+            raise ValueError(f"Unsupported CUA runtime platform: {platform}")
+        self._platform = platform
+        self._root = cache_root.expanduser().resolve() / ("macos-arm64" if platform == "darwin" else "win-x64")
         self._progress = progress
         self._timeout = timeout
         self._resolved: Path | None = None
@@ -124,7 +132,8 @@ class DesktopRuntimeInstaller:
 
     async def _resolve(self, state: dict[str, JsonValue]) -> Path:
         """查询明确版本，仅网络不可用时使用最后一次成功的本地版本。"""
-        remote = await fetch_manifest("cua", station="win32", arch="x64")
+        remote = await fetch_manifest("cua", station="darwin" if self._platform == "darwin" else "win32",
+                                      arch="arm64" if self._platform == "darwin" else "x64")
         self._root.mkdir(parents=True, exist_ok=True)
         lease = await self._acquire_lease()
         try:
@@ -132,14 +141,14 @@ class DesktopRuntimeInstaller:
             if remote is None:
                 identity = _ReleaseIdentity.model_validate_json((self._root / "current.json").read_bytes())
                 directory = self._root / identity.directory
-                if not await run_threaded_phase(self._valid_cache, directory, identity):
+                if not await run_threaded_phase(self._valid_cache, directory, identity, self._platform):
                     raise ValueError("CUA is offline and no intact installed runtime is available")
                 observe("desktop.runtime.offline_cache", version=identity.version)
             else:
                 identity = _ReleaseIdentity(version=remote.version, hash=remote.package.hash)
                 directory = self._root / identity.directory
                 if directory.exists():
-                    if not await run_threaded_phase(self._valid_cache, directory, identity):
+                    if not await run_threaded_phase(self._valid_cache, directory, identity, self._platform):
                         raise ValueError(
                             f"CUA cache is damaged: {directory}. Close desktop sessions and remove this version before retrying."
                         )
@@ -147,7 +156,7 @@ class DesktopRuntimeInstaller:
                 else:
                     await self._install(remote, identity, directory, state)
                 _write_atomic(self._root / "current.json", identity.model_dump_json())
-            executable = directory / "desktop-sidecar.exe"
+            executable = directory / (MACOS_DESKTOP_EXECUTABLE if self._platform == "darwin" else "desktop-sidecar.exe")
             observe("desktop.runtime.ready", version=identity.version, executable=str(executable))
             return executable
         finally:
@@ -175,7 +184,7 @@ class DesktopRuntimeInstaller:
                 path.unlink()
 
     @staticmethod
-    def _valid_cache(directory: Path, identity: _ReleaseIdentity) -> bool:
+    def _valid_cache(directory: Path, identity: _ReleaseIdentity, platform: str = "win32") -> bool:
         """核对完整文件集合和内容，缓存不接受缺失文件或静默变更。"""
         try:
             if directory.is_symlink():
@@ -183,7 +192,9 @@ class DesktopRuntimeInstaller:
             receipt = _InstalledRelease.model_validate_json((directory / ".installed.json").read_bytes())
             if receipt.version != identity.version or receipt.hash != identity.hash:
                 return False
-            files = desktop_runtime_files(directory)
+            files = desktop_runtime_files(directory, platform=platform)
+            if platform == "darwin":
+                _verify_macos_signature(directory)
             actual = {path.relative_to(directory).as_posix(): _digest(path) for path in files}
             return actual == receipt.files
         except (OSError, ValueError):
@@ -211,21 +222,35 @@ class DesktopRuntimeInstaller:
             if done != package.size or digest != package.hash:
                 raise ValueError("CUA package size or SHA-256 differs from manifest")
             state["stage"] = "extracting"
-            await run_threaded_phase(self._prepare, archive, runtime, identity)
+            await run_threaded_phase(self._prepare, archive, runtime, identity, self._platform)
             state["stage"] = "installing"
             runtime.rename(directory)
             observe("desktop.runtime.installed", version=identity.version, bytes=done)
 
     @staticmethod
-    def _prepare(archive: Path, runtime: Path, identity: _ReleaseIdentity) -> None:
+    def _prepare(archive: Path, runtime: Path, identity: _ReleaseIdentity, platform: str = "win32") -> None:
         """校验归档路径、运行库和逐文件摘要，在线程完成后才允许发布。"""
         Upgrade.safe_extract_zip(archive, runtime, max_bytes=512 * 1024**2, max_files=5000)
-        files = desktop_runtime_files(runtime)
+        if platform == "darwin":
+            # ZIP 解压器不恢复 Unix mode；只赋予固定 Mach-O 入口执行位。
+            (runtime / MACOS_DESKTOP_EXECUTABLE).chmod(0o755)
+        files = desktop_runtime_files(runtime, platform=platform)
+        if platform == "darwin":
+            _verify_macos_signature(runtime)
         receipt = _InstalledRelease(
             version=identity.version, hash=identity.hash,
             files={path.relative_to(runtime).as_posix(): _digest(path) for path in files},
         )
         _write_atomic(runtime / ".installed.json", receipt.model_dump_json())
+
+
+def _verify_macos_signature(runtime: Path) -> None:
+    """发布与缓存复用前校验 bundle 完整签名，不修改隔离属性或绕过 Gatekeeper。"""
+    try:
+        subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(runtime / "DesktopSidecar.app")],
+                       check=True, capture_output=True, timeout=15)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError("CUA macOS bundle signature verification failed") from error
 
 
 if __name__ == '__main__':

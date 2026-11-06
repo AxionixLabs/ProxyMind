@@ -8,4 +8,11 @@ prune sidecars/cua_windows/bin
 prune sidecars/cua_windows/obj
 prune sidecars/cua_windows/artifacts
 prune sidecars/cua_windows/publish
+recursive-include sidecars/cua_macos *.swift *.py
+prune sidecars/cua_macos/.build
+prune sidecars/cua_macos/.swiftpm
+prune sidecars/cua_macos/publish
+recursive-include tests/fixtures/cua_macos *.swift
+prune tests/fixtures/cua_macos/.build
+prune tests/fixtures/cua_macos/.swiftpm
 global-exclude *.pdb *.pyc
