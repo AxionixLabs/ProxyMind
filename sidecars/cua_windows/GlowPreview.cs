@@ -211,6 +211,7 @@ internal sealed class GlowWindow : PreviewOverlayWindow
     /// <summary>同步窗口边界，支持目标窗口移动、调整大小和显示器切换后的短暂视觉收敛。</summary>
     internal void MoveToBounds(GlowPreview.ScreenBounds next)
     {
+        if (screen.Left == next.Left && screen.Top == next.Top && screen.Right == next.Right && screen.Bottom == next.Bottom) return;
         screen = next;
         Width = next.Right - next.Left;
         Height = next.Bottom - next.Top;

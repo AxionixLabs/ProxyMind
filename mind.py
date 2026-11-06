@@ -56,7 +56,10 @@ from frontends.cli.entry import run
 from frontends.interaction.attachments import Attach
 from frontends.mcp.server import run_mcp_server
 from frontends.output.silent import create_silent_output_session
-from frontends.runtime import FrontendActivity
+from frontends.runtime import (
+    FrontendActivity,
+    RuntimeDownloadProgress,
+)
 from frontends.subscription.runtime import AgentRuntime
 from frontends.terminal.worked import emit_worked_footer
 from frontends.tui.features.conversation import ConversationCompactor
@@ -251,7 +254,8 @@ def create_application_host(
         application_layout=application_layout,
     )
     desktop = DesktopRuntime(DesktopSidecarFactory(
-        (application_layout.root if application_layout is not None else Path(__file__).resolve().parent) / "sidecars",
+        state_home() / "runtimes" / "cua",
+        progress=RuntimeDownloadProgress(frontend.runtime),
     ))
     return ApplicationHost(
         workspace_root=(

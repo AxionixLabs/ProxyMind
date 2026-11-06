@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from frontends.runtime import FrontendActivity
+from frontends.runtime import (
+    FrontendActivity,
+    RuntimeDownloadProgress,
+)
+from frontends.terminal.renderers.download import download_progress_block
 
 
 @pytest.mark.anyio
@@ -60,3 +64,27 @@ async def test_frontend_activity_uses_fallback_for_passive_runtime() -> None:
 
     runtime.begin_wait_status.assert_not_awaited()
     assert fallback.stop.await_count == 2
+
+
+@pytest.mark.anyio
+async def test_runtime_download_uses_live_state_and_releases_only_download_slot() -> None:
+    runtime = SimpleNamespace(active=True, begin_download_status=AsyncMock(), end_activity_status=AsyncMock())
+    progress = RuntimeDownloadProgress(runtime)
+    state = {"name": "CUA", "stage": "downloading", "done": 1, "total": 2, "phase": 0.5}
+    await progress.start(state)
+    snapshot = runtime.begin_download_status.call_args.args[0]
+    assert "CUA downloading" in download_progress_block(snapshot(), indicator="*").plain_text
+    state["stage"] = "cancelled"
+    assert snapshot()["stage"] == "cancelled"
+    await progress.stop()
+    runtime.end_activity_status.assert_awaited_once_with("download", settle=True)
+
+
+@pytest.mark.anyio
+async def test_runtime_download_is_silent_for_machine_output() -> None:
+    runtime = SimpleNamespace(active=False, begin_download_status=AsyncMock(), end_activity_status=AsyncMock())
+    progress = RuntimeDownloadProgress(runtime)
+    await progress.start({"stage": "downloading"})
+    await progress.stop()
+    runtime.begin_download_status.assert_not_awaited()
+    runtime.end_activity_status.assert_not_awaited()

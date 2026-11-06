@@ -19,7 +19,6 @@ from infrastructure.sidecars.desktop.session import (
     DesktopSidecarSession,
     create_desktop_session,
 )
-from infrastructure.sidecars.desktop.factory import DesktopSidecarFactory
 from tests.fixtures.computer import computer_harness
 
 
@@ -83,11 +82,10 @@ async def find_fixture(session: DesktopSidecarSession, fixture: ControlledWindow
 async def test_js_native_observation_and_reset(
     repository_root: Path, tmp_path: Path, controlled_window: ControlledWindow,
 ) -> None:
-    factory = DesktopSidecarFactory(repository_root / "sidecars")
     sessions: list[DesktopSidecarSession] = []
 
     async def create_session() -> DesktopSidecarSession:
-        session = await factory()
+        session = await create_desktop_session(repository_root / "sidecars/cua_windows/publish/desktop-sidecar.exe")
         assert isinstance(session, DesktopSidecarSession)
         sessions.append(session)
         return session

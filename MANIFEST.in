@@ -7,4 +7,5 @@ recursive-include sidecars/cua_windows *.cs *.csproj global.json packages.lock.j
 prune sidecars/cua_windows/bin
 prune sidecars/cua_windows/obj
 prune sidecars/cua_windows/artifacts
+prune sidecars/cua_windows/publish
 global-exclude *.pdb *.pyc

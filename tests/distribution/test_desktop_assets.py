@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from infrastructure.sidecars.assets import (
-    desktop_publish_files,
+    desktop_runtime_files,
     runtime_asset_files,
 )
 
@@ -31,10 +31,10 @@ def test_release_inventory_excludes_sources_caches_and_symbols(assets: Path) -> 
     (assets / "cua_windows" / "publish" / "desktop-sidecar.pdb").write_bytes(b"symbols")
     (assets / "cua_windows" / "obj").mkdir()
     (assets / "cua_windows" / "obj" / "cache.dll").write_bytes(b"cache")
-    files = runtime_asset_files(assets, "win32")
-    assert len(files) == 11
+    files = runtime_asset_files(assets)
+    assert len(files) == 2
+    assert len(desktop_runtime_files(assets / "cua_windows/publish")) == 9
     assert not any(path.suffix in {".pdb", ".cs"} or "obj" in path.parts for path in files)
-    assert len(runtime_asset_files(assets, "darwin")) == 2
 
 
 def test_release_fails_when_runtime_is_missing_or_framework_dependent(assets: Path) -> None:
@@ -42,7 +42,15 @@ def test_release_fails_when_runtime_is_missing_or_framework_dependent(assets: Pa
     config = publish / "desktop-sidecar.runtimeconfig.json"
     config.write_text('{"runtimeOptions":{"frameworks":[]}}', encoding="utf-8")
     with pytest.raises(ValueError, match="include its .NET"):
-        desktop_publish_files(assets)
+        desktop_runtime_files(publish)
     (publish / "hostfxr.dll").unlink()
     with pytest.raises(ValueError, match="hostfxr.dll"):
-        desktop_publish_files(assets)
+        desktop_runtime_files(publish)
+
+
+def test_main_distribution_does_not_require_native_build(tmp_path: Path) -> None:
+    javascript = tmp_path / "js_repl"
+    (javascript / "vendor").mkdir(parents=True)
+    (javascript / "kernel.js").write_text("fixture")
+    (javascript / "vendor/meriyah.umd.min.js").write_text("fixture")
+    assert len(runtime_asset_files(tmp_path)) == 2

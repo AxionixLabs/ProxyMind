@@ -248,3 +248,50 @@ async def test_real_coordinate_click_drag_scroll_and_cancel(native_executable: P
         assert session._process.returncode == 0, session.stderr_tail
     finally:
         await session.close()
+
+
+@pytest.mark.anyio
+async def test_pointer_tracks_input_and_reuses_hidden_windows(
+    native_executable: Path, controlled_window: ControlledWindow,
+) -> None:
+    session = await create_desktop_session(native_executable)
+    try:
+        window = await find_fixture(session, controlled_window)
+        await controlled_window.command("activate")
+        await session.activate(window.reference)
+        idle = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
+        handles = set(idle["allocated"])
+        assert len(handles) == 2 and not idle["overlays"]
+        for x in (400, 280, 400):
+            observation = await session.observe(window.reference, screenshot=True)
+            active = asyncio.create_task(session.input(DesktopInput(window.reference, observation.reference,
+                DesktopMove(DesktopPoint(x, 300), 1200))))
+            positions = []
+            distances = []
+            try:
+                while not active.done():
+                    state = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
+                    assert set(state["allocated"]) == handles
+                    assert len(state["overlays"]) <= 2
+                    if len(state["overlays"]) == 2:
+                        pointer = min(state["overlays"], key=lambda item: item["width"])
+                        assert pointer["affinity"] == 0x11 and pointer["transparent"]
+                        positions.append((pointer["x"], pointer["y"]))
+                        # 热点距小窗口左上角约三分之一宽度，允许一个渲染帧内的位置差。
+                        hotspot = pointer["width"] / 3
+                        distances.append(max(abs(pointer["x"] + hotspot - state["cursor"]["x"]),
+                                             abs(pointer["y"] + hotspot - state["cursor"]["y"])))
+                    await asyncio.sleep(0.04)
+                await active
+            finally:
+                if not active.done():
+                    active.cancel()
+                    await asyncio.gather(active, return_exceptions=True)
+            assert len(set(positions)) >= 3
+            assert sorted(distances)[len(distances) // 2] < 32
+            idle = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
+            assert set(idle["allocated"]) == handles and not idle["overlays"]
+    finally:
+        await session.close()
+    closed = json.loads(await controlled_window.exchange(f"overlays {session._process.pid}"))
+    assert not closed["allocated"] and not closed["overlays"]

@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,8 @@ internal sealed class InputSurface : IDisposable
     private int cursorHideAdjustments;
     private uint attachedCursorThread;
     private nint previousCursor;
+    private TimeSpan lastRender = TimeSpan.MinValue;
+    private DesktopError? visualError;
 
     internal InputSurface()
     {
@@ -68,14 +71,22 @@ internal sealed class InputSurface : IDisposable
         Volatile.Write(ref active, 1);
         dispatcher.Invoke(() =>
         {
-            glow = new GlowWindow(new GlowPreview.ScreenBounds
-                { Left = bounds.X, Top = bounds.Y, Right = bounds.X + bounds.Width, Bottom = bounds.Y + bounds.Height })
-                { ExcludeFromCapture = true };
-            pointer = new OperationPointerWindow { ExcludeFromCapture = true };
+            var screen = new GlowPreview.ScreenBounds
+                { Left = bounds.X, Top = bounds.Y, Right = bounds.X + bounds.Width, Bottom = bounds.Y + bounds.Height };
+            if (glow is null) glow = new GlowWindow(screen) { ExcludeFromCapture = true };
+            else glow.MoveToBounds(screen);
+            pointer ??= new OperationPointerWindow { ExcludeFromCapture = true };
+            Volatile.Write(ref visualError, null);
+            lastRender = TimeSpan.MinValue;
+            pointer.ResetFeedback();
+            // 先在透明状态定位，再显示复用窗口，避免闪现上一次的指针位置。
+            pointer.Opacity = 0;
             glow.Show();
             pointer.Show();
+            SamplePointer();
             glow.Opacity = 0.72;
             pointer.Opacity = 1;
+            CompositionTarget.Rendering += RenderPointer;
         });
     }
 
@@ -83,22 +94,47 @@ internal sealed class InputSurface : IDisposable
     {
         if (Volatile.Read(ref stopped) != 0)
             throw new DesktopError("user_interrupted", interruption + " interrupted this operation.");
+        if (Volatile.Read(ref visualError) is DesktopError error) throw error;
         if (!allowBackground && NativeInput.Foreground != target)
             throw new DesktopError("focus_changed", "Target lost foreground focus; input stopped.");
     }
 
-    internal void Move(int x, int y) => dispatcher.Invoke(() => pointer?.MoveTo(x, y));
-    internal void Pulse() => dispatcher.Invoke(() => pointer?.Pulse());
+    /// <summary>只在移动终点等待一次视觉同步；中间位置由渲染线程采样，不排队积压。</summary>
+    internal void SynchronizePointer() => dispatcher.Invoke(SamplePointer);
+
+    internal void Pulse() => dispatcher.Invoke(() => { SamplePointer(); pointer?.Pulse(); });
+
+    /// <summary>按 WPF 渲染时钟读取最新实际坐标，渲染失败交回输入路径停止操作。</summary>
+    private void RenderPointer(object? sender, EventArgs args)
+    {
+        if (Volatile.Read(ref active) == 0 || Volatile.Read(ref stopped) != 0 ||
+            Volatile.Read(ref visualError) is not null || args is not RenderingEventArgs frame ||
+            frame.RenderingTime == lastRender) return;
+        lastRender = frame.RenderingTime;
+        try { SamplePointer(); }
+        catch (Exception error) when (error is Win32Exception or DesktopError)
+        {
+            Volatile.Write(ref visualError, new DesktopError("overlay_unavailable", "Cannot update the operation pointer."));
+        }
+    }
+
+    /// <summary>代理指针仅展示系统已经到达的位置，不预测或重放移动。</summary>
+    private void SamplePointer()
+    {
+        if (!GetCursorPos(out NativeInput.Point position))
+            throw new DesktopError("overlay_unavailable", "Cannot read the operation pointer position.");
+        pointer?.MoveTo(position.X, position.Y);
+    }
 
     internal void End()
     {
         Volatile.Write(ref active, 0);
         dispatcher.Invoke(() =>
         {
-            pointer?.Close();
-            glow?.Close();
-            pointer = null;
-            glow = null;
+            CompositionTarget.Rendering -= RenderPointer;
+            pointer?.Hide();
+            glow?.Hide();
+            pointer?.ResetFeedback();
         });
     }
 
@@ -189,9 +225,22 @@ internal sealed class InputSurface : IDisposable
 
     public void Dispose()
     {
-        End();
-        dispatcher.BeginInvoke(new Action(dispatcher.InvokeShutdown), DispatcherPriority.Send);
-        thread.Join();
+        try
+        {
+            End();
+            dispatcher.Invoke(() =>
+            {
+                try { pointer?.Close(); }
+                finally { glow?.Close(); }
+                pointer = null;
+                glow = null;
+            });
+        }
+        finally
+        {
+            dispatcher.BeginInvoke(new Action(dispatcher.InvokeShutdown), DispatcherPriority.Send);
+            thread.Join();
+        }
         GC.KeepAlive(mouseCallback);
         GC.KeepAlive(keyboardCallback);
     }
@@ -239,5 +288,6 @@ internal sealed class OperationPointerWindow : PreviewOverlayWindow
     }
 
     internal void Pulse() => pointer.Pulse();
+    internal void ResetFeedback() => pointer.ResetFeedback();
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativeInput.Point point);
 }

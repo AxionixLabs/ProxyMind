@@ -31,10 +31,12 @@ def download_progress_block(
     stage = str(state.get("stage") or "warming").strip().lower()
 
     action, detail = _stage_labels(state, stage)
+    name = str(state.get("name") or "").strip()
+    label = f"{name} {action}" if name else action
 
     spans = [
         TextSpan(indicator, INDICATOR),
-        TextSpan(f" {action}", ACCENT),
+        TextSpan(f" {label}", ACCENT),
         TextSpan(" · ", MUTED),
         TextSpan(detail, ACCENT),
     ]

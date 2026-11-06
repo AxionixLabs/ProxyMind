@@ -8,7 +8,6 @@ from setuptools import (
     find_packages,
     setup,
 )
-from setuptools.command.bdist_wheel import bdist_wheel
 
 # PEP 517 隔离执行 setup.py 时不保证源码根目录位于导入路径。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -20,18 +19,8 @@ with open('requirements.txt', encoding='utf-8') as f:
     requirements = f.read().splitlines()
 
 
-class RuntimeWheel(bdist_wheel):
-    """为包含原生运行资产的 wheel 声明实际平台，避免标记为跨平台纯 Python 包。"""
-
-    def get_tag(self) -> tuple[str, str, str]:
-        """Windows 资产只面向 x64，Python 代码和 ABI 保持可移植。"""
-        if sys.platform == "win32":
-            return "py3", "none", "win_amd64"
-        return super().get_tag()
-
-
 asset_root = Path("sidecars")
-assets = runtime_asset_files(asset_root, sys.platform)
+assets = runtime_asset_files(asset_root)
 
 setup(
     name=const.APP_NAME,
@@ -47,7 +36,6 @@ setup(
     include_package_data=False,
     py_modules=["mind", "composition"],
     package_data={"sidecars": [path.relative_to(asset_root).as_posix() for path in assets]},
-    cmdclass={"bdist_wheel": RuntimeWheel},
     long_description=Path('README.md').read_text(encoding='utf-8'),
     long_description_content_type='text/markdown',
     install_requires=requirements,

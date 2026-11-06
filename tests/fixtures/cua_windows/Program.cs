@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 using System.Threading.Tasks;
@@ -66,15 +67,21 @@ internal static class Program
                         {
                             uint owner = uint.Parse(command[9..]);
                             var overlays = new List<OverlayState>();
+                            var allocated = new List<long>();
                             EnumWindows((handle, parameter) =>
                             {
                                 GetWindowThreadProcessId(handle, out uint pid);
-                                if (pid == owner && IsWindowVisible(handle))
+                                if (owner != 0 && pid != owner) return true;
+                                var title = new StringBuilder(128);
+                                GetWindowText(handle, title, title.Capacity);
+                                if (title.ToString() is not ("Desktop visual preview" or "Desktop input pointer")) return true;
+                                allocated.Add(handle.ToInt64());
+                                if (IsWindowVisible(handle))
                                 {
                                     GetWindowDisplayAffinity(handle, out uint affinity);
                                     long styles = GetWindowLongPtr(handle, -20).ToInt64();
                                     GetWindowRect(handle, out Rect rect);
-                                    overlays.Add(new OverlayState(rect.Left, rect.Top, affinity,
+                                    overlays.Add(new OverlayState(handle.ToInt64(), rect.Left, rect.Top, affinity,
                                         (styles & 0x08000020) == 0x08000020,
                                         rect.Right - rect.Left, rect.Bottom - rect.Top));
                                 }
@@ -86,7 +93,7 @@ internal static class Program
                             Color color = pixel.GetPixel(0, 0);
                             Console.WriteLine(JsonSerializer.Serialize(new
                             {
-                                overlays,
+                                overlays, allocated, cursor = new { x = Cursor.Position.X, y = Cursor.Position.Y },
                                 pixel = new[] { (int)color.R, (int)color.G, (int)color.B },
                             }));
                             return;
@@ -136,11 +143,12 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool EnumWindows(WindowCallback callback, nint parameter);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint pid);
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, StringBuilder text, int capacity);
     [DllImport("user32.dll")] private static extern bool GetWindowDisplayAffinity(nint window, out uint affinity);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
     [DllImport("user32.dll")] private static extern bool GetWindowRect(nint window, out Rect rect);
     private delegate bool WindowCallback(nint window, nint parameter);
-    private sealed record OverlayState(int x, int y, uint affinity, bool transparent, int width, int height);
+    private sealed record OverlayState(long handle, int x, int y, uint affinity, bool transparent, int width, int height);
     [StructLayout(LayoutKind.Sequential)] private struct Rect { internal int Left, Top, Right, Bottom; }
 }
 

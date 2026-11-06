@@ -153,10 +153,11 @@ internal sealed class NativeInput : IDisposable
             Send(Mouse(0x8000 | 0x4000 | 0x0001, 0,
                 (int)Math.Round((currentX - left) * 65535.0 / (width - 1)),
                 (int)Math.Round((currentY - top) * 65535.0 / (height - 1))));
-            surface?.Move(currentX, currentY);
             if (progress >= 1) break;
             Thread.Sleep(8);
         } while (true);
+        surface?.SynchronizePointer();
+        Check();
     }
 
     /// <summary>点击前再次验证命中窗口，成功提交后才播放点击反馈。</summary>

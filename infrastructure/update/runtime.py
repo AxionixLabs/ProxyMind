@@ -10,7 +10,11 @@ import tempfile
 import time
 import typing
 import zipfile
-from pathlib import Path
+from pathlib import (
+    Path,
+    PurePosixPath,
+    PureWindowsPath,
+)
 from urllib.parse import urlparse
 
 import httpx
@@ -26,6 +30,7 @@ from observability import (
     observe_exception,
 )
 from protocol.client.manifest import fetch_manifest
+from protocol.transport.http_client import open_http_client
 
 UpgradeProgressStarter = typing.Callable[
     [], typing.Coroutine[typing.Any, typing.Any, None]
@@ -43,13 +48,18 @@ async def run_threaded_phase(
     """在线程阶段结束后再传播外层取消。"""
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
 
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        result = (await asyncio.gather(task, return_exceptions=True))[0]
-        if isinstance(result, BaseException):
-            raise result
-        raise
+    cancellation: asyncio.CancelledError | None = None
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            break
+        except asyncio.CancelledError as error:
+            if task.cancelled():
+                raise
+            cancellation = error
+    if cancellation is not None:
+        raise cancellation
+    return result
 
 
 class UpgradeProgress(typing.Protocol):
@@ -185,18 +195,32 @@ class Upgrade(object):
         raise AppError(f"Install failed: unsupported platform: {sys.platform}")
 
     @staticmethod
-    def safe_extract_zip(archive_path: Path, extract_dir: Path) -> None:
+    def safe_extract_zip(
+        archive_path: Path, extract_dir: Path, *, max_bytes: int = 2 * 1024**3, max_files: int = 20000,
+    ) -> None:
         """校验 zip 成员路径后解压到指定目录。"""
         extract_root = extract_dir.resolve()
 
         with zipfile.ZipFile(archive_path, "r") as zf:
-            for info in zf.infolist():
+            members = zf.infolist()
+            if len(members) > max_files or sum(info.file_size for info in members) > max_bytes:
+                raise AppError("Install failed: archive exceeds extraction limits")
+            seen: set[str] = set()
+            for info in members:
                 raw_name = info.filename
-                member = Path(raw_name)
-
-                if member.is_absolute() or ".." in member.parts:
+                member = PurePosixPath(raw_name)
+                windows = PureWindowsPath(raw_name)
+                parts = raw_name.rstrip("/").split("/")
+                mode = stat.S_IFMT(info.external_attr >> 16)
+                if (member.is_absolute() or windows.drive or "\\" in raw_name
+                        or any(part in {"", ".", ".."} or part.endswith((".", " "))
+                               or ":" in part or PureWindowsPath(part).is_reserved() for part in parts)
+                        or mode not in {0, stat.S_IFREG, stat.S_IFDIR}):
                     raise AppError(f"Install failed: unsafe archive path: {raw_name}")
-
+                key = member.as_posix().casefold()
+                if key in seen:
+                    raise AppError("Install failed: duplicate archive member")
+                seen.add(key)
                 target = (extract_root / member).resolve()
                 if target == extract_root:
                     continue
@@ -356,6 +380,7 @@ class Upgrade(object):
         sha256_enabled: bool,
         timeout: float,
         chunk_size: int,
+        expected_size: int | None = None,
         start_progress: UpgradeProgressStarter | None = None
     ) -> tuple[int, str | None]:
         """下载远端归档文件并更新进度状态。"""
@@ -367,7 +392,7 @@ class Upgrade(object):
             await start_progress()
 
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with open_http_client(lambda: httpx.AsyncClient(timeout=timeout, follow_redirects=True)) as client:
                 async with client.stream("GET", url) as resp:
                     if resp.status_code == 404:
                         raise AppError("No backend upgrade package was found.")
@@ -375,6 +400,8 @@ class Upgrade(object):
                     resp.raise_for_status()
 
                     total = int(resp.headers.get("content-length") or 0)
+                    if expected_size is not None and total not in {0, expected_size}:
+                        raise AppError("Install failed: download size differs from manifest")
                     state["total"] = total
                     self.set_stage(state, "downloading")
 
@@ -382,9 +409,11 @@ class Upgrade(object):
                         async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
                             if not chunk: continue
 
-                            f.write(chunk)
                             size = len(chunk)
                             done += size
+                            if expected_size is not None and done > expected_size:
+                                raise AppError("Install failed: download exceeds manifest size")
+                            f.write(chunk)
 
                             if hasher is not None:
                                 hasher.update(chunk)
@@ -609,7 +638,8 @@ class Upgrade(object):
         max_retries: int = 3
         for i in range(max_retries):
             observe("upgrade.manifest.request", attempt=i + 1, max_attempts=max_retries)
-            if remote := await fetch_manifest():
+            if manifest := await fetch_manifest("helix"):
+                remote = manifest.model_dump(mode="json")
                 observe(
                     "upgrade.manifest.loaded",
                     attempt=i + 1,

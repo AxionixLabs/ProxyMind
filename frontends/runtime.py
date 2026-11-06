@@ -17,6 +17,25 @@ from agent.ports import (
 )
 from agent.ports.presentation import ApplicationSink
 from frontends.interaction.contracts import InteractionPort
+from protocol.schema.json_value import JsonValue
+
+
+class RuntimeDownloadProgress:
+    """把安装器进度投影到现有前端活动区域，不拥有下载任务。"""
+
+    def __init__(self, runtime: ActivityRuntimePort) -> None:
+        """绑定当前宿主的活动端口，非交互入口保持静默。"""
+        self._runtime = runtime
+
+    async def start(self, state: dict[str, JsonValue]) -> None:
+        """显示下载阶段和字节进度，状态由安装器维护。"""
+        if self._runtime.active:
+            await self._runtime.begin_download_status(lambda: dict(state))
+
+    async def stop(self) -> None:
+        """释放安装进度槽并保留终态摘要。"""
+        if self._runtime.active:
+            await self._runtime.end_activity_status("download", settle=True)
 
 
 class FallbackAnimationPort(typing.Protocol):

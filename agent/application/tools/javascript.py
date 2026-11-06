@@ -70,6 +70,7 @@ JS_REPL_DESCRIPTION = (
     "host.tool(name, args) 可调用当前会话的其他工具，并向 JavaScript 返回包含"
     "结构化真实结果的 function_call_output；嵌套调用沿用对应工具的审批和展示流程。"
     "本地工具的结构化元数据始终读取 result.data（包括有图和无图）；result.output 是展示内容。"
+    "成功返回的 function_call_output 没有顶层 ok；工具失败时 await host.tool 会抛异常，不要检查 result.ok。"
     "Cell 自身只展示 console.log 等显式输出。"
     "host.emitImage(value) 才会把图片附加到外层结果；它接受图片 data URL、单个 input_image、"
     "{bytes, mimeType, detail} 或仅含一张图片且不含文本的工具结果，并可在一个 Cell 中调用多次。"

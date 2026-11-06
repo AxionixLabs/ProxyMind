@@ -102,4 +102,14 @@ internal sealed class AgentPointer : Canvas
         pointerScale.BeginAnimation(ScaleTransform.ScaleXProperty, press);
         pointerScale.BeginAnimation(ScaleTransform.ScaleYProperty, press);
     }
+
+    /// <summary>隐藏时移除所有动画时钟，使下次显示从静止指针开始。</summary>
+    internal void ResetFeedback()
+    {
+        ringScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        ringScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        ring.BeginAnimation(OpacityProperty, null);
+        pointerScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        pointerScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+    }
 }
