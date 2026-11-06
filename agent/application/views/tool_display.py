@@ -14,6 +14,7 @@ class ToolDisplayKind(enum.Enum):
     JAVASCRIPT = "javascript"
     JAVASCRIPT_RESET = "javascript_reset"
     PATCH = "patch"
+    COMPUTER = "computer"
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,7 @@ _GENERIC_SPEC = ToolDisplaySpec(
 )
 
 _TOOL_DISPLAY_SPECS = {
+    "computer": ToolDisplaySpec(ToolDisplayKind.COMPUTER, two_stage=True),
     "shell_command": ToolDisplaySpec(
         ToolDisplayKind.SHELL,
         two_stage=True,

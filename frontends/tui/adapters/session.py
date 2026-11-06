@@ -71,6 +71,9 @@ async def _apply_surface_projection(
             return None
         runtime.adopt_submission_wait()
     if not projection.visible:
+        if projection.terminal_status:
+            with runtime.screen.visual_update():
+                runtime.activity.finish_tool_presentations(projection.terminal_status)
         if projection.compaction_interrupted:
             with runtime.activity_handoff("wait", preserve_title_anchor=True):
                 runtime.append_block(styled_fragment_block(render_compaction_interrupted()), kind="notice")

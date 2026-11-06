@@ -42,6 +42,10 @@ from frontends.terminal.traces.native import (
 )
 from frontends.terminal.traces.render import render_tool_trace_parts
 from ..formatting import format_duration_ms
+from .computer import (
+    computer_action,
+    render_computer_activity,
+)
 
 TRANSCRIPT_SUCCESS_STYLE = semantic_text_style(
     TerminalSemanticRole.SUCCESS,
@@ -63,6 +67,10 @@ def render_tool_start_view(
 ) -> StyledBlock:
     """把普通工具开始视图转换为中立展示块。"""
     spec = tool_display_spec(view.name)
+
+    if spec.kind is ToolDisplayKind.COMPUTER:
+        return render_computer_activity((computer_action(view),), finished=False,
+                                       terminal_width=terminal_width, measure_width=measure_width)
 
     title = _display_title(
         render_tool_start_trace(
@@ -105,7 +113,9 @@ def render_generic_tool_result_view(
     syntax_theme: SyntaxTheme = SyntaxTheme.ANSI,
 ) -> StyledBlock:
     """把普通工具结果视图转换为中立展示块。"""
-    preview = render_generic_tool_result_preview(view.text)
+    preview = render_generic_tool_result_preview(
+        view.text or ("Completed (no text output)" if view.ok else view.status.capitalize())
+    )
     title = _display_title(
         _generic_result_title(view),
         terminal_width=terminal_width,
@@ -139,6 +149,9 @@ def render_native_tool_result_view(
 ) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果视图转换为中立展示块。"""
     spec = tool_display_spec(view.name)
+    if spec.kind is ToolDisplayKind.COMPUTER:
+        return (render_computer_activity((computer_action(view),), finished=True,
+                                        terminal_width=terminal_width, measure_width=measure_width),)
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_view(
             view,
@@ -246,12 +259,16 @@ def render_tool_start_transcript_view(view: ToolStartView) -> StyledBlock:
 
 def render_generic_tool_result_transcript_view(view: GenericToolResultView) -> StyledBlock:
     """把普通工具结果转换为完整记录块。"""
-    return _transcript_block(_generic_result_title(view), view.text)
+    body = render_generic_tool_result_raw_text(view)
+    return _transcript_block(_generic_result_title(view), body)
 
 
 def render_native_tool_result_transcript_view(view: NativeToolResultView) -> tuple[StyledBlock, ...]:
     """把原生编码工具结果转换为完整记录块。"""
     spec = tool_display_spec(view.name)
+    if spec.kind is ToolDisplayKind.COMPUTER:
+        return (_transcript_block("Used computer" if view.ok else "Computer action failed",
+                                  "\n".join(part for part in (_json_text(view.arguments), view.text, _json_text(view.data)) if part)),)
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_transcript_view(view),)
 
@@ -302,12 +319,16 @@ def render_tool_start_raw_text(view: ToolStartView) -> str:
 
 def render_generic_tool_result_raw_text(view: GenericToolResultView) -> str:
     """把普通工具结果转换为无装饰文本。"""
-    return str(view.text or "")
+    if view.arguments:
+        return f"Arguments:\n{_json_text(view.arguments)}\n\nResult:\n{view.text}"
+    return view.text
 
 
 def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str, ...]:
     """把原生工具结果转换为无装饰文本块。"""
     spec = tool_display_spec(view.name)
+    if spec.kind is ToolDisplayKind.COMPUTER:
+        return ("\n".join(part for part in (_json_text(view.arguments), view.text, _json_text(view.data)) if part),)
 
     if spec.kind is ToolDisplayKind.JAVASCRIPT:
         return (render_javascript_result_raw_text(view),)
@@ -342,7 +363,8 @@ def _generic_result_title(view: GenericToolResultView) -> str:
     """返回普通工具结果的终端标题。"""
     if view.name == "view_image":
         return "• Viewed"
-    return f"• Function Invoked {view.name}"
+    status = "" if view.ok else f" · {view.status}"
+    return f"• Called {view.name}{status}"
 
 
 def _native_entries(view: NativeToolResultView) -> tuple[TraceEntry, ...]:

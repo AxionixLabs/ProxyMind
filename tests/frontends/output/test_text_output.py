@@ -364,7 +364,7 @@ async def test_text_tool_events_color_only_the_tool_name() -> None:
     await sink.emit(GenericToolResultView(
         name="mcp__docs__search",
         text="result",
-        ok=True,
+        status="completed",
     ))
     await sink.emit(ProgressView(
         text="loading",

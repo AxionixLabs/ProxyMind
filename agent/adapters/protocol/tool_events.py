@@ -477,7 +477,7 @@ class ToolEventHandler:
         )
 
         if (
-            tool_run.status not in {"declined", "cancelled"}
+            (not use_coding_trace or tool_run.status not in {"declined", "cancelled"})
             and not is_approval_only_tool(name)
         ):
             await show_tool_result(

@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import re
 import typing
 import unicodedata
 
 from prompt_toolkit.utils import get_cwidth
+
+from agent.ports.presentation import (
+    StyledBlock,
+    TextSpan,
+)
 
 from frontends.tui.contracts.text import (
     FormattedText,
@@ -28,10 +34,46 @@ __all__ = [
     "next_text_unit_end",
     "split_formatted_lines",
     "transcript_hint",
+    "with_transcript_hint",
     "wrap_formatted_lines",
 ]
 
 ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
+_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?=\n|$)")
+
+
+def with_transcript_hint(
+    block: StyledBlock,
+    key_label: str,
+    *,
+    terminal_width: int | None = None,
+) -> StyledBlock:
+    """给静态或动态工具摘要中的省略行追加完整记录入口。"""
+    spans: list[TextSpan] = []
+    for index, span in enumerate(block.spans):
+        text = _OMITTED_LINES_PATTERN.sub(
+            lambda match: match.group(1) + transcript_hint(
+                match.group(1), key_label, terminal_width, prefix="    ",
+            ),
+            span.text,
+        )
+        if (
+            text == span.text and index >= 2 and span.text.endswith(" lines")
+            and block.spans[index - 1].text.isdigit()
+            and block.spans[index - 2].text.endswith("… +")
+        ):
+            marker_prefix = block.spans[index - 2].text.rsplit("\n", 1)[-1]
+            marker = f"{marker_prefix.lstrip()}{block.spans[index - 1].text}{span.text}"
+            text += transcript_hint(marker, key_label, terminal_width, prefix="    ")
+        spans.append(TextSpan(text, span.style, span.hyperlink))
+    rendered_spans = tuple(spans)
+    if rendered_spans == block.spans:
+        return block
+    return StyledBlock(
+        plain_text=block.plain_text, spans=rendered_spans,
+        line_fill_styles=block.line_fill_styles,
+        preserve_spans=block.preserve_spans, direct=block.direct,
+    )
 
 
 def _iter_visible_formatted_text_units(fragments: FormattedText) -> typing.Iterator[FormattedText]:

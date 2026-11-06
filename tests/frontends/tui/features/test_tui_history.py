@@ -32,6 +32,31 @@ def _history_host(reader) -> SimpleNamespace:
     )
 
 
+def test_computer_history_groups_adjacent_calls_without_losing_payloads():
+    entries = []
+    for call_id, action in (("one", "observe"), ("two", "click")):
+        for event in ("tool.started", "tool.completed"):
+            entries.append(TranscriptEntry(
+                timestamp="2026-11-06T00:00:00Z", event=event, session_id="sid", turn_id="turn", actor="tool",
+                payload={"call_id": call_id, "name": "computer", "arguments": {"action": action},
+                         "ok": True, "result": {"ok": True, "text": "FULL RESULT", "data": {"private": "DETAIL"}, "attachments": []}},
+            ))
+    entries.append(TranscriptEntry(
+        timestamp="2026-11-06T00:00:01Z", event="tool.started", session_id="sid", turn_id="next", actor="tool",
+        payload={"call_id": "three", "name": "computer", "arguments": {"action": "type_text"}},
+    ))
+    entries.append(TranscriptEntry(
+        timestamp="2026-11-06T00:00:02Z", event="turn.interrupted", session_id="sid", turn_id="next", actor="system",
+    ))
+    blocks = history._render_replay_blocks(TranscriptReplay(entries).build(), terminal_width=80)
+    assert "Used computer · 2 actions" in fragments_text(blocks[0].display_block.fragments)
+    assert "DETAIL" not in fragments_text(blocks[0].display_block.fragments)
+    assert "DETAIL" in fragments_text(blocks[0].transcript_block.fragments)
+    assert "Used computer · 1 action · 1 interrupted" in fragments_text(blocks[1].display_block.fragments)
+    assert len(blocks) == 3
+    assert all("Using computer" not in fragments_text(block.display_block.fragments) for block in blocks)
+
+
 @pytest.mark.anyio
 async def test_history_session_builds_resume_request_and_maps_row() -> None:
     record = {

@@ -70,7 +70,7 @@ def render_tool_start_trace(
         return f"• Running {command}".rstrip()
     if kind is ToolDisplayKind.STDIN:
         return ""
-    return f"• Function Calling {str(name or 'tool').strip() or 'tool'}"
+    return f"• Calling {str(name or 'tool').strip() or 'tool'}"
 
 
 def render_tool_start_preview(

@@ -13,6 +13,7 @@ from agent.application.views.builders.tools import (
     build_tool_start_view,
 )
 from agent.application.views.contracts import PresentationSink
+from agent.application.views.tools import ToolResultStatus
 from agent.domain.tool_policy import is_approval_only_tool
 
 
@@ -23,6 +24,7 @@ class ToolDisplayResult(typing.Protocol):
     text: str
     data: typing.Any
     cost_ms: int
+    status: ToolResultStatus
 
 
 async def show_tool_start(
@@ -87,11 +89,9 @@ async def show_tool_result(
                 data=tool_run.data,
                 cost_ms=tool_run.cost_ms,
                 call_id=call_id,
+                text=display_text,
             )
         )
-        return None
-
-    if not display_text:
         return None
 
     await presentation.emit(
@@ -100,6 +100,8 @@ async def show_tool_result(
             display_text,
             ok=display_ok,
             call_id=call_id,
+            arguments=arguments,
+            status=tool_run.status,
         )
     )
 

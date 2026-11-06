@@ -870,7 +870,7 @@ class TuiRuntime(object):
             return None
 
         if state.target is not None:
-            self._replace_stable_inline_process(
+            self.replace_stable_renderable(
                 state.target,
                 block,
                 transcript_block=transcript_block,
@@ -1273,7 +1273,7 @@ class TuiRuntime(object):
             )
             self._clear_active_inline_process()
         elif state.target is not None:
-            self._replace_stable_inline_process(
+            self.replace_stable_renderable(
                 state.target,
                 block,
                 transcript_block=transcript_block,
@@ -1285,19 +1285,27 @@ class TuiRuntime(object):
             return None
         self._settle_inline_process(normalized)
 
-    def _replace_stable_inline_process(
+    def replace_stable_renderable(
         self,
         target: TranscriptBlock,
         block: FragmentBlock,
         *,
-        transcript_block: FragmentBlock | None,
+        transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
+        raw_text: str | None = None,
+        display_renderer: WidthBlockRenderer | None = None,
+        display_render_width: int | None = None,
     ) -> bool:
-        """在视觉事务中更新非活动 Shell 的稳定块。"""
+        """在视觉事务中按稳定身份更新已让出尾部的展示块。"""
         with self.screen.visual_update():
             replaced = self.document.replace_stable_block(
                 target,
                 block,
                 transcript_block=transcript_block,
+                source=source,
+                raw_text=raw_text,
+                display_renderer=display_renderer,
+                display_render_width=display_render_width,
             )
             if replaced:
                 self.screen.transcript_overlay.content_changed()

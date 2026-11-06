@@ -414,7 +414,7 @@ def _indicator(
     """把生产活动投影转换为与具体终端无关的逻辑指示器。"""
     if state.approval_presentation_active:
         return FrameIndicator.APPROVAL
-    if projection.indicator == "thinking":
+    if projection.indicator in {"thinking", "tool", "computer"}:
         return (
             FrameIndicator.WORKING
             if state.tools or state.batches

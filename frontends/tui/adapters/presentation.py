@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
-import re
 import typing
 from functools import partial
 
@@ -30,10 +29,11 @@ from agent.application.views.contracts import (
     PresentationSink,
     PresentationView,
 )
-from agent.ports.presentation import (
-    StyledBlock,
-    TextSpan,
+from agent.application.views.tool_display import (
+    ToolDisplayKind,
+    tool_display_spec,
 )
+from agent.ports.presentation import StyledBlock
 from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
@@ -46,7 +46,7 @@ from frontends.terminal.renderers.dispatch import (
 from ..core.document import TuiBlockKind
 from ..core.models import FragmentBlock
 from ..core.styles import styled_fragment_block
-from ..rendering.fragments import transcript_hint
+from ..rendering.fragments import with_transcript_hint
 
 if typing.TYPE_CHECKING:
     from .output import TuiOutputControl
@@ -83,8 +83,6 @@ _WORK_COMPLETED_VIEWS = (
 
 _NON_WORK_COMPLETED_TOOL_NAMES = frozenset({"view_image"})
 
-_OMITTED_LINES_PATTERN = re.compile(r"(… \+\d+ lines)(?=\n|$)")
-
 
 def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
     """把共享展示类型映射为 TUI 正文语义。"""
@@ -103,61 +101,6 @@ def _presentation_block_kind(view: PresentationView) -> TuiBlockKind:
         return "notice"
 
     return "system"
-
-
-def _with_transcript_hint(
-    block: StyledBlock,
-    key_label: str,
-    *,
-    terminal_width: int | None = None
-) -> StyledBlock:
-    """给 TUI 中的省略行追加完整记录入口提示。"""
-    spans: list[TextSpan] = []
-    for index, span in enumerate(block.spans):
-        text = _OMITTED_LINES_PATTERN.sub(
-            lambda match: (
-                match.group(1)
-                + transcript_hint(
-                match.group(1),
-                key_label,
-                terminal_width,
-                prefix="    ",
-            )
-            ),
-            span.text,
-        )
-        if (
-            text == span.text
-            and index >= 2
-            and span.text.endswith(" lines")
-            and block.spans[index - 1].text.isdigit()
-            and block.spans[index - 2].text.endswith("… +")
-        ):
-            marker_prefix = block.spans[index - 2].text.rsplit("\n", 1)[-1]
-            marker = (
-                f"{marker_prefix.lstrip()}"
-                f"{block.spans[index - 1].text}"
-                f"{span.text}"
-            )
-            text = text + transcript_hint(
-                marker,
-                key_label,
-                terminal_width,
-                prefix="    ",
-            )
-        spans.append(TextSpan(text, span.style, span.hyperlink))
-
-    rendered_spans = tuple(spans)
-    if rendered_spans == block.spans:
-        return block
-
-    return StyledBlock(
-        plain_text=block.plain_text,
-        spans=rendered_spans,
-        line_fill_styles=block.line_fill_styles,
-        preserve_spans=block.preserve_spans,
-        direct=block.direct,
-    )
 
 
 def render_presentation_fragment_block(
@@ -180,7 +123,7 @@ def render_presentation_fragment_block(
     if len(blocks) != block_count:
         raise ValueError("presentation display block count changed")
 
-    block = _with_transcript_hint(
+    block = with_transcript_hint(
         blocks[block_index],
         key_label,
         terminal_width=terminal_width,
@@ -385,7 +328,7 @@ class TuiPresentationSink(PresentationSink):
             blocks, transcript_blocks, raw_blocks, strict=True,
         )):
             await self.output.append_presentation_block(
-                _with_transcript_hint(
+                with_transcript_hint(
                     block,
                     transcript_key,
                     terminal_width=terminal_width,
@@ -428,6 +371,25 @@ class TuiPresentationSink(PresentationSink):
 
     async def emit(self, view: PresentationView) -> None:
         """渲染并发送一项结构化展示数据。"""
+        if (
+            isinstance(view, (ToolStartView, GenericToolResultView))
+            and view.call_id
+            and tool_display_spec(view.name).kind is ToolDisplayKind.GENERIC
+            and tool_display_spec(view.name).two_stage
+        ):
+            self.output.computer.finish()
+            await self._flush_all_terminal_waits()
+            await self.output.tool_calls.emit(view)
+            return
+        if not isinstance(view, (ApprovalView, ApprovalReviewView, ProgressView)):
+            self.output.tool_calls.suspend()
+        if isinstance(view, (ToolStartView, NativeToolResultView)) and view.name == "computer":
+            await self._flush_all_terminal_waits()
+            await self.output.computer.emit(view)
+            return
+        if isinstance(view, (ApprovalView, ApprovalReviewView)) and self.output.computer.retain_approval(view):
+            return
+        self.output.computer.finish()
         if isinstance(view, ContextCompactionView) and view.status != "in_progress":
             if (view.turn_id, view.item_id) in self._compaction_terminals:
                 return
@@ -475,6 +437,8 @@ class TuiPresentationSink(PresentationSink):
 
     async def flush_terminal_waits_before_assistant_output(self) -> None:
         """在助手正文开始前提交后台终端等待记录。"""
+        self.output.computer.finish()
+        self.output.tool_calls.suspend()
         await self._flush_all_terminal_waits()
 
 

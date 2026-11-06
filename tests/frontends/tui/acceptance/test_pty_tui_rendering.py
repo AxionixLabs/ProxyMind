@@ -43,6 +43,126 @@ def _spawn_render_scenario(
     )
 
 
+@pytest.mark.parametrize("scenario,columns", [("computer", 100), ("computer", 60), ("computer_static", 80)])
+def test_computer_activity_animation_and_terminal_handoff(tmp_path: Path, scenario: str, columns: int) -> None:
+    facts_path = tmp_path / "facts.json"
+    frames = []
+    with _spawn_render_scenario(scenario, facts_path, size=TerminalSize(rows=30, columns=columns)) as terminal:
+        for stage, expected in (
+            ("computer_one_running", "Inspecting window"),
+            ("computer_approval", "Inspecting window"),
+            ("computer_one_completed", "Captured screenshot"),
+            ("computer_two_running", "Clicking"),
+            ("computer_two_completed", "stale_observation"),
+            ("computer_group_completed", "Used computer · 2 actions"),
+            ("computer_interrupt_ready", "Typing text"),
+        ):
+            _wait_for_stage(facts_path, stage)
+            snapshot = terminal.wait_for_screen_text(expected)
+            text = snapshot.visible_text
+            assert "private-window-reference" not in text and "HIDDEN INPUT" not in text
+            if stage not in {"computer_group_completed", "computer_interrupt_ready"}:
+                assert text.count("Using computer") == 1 and "Used computer" not in text
+            row = next(i for i, line in enumerate(snapshot.visible_lines) if "Using computer" in line or "Used computer" in line)
+            line = snapshot.visible_lines[row]
+            column = line.index("computer")
+            title_cell = terminal.screen.cell(row, column)
+            samples = []
+            for _ in range(6):
+                time.sleep(0.055)
+                current = terminal.screen.snapshot()
+                samples.append(current.visible_lines[row])
+                assert terminal.screen.cell(row, column).foreground == title_cell.foreground
+                assert terminal.screen.cell(row, column).background == title_cell.background
+            if stage in {"computer_one_running", "computer_two_running"}:
+                if scenario == "computer":
+                    assert len(set(samples)) > 1
+                else:
+                    assert len(set(samples)) == 1
+            if stage == "computer_approval":
+                assert len(set(samples)) == 1
+                assert "• Using computer" in samples[-1]
+            assert "Thinking" not in terminal.screen.snapshot().visible_text
+            frames.append(f"[{stage}]\n{terminal.screen.snapshot().visible_text}")
+            _acknowledge(facts_path, stage)
+        terminal.send_key(PtyKey.CTRL_C)
+        facts = _wait_for_stage(facts_path, "computer_interrupted")
+        interrupted = terminal.wait_for_screen_text("1 interrupted")
+        assert "Using computer" not in interrupted.visible_text
+        assert "Thinking" not in interrupted.visible_text
+        assert "1 failed" in _screen_archive(interrupted)
+        assert _detail(facts, "tty") == {"stdin": True, "stdout": True}
+        frames.append(f"[computer_interrupted]\n{interrupted.visible_text}")
+        (tmp_path / "computer-frames.txt").write_text("\n\n".join(frames), encoding="utf-8")
+        terminal.save_failure_artifacts(tmp_path / "terminal-recording")
+        _acknowledge(facts_path, "computer_interrupted")
+        assert terminal.wait_for_exit(timeout=10) == 0
+
+
+@pytest.mark.parametrize("scenario,columns", [("tool_calls", 100), ("tool_calls", 60), ("tool_calls_static", 80)])
+def test_tool_calls_update_in_place_and_handoff_without_title_flash(tmp_path: Path, scenario: str, columns: int) -> None:
+    facts_path = tmp_path / "facts.json"
+    frames = []
+    title_colors = None
+    with _spawn_render_scenario(scenario, facts_path, size=TerminalSize(rows=38, columns=columns)) as terminal:
+        for stage, expected in (
+            ("tool_one_running", "Calling remote_tool"),
+            ("tool_approval", "Calling remote_tool"),
+            ("tool_one_completed", "Completed (no text output)"),
+            ("tool_model_wait", "Thinking"),
+            ("tool_body", "TOOL result explained"),
+            ("tool_two_running", "query='two'"),
+            ("tool_two_completed", "Service unavailable"),
+            ("tool_three_running", "query='three'"),
+            ("tool_three_completed", "Cancelled by user"),
+            ("tool_interrupt_ready", "query='four'"),
+        ):
+            _wait_for_stage(facts_path, stage)
+            snapshot = terminal.wait_for_screen_text(expected)
+            running = stage.endswith("running") or stage in {"tool_approval", "tool_interrupt_ready"}
+            label = "Calling remote_tool" if running else "Called remote_tool"
+            row = next(i for i in reversed(range(len(snapshot.visible_lines))) if label in snapshot.visible_lines[i])
+            column = snapshot.visible_lines[row].index("remote_tool")
+            cell = terminal.screen.cell(row, column)
+            colors = (cell.foreground, cell.background)
+            if title_colors is None:
+                title_colors = colors
+            assert colors == title_colors
+            samples = []
+            for _ in range(6):
+                time.sleep(0.055)
+                current = terminal.screen.snapshot()
+                samples.append(current.visible_lines[row])
+                cell = terminal.screen.cell(row, column)
+                assert (cell.foreground, cell.background) == title_colors
+            if running and stage != "tool_approval" and scenario == "tool_calls":
+                assert len(set(samples)) > 1
+                assert len({line[2:] for line in samples}) == 1
+            else:
+                assert len(set(samples)) == 1
+            current = terminal.screen.snapshot()
+            if stage != "tool_model_wait":
+                assert "Thinking" not in current.visible_text
+            if stage.endswith("completed"):
+                assert "Calling remote_tool" not in current.visible_text
+            assert current.visible_text.count("Calling remote_tool") <= 1
+            frames.append(f"[{stage}]\n{current.visible_text}")
+            _acknowledge(facts_path, stage)
+        terminal.send_key(PtyKey.CTRL_C)
+        facts = _wait_for_stage(facts_path, "tool_interrupted")
+        snapshot = terminal.wait_for_screen_text("Interrupted remote_tool")
+        assert "Result unconfirmed" in snapshot.visible_text
+        assert "Calling remote_tool" not in snapshot.visible_text
+        assert "Thinking" not in snapshot.visible_text
+        assert _screen_archive(snapshot).count("Called remote_tool") == 3
+        assert _detail(facts, "tty") == {"stdin": True, "stdout": True}
+        frames.append(f"[tool_interrupted]\n{snapshot.visible_text}")
+        (tmp_path / "tool-call-frames.txt").write_text("\n\n".join(frames), encoding="utf-8")
+        terminal.save_failure_artifacts(tmp_path / "terminal-recording")
+        _acknowledge(facts_path, "tool_interrupted")
+        assert terminal.wait_for_exit(timeout=10) == 0
+
+
 def test_background_process_finishes_on_screen_without_model_polling(tmp_path: Path) -> None:
     facts_path = tmp_path / "facts.json"
     with _spawn_render_scenario("process_completion", facts_path) as terminal:

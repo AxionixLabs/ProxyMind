@@ -418,8 +418,8 @@ def test_reducer_preserves_named_tool_leases_and_completion_history() -> None:
 
     assert tuple(tool.tool_id for tool in state.tools) == ("call_second",)
     assert project_turn_surface(state) == SurfaceProjection(
-        "thinking",
-        title="Thinking",
+        "tool",
+        title="Calling delegate",
         revision=4,
     )
     assert reduce_turn_surface(state, first_done) is state
@@ -856,7 +856,7 @@ async def test_tool_status_is_immediate_and_survives_bare_completion() -> None:
         name="read_file",
     ))
     assert not coordinator.pending_timer
-    assert [projection.indicator for projection in projections] == ["thinking"]
+    assert [projection.indicator for projection in projections] == ["tool"]
 
     await coordinator.emit(ToolCompleted(
         **_scope(context),
@@ -865,7 +865,9 @@ async def test_tool_status_is_immediate_and_survives_bare_completion() -> None:
         name="read_file",
     ))
 
-    assert [projection.indicator for projection in projections] == ["thinking"]
+    if coordinator._timer is not None:
+        await coordinator._timer
+    assert [projection.indicator for projection in projections] == ["tool", "thinking"]
     assert project_turn_surface(coordinator.state).indicator == "thinking"
     assert coordinator.state.lifecycle == "active"
     assert coordinator.state.status_requested

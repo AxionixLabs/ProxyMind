@@ -53,8 +53,7 @@ from frontends.terminal.renderers.dispatch import (
 from frontends.terminal.styles import (
     ACTION_TERMINAL_STYLE,
     ACTION_RUN_STYLE,
-    ACTION_TOOL_CALLING_STYLE,
-    ACTION_TOOL_INVOKED_STYLE,
+    ACTION_TOOL_CALL_STYLE,
     ERROR_DOT_STYLE,
     PREVIEW_STYLE,
     SUCCESS_DOT_STYLE,
@@ -274,10 +273,10 @@ def test_tool_start_uses_calling_copy_and_pending_colors() -> None:
         {"query": "status"},
     ))
 
-    assert block.plain_text == "• Function Calling remote_tool"
+    assert block.plain_text == "• Calling remote_tool"
     assert _span_style(block, "•") == TOOL_CALLING_DOT_STYLE
-    assert _span_style(block, "Function Calling") == ACTION_TOOL_CALLING_STYLE
-    assert _span_style(block, "Function Calling").bold
+    assert _span_style(block, "Calling") == ACTION_TOOL_CALL_STYLE
+    assert _span_style(block, "Calling").bold
 
 
 def test_write_stdin_has_no_start_display() -> None:
@@ -1508,7 +1507,7 @@ def test_shell_preview_lines_use_terminal_display_width(
     assert output_line in render_presentation_raw_view(view)[0]
 
 
-def test_tool_result_uses_invoked_copy_and_result_colors() -> None:
+def test_tool_result_uses_called_copy_and_result_colors() -> None:
     success = render_generic_tool_result_view(build_generic_tool_result_view(
         "remote_tool",
         "complete",
@@ -1520,12 +1519,13 @@ def test_tool_result_uses_invoked_copy_and_result_colors() -> None:
         ok=False,
     ))
 
-    assert success.plain_text.startswith("• Function Invoked remote_tool")
+    assert success.plain_text.startswith("• Called remote_tool")
     assert _span_style(success, "•") == SUCCESS_DOT_STYLE
-    assert _span_style(success, "Function Invoked") == ACTION_TOOL_INVOKED_STYLE
-    assert _span_style(success, "Function Invoked").bold
+    assert _span_style(success, "Called") == ACTION_TOOL_CALL_STYLE
+    assert _span_style(success, "Called").bold
     assert _span_style(failure, "•") == ERROR_DOT_STYLE
-    assert _span_style(failure, "Function Invoked") == ACTION_TOOL_INVOKED_STYLE
+    assert _span_style(failure, "Called") == ACTION_TOOL_CALL_STYLE
+    assert "· failed" in failure.plain_text
 
 
 @pytest.mark.parametrize(

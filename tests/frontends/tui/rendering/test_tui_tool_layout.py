@@ -656,7 +656,7 @@ async def test_tui_shell_preview_keeps_each_output_on_one_visual_row() -> None:
 
 
 @pytest.mark.anyio
-async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
+async def test_generic_tool_result_replaces_start_and_next_call_has_one_gap() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)
     presentation = TuiPresentationSink(output)
@@ -680,10 +680,9 @@ async def test_generic_tool_result_starts_on_separate_visual_group() -> None:
 
     assert [item.gap_before for item in runtime.document.blocks] == [
         False,
-        True,
-        True,
     ]
-    assert _document_text(runtime.document).count("\n\n") == 2
+    assert runtime.document.active_gap_before == 1
+    assert _document_text(runtime.document).count("\n\n") == 1
 
 
 def _oversized_patch_text() -> str:

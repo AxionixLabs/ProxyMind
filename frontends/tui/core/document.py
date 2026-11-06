@@ -831,6 +831,7 @@ class TuiDocument(object):
         block: FragmentBlock,
         *,
         transcript_block: FragmentBlock | None = None,
+        source: TranscriptCellSource | None = None,
         raw_text: str | None = None,
         display_renderer: WidthBlockRenderer | None = None,
         display_render_width: int | None = None,
@@ -863,6 +864,7 @@ class TuiDocument(object):
         current = self.blocks[index]
         self.blocks[index] = replace(
             current,
+            source=current.source if source is None else source,
             display_block=sanitize_fragment_block(block),
             transcript_block=sanitize_fragment_block(
                 block if transcript_block is None else transcript_block,

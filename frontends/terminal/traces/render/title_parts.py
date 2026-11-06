@@ -11,8 +11,7 @@ from agent.ports.presentation import (
 from frontends.terminal.styles import (
     ACTION_EDIT_STYLE,
     ACTION_RUN_STYLE,
-    ACTION_TOOL_CALLING_STYLE,
-    ACTION_TOOL_INVOKED_STYLE,
+    ACTION_TOOL_CALL_STYLE,
     ACTION_TERMINAL_STYLE,
     ACTION_TOOL_STYLE,
     DELTA_ADD_STYLE,
@@ -175,8 +174,8 @@ def _plain_body_parts(
 def _split_action(body: str) -> tuple[str, str]:
     """拆分标题动作前缀和剩余文本。"""
     for action in (
-            "Function Calling",
-            "Function Invoked",
+            "Calling",
+            "Called",
             "Interacted with background terminal",
             "Waited for background terminal",
     ):
@@ -201,10 +200,8 @@ def _action_style_for_body(
         return ACTION_EDIT_STYLE
     if first in {"Ran", "Running"}:
         return ACTION_RUN_STYLE
-    if first == "Function Calling":
-        return ACTION_TOOL_CALLING_STYLE
-    if first == "Function Invoked":
-        return ACTION_TOOL_INVOKED_STYLE
+    if first in {"Calling", "Called"}:
+        return ACTION_TOOL_CALL_STYLE
     if first in {
         "Interacted with background terminal",
         "Waited for background terminal",

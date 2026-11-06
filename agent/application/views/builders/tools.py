@@ -8,7 +8,9 @@ from agent.application.views.tools import (
     GenericToolResultView,
     NativeToolResultView,
     ToolStartView,
+    ToolResultStatus,
 )
+from protocol.schema.json_value import JsonObject
 from .patch import (
     build_patch_result_view,
     build_patch_start_view,
@@ -46,6 +48,8 @@ def build_generic_tool_result_view(
     *,
     ok: bool,
     call_id: str = "",
+    arguments: JsonObject | None = None,
+    status: ToolResultStatus | None = None,
 ) -> GenericToolResultView:
     """把普通工具结果转换为不包含前端渲染数据的结果视图。"""
     normalized_name = str(name or "tool").strip() or "tool"
@@ -56,8 +60,9 @@ def build_generic_tool_result_view(
     return GenericToolResultView(
         name=normalized_name,
         text=normalized_text,
-        ok=bool(ok),
+        status=status if status is not None else "completed" if ok else "failed",
         call_id=str(call_id or ""),
+        arguments=dict(arguments) if arguments is not None else {},
     )
 
 
@@ -69,6 +74,7 @@ def build_native_tool_result_view(
     data: typing.Any = None,
     cost_ms: int | None = None,
     call_id: str = "",
+    text: str = "",
 ) -> NativeToolResultView | PatchView:
     """把原生工具结果转换为不包含前端渲染数据的结果视图。"""
     normalized_name = str(name or "tool").strip() or "tool"
@@ -92,6 +98,7 @@ def build_native_tool_result_view(
         data=normalized_data,
         cost_ms=normalized_cost_ms,
         call_id=str(call_id or ""),
+        text=text,
     )
 
 

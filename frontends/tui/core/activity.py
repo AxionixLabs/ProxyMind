@@ -63,12 +63,30 @@ ActivitySlotKey = typing.Literal[
     "operation",
 ]
 TurnSurfaceIndicator = typing.Literal[
+    "tool",
+    "computer",
     "reviewing",
     "thinking",
     "retrying",
     "terminal",
     "compacting",
 ]
+
+
+class InlineToolActivityRenderer(typing.Protocol):
+    """接收当前输出会话的工具动画帧；实现方只更新自己持有的正文尾部。
+
+    活动所有者提供唯一时钟，None 表示暂停；解绑或关闭后不再接收帧。
+    finish 收束当前会话，非空 status 来自已知 Turn 终态；未知结果不能改写为成功。
+    """
+
+    def render(self, phase: float | None, *, reviewing: bool = False) -> bool:
+        """更新工具指示符并返回是否已在正文消费该活动帧。"""
+        ...
+
+    def finish(self, status: str = "") -> None:
+        """收束当前会话持有的工具记录。"""
+        ...
 
 _SLOT_KEYS: dict[ActivityStatusKind, ActivitySlotKey] = {
     "wait": "foreground",
@@ -178,6 +196,23 @@ class TuiActivity(object):
         self._compaction_identity: tuple[str, int] | None = None
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
+        self._tool_renderers: list[InlineToolActivityRenderer] = []
+
+    def bind_tool_renderer(self, renderer: InlineToolActivityRenderer) -> None:
+        """注册当前输出会话的工具展示，只有尾部所有者可消费前景帧。"""
+        if renderer not in self._tool_renderers:
+            self._tool_renderers.append(renderer)
+        self._render_slots()
+
+    def unbind_tool_renderer(self, renderer: InlineToolActivityRenderer) -> None:
+        """解除匹配的工具展示，不影响其他输出会话。"""
+        if renderer in self._tool_renderers:
+            self._tool_renderers.remove(renderer)
+
+    def finish_tool_presentations(self, status: str) -> None:
+        """把正式终态交付给当前会话所有仍持有调用记录的展示所有者。"""
+        for renderer in tuple(self._tool_renderers):
+            renderer.finish(status)
 
     @property
     def active(self) -> bool:
@@ -227,6 +262,8 @@ class TuiActivity(object):
     ) -> None:
         """在同一前景槽中投影 Turn 的唯一活动提示。"""
         if indicator not in {
+            "computer",
+            "tool",
             "reviewing",
             "thinking",
             "retrying",
@@ -383,6 +420,7 @@ class TuiActivity(object):
 
     async def clear(self) -> None:
         """停止全部活动动画且不生成最终状态。"""
+        self.finish_tool_presentations("")
         self._slots.clear()
         self._settle_deadlines.clear()
         self._cancel_settle_expiry()
@@ -495,6 +533,8 @@ class TuiActivity(object):
         self._settle_deadlines.pop(slot.key, None)
 
         if not self._slots:
+            for renderer in self._tool_renderers:
+                renderer.render(None)
             self._retire_task()
             self._cancel_settle_expiry()
             self.clear_renderable()
@@ -539,6 +579,12 @@ class TuiActivity(object):
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
+        if self._turn_surface_indicator == "tool":
+            return _status_block(self._turn_surface_title, family="wait", phase=phase,
+                                 spinner=True, color_level=self.color_level)
+        if self._turn_surface_indicator == "computer":
+            return _status_block("Using computer", family="wait", phase=phase,
+                                 spinner=True, color_level=self.color_level)
         if self._turn_surface_indicator == "compacting":
             return _compaction_progress_block(
                 started_at=self._compaction_started_at,
@@ -621,6 +667,8 @@ class TuiActivity(object):
     async def _refresh_task(self) -> None:
         """根据剩余槽位刷新合成任务和活动区域。"""
         if not self._slots:
+            for renderer in self._tool_renderers:
+                renderer.render(None)
             self._cancel_settle_expiry()
             await self._cancel_task()
             self.clear_renderable()
@@ -667,7 +715,25 @@ class TuiActivity(object):
 
         preserve_newlines: bool = False
 
+        foreground = self._slots.get("foreground")
+        inline_tools = (
+            foreground is not None
+            and self._turn_surface_indicator in {"computer", "tool", "thinking"}
+        )
+        if not inline_tools:
+            for renderer in self._tool_renderers:
+                renderer.render(None)
+
         for slot in self._slots.values():
+            if inline_tools and slot is foreground:
+                consumed = False
+                for renderer in self._tool_renderers:
+                    consumed = renderer.render(
+                        None if slot.frozen else slot.phase,
+                        reviewing=self._turn_surface_indicator == "thinking",
+                    ) or consumed
+                if consumed:
+                    continue
             block = slot.render(slot.phase)
             if not block.fragments:
                 continue

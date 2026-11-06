@@ -12,11 +12,18 @@ from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
 from agent.harness.process_lifecycle import ProcessLifecycle
 from agent.ports import OutputSurfaceContext
+from agent.ports import ModelWaitRequested
+from agent.ports import AssistantBuffered
+from agent.ports import AssistantSegmentCompleted
+from agent.ports import AssistantSettled
+from agent.ports import AssistantTextDelta
+from agent.ports import ResponseIdentity
 from agent.ports import RetryChanged
 from agent.ports import TerminalWaitCompleted
 from agent.ports import TerminalWaitStarted
 from agent.ports import ToolCompleted
 from agent.ports import ToolStarted
+from agent.ports import TurnTerminal
 from frontends.interaction.contracts import PromptContext
 from frontends.terminal.progress import create_terminal_progress
 from frontends.tui.adapters.input import create_tui_input
@@ -28,6 +35,7 @@ from frontends.tui.contracts.menu import (
 )
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.processes import monitor_exec_status
 from infrastructure.platform.process_sessions import (
@@ -576,6 +584,133 @@ async def _run_idle_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         await _checkpoint(facts, f"{stage}_resized")
 
 
+async def _run_computer(runtime: TuiRuntime, facts: ScenarioFacts, *, animate: bool) -> None:
+    """以真实终端时钟、输入和画布验收相邻桌面调用与中断收束。"""
+    runtime.append_submitted_query("COMPUTER visual acceptance", _SURFACE.turn_id)
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=_SURFACE, runtime=runtime, animate=animate)
+    await session.open()
+    scope = {"surface_id": _SURFACE.surface_id, "turn_id": _SURFACE.turn_id}
+    interrupted = asyncio.Event()
+
+    def interrupt() -> InterruptDisposition:
+        """记录真实 Ctrl-C 到达产品输入层后的中断请求。"""
+        interrupted.set()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    reader = asyncio.create_task(runtime.read_message(PromptContext(model="pty-model")))
+    try:
+        for call_id, action in (("one", "observe"), ("two", "click")):
+            await session.activity.emit(ToolStarted(**scope, tool_id=call_id, tool_kind="client", name="computer"))
+            await session.presentation.emit(build_tool_start_view(
+                "computer", {"action": action, "window": "private-window-reference", "screenshot": True}, call_id=call_id,
+            ))
+            await _checkpoint(facts, f"computer_{call_id}_running")
+            if call_id == "one":
+                await runtime.begin_approval_session()
+                await _checkpoint(facts, "computer_approval")
+                await runtime.end_approval_session()
+            await session.presentation.emit(build_native_tool_result_view(
+                "computer", {"action": action, "screenshot": True}, ok=call_id == "one",
+                data={"image": {"width": 100, "height": 60}, "tree": {"nodes": [{"name": "COMPUTER FULL DETAIL"}]}} if call_id == "one" else {"error": "stale_observation"},
+                call_id=call_id,
+            ))
+            await session.activity.emit(ToolCompleted(**scope, tool_id=call_id, tool_kind="client", name="computer"))
+            await _checkpoint(facts, f"computer_{call_id}_completed")
+
+        identity = ResponseIdentity(_SURFACE.turn_id, 1, 1, 1)
+        await session.activity.emit(AssistantBuffered(**scope, identity=identity, item_id="computer-answer", phase="commentary"))
+        await session.content.emit(AssistantTextDelta("COMPUTER result explained\n", identity, item_id="computer-answer", phase="commentary"))
+        await session.control.settle_stream()
+        _record_document(facts, runtime)
+        await _checkpoint(facts, "computer_group_completed")
+        await session.content.emit(AssistantSegmentCompleted(identity=identity, item_id="computer-answer", phase="commentary"))
+        await session.activity.emit(AssistantSettled(**scope, identity=identity, item_id="computer-answer", phase="commentary"))
+
+        await session.activity.emit(ToolStarted(**scope, tool_id="three", tool_kind="client", name="computer"))
+        await session.presentation.emit(build_tool_start_view("computer", {"action": "type_text", "text": "HIDDEN INPUT"}, call_id="three"))
+        await _checkpoint(facts, "computer_interrupt_ready")
+        await asyncio.wait_for(interrupted.wait(), timeout=10)
+        await session.activity.emit(TurnTerminal(**scope, status="interrupted"))
+        await session.close()
+        _record_document(facts, runtime)
+        facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
+        await _checkpoint(facts, "computer_interrupted")
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        runtime.bind_interrupt_handler(None)
+        await session.close()
+        runtime.end_terminal_progress()
+        runtime.set_execution_active(False)
+
+
+async def _run_tool_calls(runtime: TuiRuntime, facts: ScenarioFacts, *, animate: bool) -> None:
+    """在真实 TTY 中观察普通工具原位结果、审批、模型等待和中断交接。"""
+    runtime.append_submitted_query("TOOL visual acceptance", _SURFACE.turn_id)
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=_SURFACE, runtime=runtime, animate=animate)
+    await session.open()
+    scope = {"surface_id": _SURFACE.surface_id, "turn_id": _SURFACE.turn_id}
+    interrupted = asyncio.Event()
+
+    def interrupt() -> InterruptDisposition:
+        """记录产品输入层收到的真实中断按键。"""
+        interrupted.set()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    reader = asyncio.create_task(runtime.read_message(PromptContext(model="pty-model")))
+    try:
+        for call_id, status, result in (
+            ("one", "completed", ""),
+            ("two", "failed", "Service unavailable"),
+            ("three", "cancelled", "Cancelled by user"),
+        ):
+            await session.activity.emit(ToolStarted(**scope, tool_id=call_id, tool_kind="client", name="remote_tool"))
+            await session.presentation.emit(build_tool_start_view("remote_tool", {"query": call_id}, call_id=call_id))
+            await _checkpoint(facts, f"tool_{call_id}_running")
+            if call_id == "one":
+                await runtime.begin_approval_session()
+                await _checkpoint(facts, "tool_approval")
+                await runtime.end_approval_session()
+            await session.presentation.emit(build_generic_tool_result_view(
+                "remote_tool", result, ok=status == "completed", call_id=call_id,
+                arguments={"query": call_id}, status=status,
+            ))
+            await _checkpoint(facts, f"tool_{call_id}_completed")
+            await session.activity.emit_batch((
+                ToolCompleted(**scope, tool_id=call_id, tool_kind="client", name="remote_tool"),
+                ModelWaitRequested(**scope, revision=int({"one": 1, "two": 2, "three": 3}[call_id]), reason="tool_result"),
+            ))
+            if call_id == "one":
+                await _checkpoint(facts, "tool_model_wait")
+                identity = ResponseIdentity(_SURFACE.turn_id, 1, 1, 1)
+                await session.activity.emit(AssistantBuffered(**scope, identity=identity, item_id="tool-answer", phase="commentary"))
+                await session.content.emit(AssistantTextDelta("TOOL result explained\n", identity, item_id="tool-answer", phase="commentary"))
+                await session.control.settle_stream()
+                await _checkpoint(facts, "tool_body")
+                await session.content.emit(AssistantSegmentCompleted(identity=identity, item_id="tool-answer", phase="commentary"))
+                await session.activity.emit(AssistantSettled(**scope, identity=identity, item_id="tool-answer", phase="commentary"))
+        await session.activity.emit(ToolStarted(**scope, tool_id="four", tool_kind="client", name="remote_tool"))
+        await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "four"}, call_id="four"))
+        await _checkpoint(facts, "tool_interrupt_ready")
+        await asyncio.wait_for(interrupted.wait(), timeout=10)
+        await session.activity.emit(TurnTerminal(**scope, status="interrupted"))
+        await session.close()
+        _record_document(facts, runtime)
+        facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
+        await _checkpoint(facts, "tool_interrupted")
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        runtime.bind_interrupt_handler(None)
+        await session.close()
+        runtime.end_terminal_progress()
+        runtime.set_execution_active(False)
+
+
 async def _run(scenario: str, facts_path: Path) -> None:
     """在原生终端中运行指定渲染与生命周期场景。"""
     reset_sinks()
@@ -591,7 +726,11 @@ async def _run(scenario: str, facts_path: Path) -> None:
     ))
     await runtime.open()
     try:
-        if scenario == "process_completion":
+        if scenario in {"tool_calls", "tool_calls_static"}:
+            await _run_tool_calls(runtime, facts, animate=scenario == "tool_calls")
+        elif scenario in {"computer", "computer_static"}:
+            await _run_computer(runtime, facts, animate=scenario == "computer")
+        elif scenario == "process_completion":
             await _run_process_completion(runtime, facts)
         elif scenario == "first_frame":
             await _run_first_frame(runtime, facts)

@@ -16,6 +16,14 @@ from agent.application.views.builders.tools import (
     build_native_tool_result_view,
     build_tool_start_view
 )
+from agent.application.views.tool_display import (
+    ToolDisplayKind,
+    tool_display_spec,
+)
+from agent.application.views.tools import (
+    GenericToolResultView,
+    ToolStartView,
+)
 from agent.domain.transcripts import (
     TranscriptEntry,
     TranscriptReplay,
@@ -36,6 +44,12 @@ from frontends.terminal.renderers.lifecycle import (
     render_compaction_failed,
     render_compaction_observation_stopped,
 )
+from frontends.terminal.renderers.computer import ComputerAction
+from frontends.terminal.renderers.call import (
+    ToolCallSnapshot,
+    call_raw_text,
+    call_transcript,
+)
 from frontends.terminal.text import (
     sanitize_terminal_line,
     sanitize_terminal_text
@@ -55,6 +69,8 @@ from frontends.tui.contracts.resume import (
 )
 from protocol.schema.identifiers import valid_session_ids
 from ..adapters.markdown import render_tui_assistant_markdown
+from ..adapters.computer import render_computer_fragment
+from ..adapters.tool_calls import render_call_fragment
 from ..adapters.presentation import render_presentation_fragment_block
 from ..core.document import TranscriptBlock
 from ..core.styles import (
@@ -339,9 +355,22 @@ def _render_replay_blocks(
     terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
 ) -> tuple[TranscriptBlock, ...]:
     """把归并后的会话事件转换为 TUI 正文块。"""
+    entries = tuple(entries)
+    interrupted_turns = {entry.turn_id for entry in entries if entry.event == "turn.interrupted"}
     blocks: list[TranscriptBlock] = []
+    computer_entries: list[TranscriptEntry] = []
 
     for entry in entries:
+        is_computer = entry.event in {"tool.started", "tool.completed", "tool.failed"} and entry.payload.get("name") == "computer"
+        if computer_entries and (not is_computer or entry.turn_id != computer_entries[-1].turn_id):
+            blocks.append(_computer_history_block(
+                computer_entries, terminal_width, hyperlinks, terminal_capabilities,
+                interrupted=entry.event == "turn.interrupted",
+            ))
+            computer_entries.clear()
+        if is_computer:
+            computer_entries.append(entry)
+            continue
         if entry.event == "message.created":
             block = _message_block(
                 entry,
@@ -359,6 +388,7 @@ def _render_replay_blocks(
                 terminal_width=terminal_width,
                 hyperlinks=hyperlinks,
                 terminal_capabilities=terminal_capabilities,
+                interrupted=entry.turn_id in interrupted_turns,
             ))
             continue
 
@@ -372,7 +402,49 @@ def _render_replay_blocks(
         }:
             blocks.append(_notice_block(entry))
 
+    if computer_entries:
+        blocks.append(_computer_history_block(computer_entries, terminal_width, hyperlinks, terminal_capabilities))
     return tuple(blocks)
+
+
+def _computer_history_block(
+    entries: list[TranscriptEntry],
+    width: int,
+    hyperlinks: bool,
+    capabilities: TerminalCapabilities,
+    *,
+    interrupted: bool = False,
+) -> TranscriptBlock:
+    """恢复相邻桌面调用为静态摘要，按身份配对结果并保留完整原始记录。"""
+    actions: dict[tuple[str, int], ComputerAction] = {}
+    records: list[TranscriptBlock] = []
+    for index, entry in enumerate(entries):
+        payload = entry.payload
+        value = payload.get("call_id")
+        call_id = value if isinstance(value, str) else ""
+        key = (call_id, 0 if call_id else index)
+        arguments = payload.get("arguments")
+        action = arguments.get("action") if isinstance(arguments, dict) else None
+        ok = None if entry.event == "tool.started" else _tool_succeeded(entry)
+        result = _transcript_tool_result(payload.get("result"), expected_ok=ok is True, error=payload.get("error"))
+        screenshot = isinstance(result.data.get("image"), dict)
+        error = result.data.get("error")
+        previous = actions.get(key)
+        if previous is None or ok is not None:
+            actions[key] = ComputerAction(
+                call_id, action if isinstance(action, str) else "", screenshot, ok,
+                error if isinstance(error, str) and ok is False else "",
+                ("interrupted" if interrupted else "unconfirmed") if ok is None else "",
+            )
+        records.extend(_tool_blocks(entry, terminal_width=width, hyperlinks=hyperlinks, terminal_capabilities=capabilities))
+    renderer = partial(render_computer_fragment, tuple(actions.values()), True, "")
+    transcript = "\n\n".join("".join(text for _, text in item.transcript_block.fragments) for item in records)
+    raw = "\n\n".join(item.raw_text or "" for item in records)
+    return TranscriptBlock(
+        display_block=renderer(width), transcript_block=text_block(transcript),
+        kind="operation", source=entries[0], raw_text=raw,
+        display_renderer=renderer, display_render_width=width,
+    )
 
 
 def _notice_block(entry: TranscriptEntry) -> TranscriptBlock:
@@ -495,7 +567,8 @@ def _tool_blocks(
     *,
     terminal_width: int,
     hyperlinks: bool = False,
-    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES
+    terminal_capabilities: TerminalCapabilities = DEGRADED_TERMINAL_CAPABILITIES,
+    interrupted: bool = False,
 ) -> tuple[TranscriptBlock, ...]:
     """把工具事件转换为共享展示和完整记录块。"""
     payload = entry.payload
@@ -538,6 +611,7 @@ def _tool_blocks(
             data=result.data,
             cost_ms=_duration_ms(payload),
             call_id=call_id,
+            text=result.text,
         )
     else:
         result = _transcript_tool_result(
@@ -550,7 +624,26 @@ def _tool_blocks(
             result.text,
             ok=result.ok,
             call_id=call_id,
+            arguments=arguments,
+            status=(
+                "declined" if payload.get("status") == "declined"
+                else "cancelled" if payload.get("status") == "cancelled"
+                else "completed" if result.ok else "failed"
+            ),
         )
+
+    spec = tool_display_spec(name)
+    if spec.kind is ToolDisplayKind.GENERIC and spec.two_stage and isinstance(view, (ToolStartView, GenericToolResultView)):
+        snapshot = ToolCallSnapshot(
+            view,
+            ("interrupted" if interrupted else "unconfirmed") if isinstance(view, ToolStartView) else None,
+        )
+        renderer = partial(render_call_fragment, snapshot)
+        return (TranscriptBlock(
+            display_block=renderer(terminal_width), transcript_block=text_block(call_transcript(snapshot)),
+            kind="operation", source=entry, raw_text=call_raw_text(snapshot),
+            display_renderer=renderer, display_render_width=terminal_width,
+        ),)
 
     display = render_presentation_view(
         view,

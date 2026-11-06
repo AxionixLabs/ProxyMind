@@ -27,7 +27,7 @@ from frontends.tui.core.status_frames import (
 @pytest.mark.parametrize(
     ("family", "text"),
     (
-        ("tool", "Function Calling"),
+        ("tool", "Calling"),
         ("wait", "Thinking"),
         ("tool", "运行"),
         ("wait", "处理中"),

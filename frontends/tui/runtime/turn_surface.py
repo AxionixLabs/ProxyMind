@@ -9,6 +9,10 @@ from dataclasses import (
     replace,
 )
 
+from agent.application.views.tool_display import (
+    ToolDisplayKind,
+    tool_display_spec,
+)
 from agent.ports import (
     ApprovalPresentationChanged,
     ApprovalReviewCompleted,
@@ -56,6 +60,8 @@ SurfaceContentState = typing.Literal[
 ]
 
 SurfaceIndicatorKind = typing.Literal[
+    "tool",
+    "computer",
     "hidden",
     "reviewing",
     "thinking",
@@ -166,6 +172,7 @@ class SurfaceProjection:
     compaction_started_at: float | None = None
     compaction_identity: tuple[str, int] | None = None
     compaction_interrupted: bool = False
+    terminal_status: str = ""
     revision: int = 0
 
     @property
@@ -186,6 +193,7 @@ class SurfaceProjection:
             self.compaction_started_at,
             self.compaction_identity,
             self.compaction_interrupted,
+            self.terminal_status,
         ) == (
             other.indicator,
             other.title,
@@ -194,6 +202,7 @@ class SurfaceProjection:
             other.compaction_started_at,
             other.compaction_identity,
             other.compaction_interrupted,
+            other.terminal_status,
         )
 
 
@@ -260,6 +269,7 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
     if state.lifecycle != "active":
         return SurfaceProjection(
             "hidden", revision=revision,
+            terminal_status=state.terminal_status if state.lifecycle == "terminal" else "",
             compaction_interrupted=(
                 state.lifecycle == "terminal" and state.terminal_status in {"interrupted", "cancelled"}
                 and state.compaction is not None and state.compaction.status == "started"
@@ -335,11 +345,14 @@ def project_turn_surface(state: TurnSurfaceState) -> SurfaceProjection:
             revision=revision,
         )
     if state.tools or state.batches:
-        return SurfaceProjection(
-            "thinking",
-            title="Thinking",
-            revision=revision,
-        )
+        if any(tool.name == "computer" for tool in state.tools):
+            return SurfaceProjection("computer", title="Using computer", revision=revision)
+        if state.tools:
+            name = state.tools[-1].name
+            spec = tool_display_spec(name)
+            if name and spec.kind is ToolDisplayKind.GENERIC and spec.two_stage:
+                return SurfaceProjection("tool", title=f"Calling {name}", revision=revision)
+        return SurfaceProjection("thinking", title="Thinking", revision=revision)
     if state.status_requested:
         return SurfaceProjection(
             "thinking",

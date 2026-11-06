@@ -37,14 +37,7 @@ DELTA_REMOVE_STYLE = semantic_text_style(TerminalSemanticRole.FAILURE, bold=True
 ACTION_EDIT_STYLE = semantic_text_style(TerminalSemanticRole.PRIMARY, bold=True)
 ACTION_RUN_STYLE = semantic_text_style(TerminalSemanticRole.PRIMARY, bold=True)
 ACTION_TOOL_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)
-ACTION_TOOL_CALLING_STYLE = semantic_text_style(
-    TerminalSemanticRole.ATTENTION,
-    bold=True,
-)
-ACTION_TOOL_INVOKED_STYLE = semantic_text_style(
-    TerminalSemanticRole.ACCENT,
-    bold=True,
-)
+ACTION_TOOL_CALL_STYLE = TextStyle(bold=True)
 ACTION_TERMINAL_STYLE = TextStyle(bold=True, dim=False)
 COMMAND_STYLE = semantic_text_style(TerminalSemanticRole.PRIMARY)
 COMMAND_HEAD_STYLE = semantic_text_style(TerminalSemanticRole.ACCENT, bold=True)

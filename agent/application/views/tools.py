@@ -2,7 +2,16 @@
 # Notes: ==== Mind™ ====
 
 import typing
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+    field,
+)
+
+from protocol.schema.json_value import JsonObject
+
+ToolResultStatus: typing.TypeAlias = typing.Literal[
+    "completed", "failed", "declined", "cancelled",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,8 +29,14 @@ class GenericToolResultView:
 
     name: str
     text: str
-    ok: bool
+    status: ToolResultStatus
     call_id: str = ""
+    arguments: JsonObject = field(default_factory=dict)
+
+    @property
+    def ok(self) -> bool:
+        """从真实结果终态派生成功标记。"""
+        return self.status == "completed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +49,7 @@ class NativeToolResultView:
     data: typing.Any
     cost_ms: int | None
     call_id: str = ""
+    text: str = ""
 
 
 @dataclass(frozen=True, slots=True)
