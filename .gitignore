@@ -52,7 +52,12 @@ data/
 schematic/supports/
 Structure/
 website/mind/site/
-website/mind/pages/generated/*.md
+website/mind/src/content/docs/generated/
+website/mind/src/generated/
+website/mind/.astro/
+website/mind/node_modules/
+website/mind/test-results/
+website/mind/playwright-report/
 
 # 沙箱发布产物
 /schematic/sandbox

@@ -19,6 +19,10 @@ def publication(tmp_path: Path) -> tuple[Path, Path, list[sync_docs.DocEntry]]:
     source_root = tmp_path / "source"
     site_root = tmp_path / "site"
     (source_root / "docs").mkdir(parents=True)
+    (source_root / "metadata").mkdir()
+    (source_root / "metadata" / "const.py").write_text(
+        'APP_DESC = "Mind"\nAPP_CN = "代理思维"\nAPP_YEAR = "2026"\n', encoding="utf-8",
+    )
     site_root.mkdir()
     (source_root / "docs" / "README.md").write_text("# Index\n", encoding="utf-8")
     (source_root / "docs" / "guide.md").write_text(
@@ -52,7 +56,7 @@ def test_preflight_rejects_unlisted_document_even_without_links(publication) -> 
     assert check_docs._validate_manifest(source_root, site_root) == [
         "document missing from manifest: docs/new-topic.md",
     ]
-    assert not (site_root / "pages").exists()
+    assert not (site_root / "src").exists()
 
 
 @pytest.mark.parametrize("target_exists", [False, True])
@@ -72,7 +76,7 @@ def test_preflight_rejects_broken_or_unpublished_link(publication, target_exists
 
 def test_invalid_publication_preserves_existing_index_and_pages(publication) -> None:
     source_root, site_root, entries = publication
-    generated = site_root / "pages" / "generated"
+    generated = site_root / "src" / "content" / "docs" / "generated"
     generated.mkdir(parents=True)
     previous = generated / "previous.md"
     previous.write_text("previous page\n", encoding="utf-8")
@@ -104,8 +108,10 @@ def test_sync_rebuilds_stale_index_and_validates_generated_links(publication) ->
 
     assert check_docs._validate_generated_pages(site_root) == []
     assert "retired.md" not in (source_root / "docs" / "README.md").read_text(encoding="utf-8")
-    generated = site_root / "pages" / "generated" / "guide.md"
-    assert "[Usage](context-usage.md#budget)" in generated.read_text(encoding="utf-8")
+    generated = site_root / "src" / "content" / "docs" / "generated" / "guide.md"
+    content = generated.read_text(encoding="utf-8")
+    assert "[Usage](/generated/context-usage/#budget)" in content
+    assert "slug: generated/guide" in content
     generated.write_text("[Missing](absent.md)\n", encoding="utf-8")
     assert check_docs._validate_generated_pages(site_root) == [
         "broken generated link: guide.md -> absent.md",
@@ -131,7 +137,7 @@ def test_sync_runs_from_public_bundle_without_application_sources(
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (public_site / "pages" / "generated" / "context-usage.md").is_file()
+    assert (public_site / "src" / "content" / "docs" / "generated" / "context-usage.md").is_file()
     assert check_docs._validate_generated_pages(public_site) == []
 
 
@@ -147,3 +153,35 @@ def test_default_check_reports_publication_error_before_generation(publication) 
         errors = check_docs.validate()
 
     assert errors == ("document missing from manifest: docs/extra.md",)
+
+
+@pytest.mark.parametrize("path", ["../outside.md", "C:/outside.md", "C:outside.md", "docs\\guide.md"])
+def test_manifest_rejects_platform_dependent_or_escaping_paths(path: str) -> None:
+    with pytest.raises(ValueError, match="invalid manifest path"):
+        sync_docs.validate_manifest([sync_docs.DocEntry(path, "guide.md", "Guide")])
+
+
+def test_manifest_requires_navigation_and_typed_metadata(publication) -> None:
+    _source_root, site_root, entries = publication
+    with pytest.raises(ValueError, match="navigation section missing"):
+        sync_docs.validate_manifest([sync_docs.DocEntry("docs/guide.md", "guide.md", "Guide", section="")])
+    records = [asdict(entry) for entry in entries]
+    (site_root / "docs_manifest.json").write_text(
+        json.dumps({"entries": [dict(records[0], label=42)]}), encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="manifest field must be a string: label"):
+        sync_docs.load_manifest(site_root)
+
+
+def test_publication_preserves_heading_text_and_explicit_route(publication) -> None:
+    source_root, site_root, entries = publication
+    (source_root / "docs" / "guide.md").write_text(
+        "# 使用指南（Guide）\n\n## OAuth 浏览器登录\n\n[用量](usage.md#退出摘要契约)\n", encoding="utf-8",
+    )
+    sync_docs.sync_reference_docs(source_root, site_root, entries)
+    generated = site_root / "src" / "content" / "docs" / "generated" / "guide.md"
+    content = generated.read_text(encoding="utf-8")
+    assert "# 使用指南（Guide）" in content
+    assert "## OAuth 浏览器登录" in content
+    assert "[用量](/generated/context-usage/#退出摘要契约)" in content
+    assert "slug: generated/guide" in content

@@ -13,6 +13,7 @@ on:
       - LICENSE.md
       - docs/**
       - website/mind/**
+      - metadata/const.py
       - tests/website/**
       - frontends/cli/arguments.py
       - frontends/tui/prompting/commands.py
@@ -29,6 +30,7 @@ on:
       - LICENSE.md
       - docs/**
       - website/mind/**
+      - metadata/const.py
       - tests/website/**
       - frontends/cli/arguments.py
       - frontends/tui/prompting/commands.py
@@ -42,6 +44,7 @@ concurrency:
 jobs:
   validate_docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -51,6 +54,13 @@ jobs:
       - name: Install documentation test dependency
         run: python -m pip install pytest
 
+      - name: Set up website Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: website/mind/.node-version
+          cache: npm
+          cache-dependency-path: website/mind/package-lock.json
+
       - name: Test documentation publication contract
         run: python -m pytest tests/website -q
 
@@ -59,6 +69,18 @@ jobs:
           python website/mind/scripts/check_docs.py
           python website/mind/scripts/sync_docs.py
           python website/mind/scripts/check_docs.py --generated
+
+      - name: Build and validate published HTML
+        working-directory: website/mind
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check browser behavior and accessibility
+        working-directory: website/mind
+        run: |
+          npx playwright install --with-deps chromium
+          npm test
 
   sync_docs_bundle:
     needs: validate_docs
@@ -96,16 +118,15 @@ jobs:
         run: |
           mkdir -p $DOCS_TARGET_DIR
           mkdir -p $SITE_TARGET_DIR
-          rm -rf $DOCS_TARGET_DIR/docs
-          rm -rf $SITE_TARGET_DIR/*
-          cp README.md $DOCS_TARGET_DIR/ || true
-          cp ARCHITECTURE_SYSTEM.md $DOCS_TARGET_DIR/ || true
-          cp ARCHITECTURE.md $DOCS_TARGET_DIR/ || true
-          cp ARCHITECTURE_SCORECARD.md $DOCS_TARGET_DIR/ || true
-          cp AGENTS.md $DOCS_TARGET_DIR/ || true
-          cp LICENSE.md $DOCS_TARGET_DIR/ || true
-          cp -R docs $DOCS_TARGET_DIR/ || true
-          cp -R website/mind/. $SITE_TARGET_DIR/ || true
+          mkdir -p $DOCS_TARGET_DIR/metadata
+          cp README.md ARCHITECTURE_SYSTEM.md ARCHITECTURE.md ARCHITECTURE_SCORECARD.md AGENTS.md LICENSE.md $DOCS_TARGET_DIR/
+          cp metadata/const.py $DOCS_TARGET_DIR/metadata/
+          rsync -a --delete docs/ $DOCS_TARGET_DIR/docs/
+          rsync -a --delete \
+            --exclude node_modules --exclude .astro --exclude site \
+            --exclude __pycache__ --exclude test-results --exclude playwright-report \
+            --exclude src/generated --exclude src/content/docs/generated \
+            website/mind/ $SITE_TARGET_DIR/
 
       - name: Push to SoftwareCenter (only if changed)
         run: |
