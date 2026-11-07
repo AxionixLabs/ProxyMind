@@ -124,14 +124,14 @@ async def test_computer_approval_pauses_animation_and_stays_in_group():
     try:
         await _start(session, "one")
         before = runtime.document.active_block
-        cycle = runtime.activity._tool_breath.cycle
+        cycle = runtime.activity._activity_breath.cycle
         await session.activity.emit(ApprovalPresentationChanged(**_scope(), active=True))
         paused = _text(runtime)
         assert paused.startswith("• ")
         await asyncio.sleep(0.08)
         assert _text(runtime) == paused
         assert runtime.document.active_block == before
-        assert runtime.activity._tool_breath.cycle == cycle
+        assert runtime.activity._activity_breath.cycle == cycle
         await session.presentation.emit(ApprovalView(
             approval={"tool": "computer", "call_id": "one"}, decision="accept", state="approved",
         ))

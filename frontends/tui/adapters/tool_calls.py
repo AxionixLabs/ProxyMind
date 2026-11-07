@@ -145,7 +145,7 @@ class ToolCallPresentation:
             fragments = list(block.fragments)
             if fragments and fragments[0][1] == "•":
                 if owns_activity and phase is not None:
-                    fragments[0] = runtime.activity.tool_indicator()
+                    fragments[0] = runtime.activity.breathing_indicator()
                 elif self._last_frame is not None:
                     fragments[0] = self._last_frame.fragments[0]
             block = FragmentBlock(tuple(fragments))

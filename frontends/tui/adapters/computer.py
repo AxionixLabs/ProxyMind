@@ -197,7 +197,7 @@ class ComputerPresentation:
         if self.output.animate and self.output.terminal_width >= 4:
             fragments = list(block.fragments)
             if owns_activity and phase is not None:
-                style, symbol = runtime.activity.tool_indicator()
+                style, symbol = runtime.activity.breathing_indicator()
                 fragments[0] = (style, symbol + " ")
             elif self._last_frame is not None:
                 fragments[0] = self._last_frame.fragments[0]

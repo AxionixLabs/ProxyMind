@@ -36,12 +36,12 @@ from frontends.terminal.styles import ACTION_TOOL_CALL_STYLE
 from .models import FragmentBlock
 from .status_frames import (
     StatusFamily,
-    ToolBreathingMotion,
+    ActivityBreathingMotion,
+    activity_breathing_fragment,
     render_status_fragments,
     spinner_indicator_fragment,
     status_interval,
     status_phase_rate,
-    tool_breathing_fragment,
 )
 from .styles import (
     BODY_STYLE,
@@ -192,7 +192,7 @@ class TuiActivity(object):
         self._wait_paused: bool = False
         self._completed_wait_elapsed_sec: float | None = None
         self._wait_phase: float = 0.0
-        self._tool_breath = ToolBreathingMotion()
+        self._activity_breath = ActivityBreathingMotion()
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
@@ -235,9 +235,9 @@ class TuiActivity(object):
         """为新提交接续前景等待动画，重置计时并保留动画相位。"""
         slot = self._slots.get("foreground")
         phase = slot.phase if slot is not None else self._wait_phase
-        tool_breath = self._tool_breath
+        activity_breath = self._activity_breath
         self._reset_wait()
-        self._tool_breath = tool_breath
+        self._activity_breath = activity_breath
         self._wait_started_at = time.perf_counter()
         self._wait_phase = phase
         self._activate_wait_slot()
@@ -589,16 +589,16 @@ class TuiActivity(object):
 
         return True
 
-    def tool_indicator(self) -> tuple[str, str]:
-        """返回当前前景时钟的工具圆点，供同一所有者的标题与详情复用。"""
-        return tool_breathing_fragment(self._tool_breath.cycle, color_level=self.color_level)
+    def breathing_indicator(self) -> tuple[str, str]:
+        """返回当前前景时钟的呼吸圆点，供模型等待与工具展示共用。"""
+        return activity_breathing_fragment(self._activity_breath.cycle, color_level=self.color_level)
 
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
         if self._turn_surface_indicator in {"tool", "computer"}:
             title = self._turn_surface_title if self._turn_surface_indicator == "tool" else "Using computer"
             return FragmentBlock((
-                self.tool_indicator(),
+                self.breathing_indicator(),
                 ("", " "),
                 (prompt_style(ACTION_TOOL_CALL_STYLE), title),
             ))
@@ -650,7 +650,7 @@ class TuiActivity(object):
         else:
             family = "provider_retry"
 
-        return _status_block(
+        block = _status_block(
             self._turn_surface_title or (
                 "Retrying" if retrying else "Thinking"
             ),
@@ -661,6 +661,9 @@ class TuiActivity(object):
             sweep=True,
             color_level=self.color_level,
         )
+        if self._turn_surface_indicator == "thinking":
+            return FragmentBlock((self.breathing_indicator(), *block.fragments[1:]))
+        return block
 
     async def _cancel_task(self) -> None:
         """取消活动区域的合成动画任务。"""
@@ -724,8 +727,9 @@ class TuiActivity(object):
                     and self._turn_surface_indicator in {"tool", "computer", "thinking"}
                 ):
                     # 卡顿后限制视觉追赶，活动耗时仍使用下方未裁剪的真实增量。
-                    self._tool_breath.advance(
-                        min(step, interval * 2), reviewing=self._turn_surface_model_wait,
+                    self._activity_breath.advance(
+                        min(step, interval * 2),
+                        model_wait=self._turn_surface_model_wait or self._turn_surface_indicator == "thinking",
                     )
 
                 for slot in self._slots.values():
@@ -912,7 +916,7 @@ class TuiActivity(object):
         self._wait_paused = False
         self._completed_wait_elapsed_sec = None
         self._wait_phase = 0.0
-        self._tool_breath = ToolBreathingMotion()
+        self._activity_breath = ActivityBreathingMotion()
         self._turn_surface_indicator = "thinking"
         self._compaction_started_at = None
         self._compaction_identity = None

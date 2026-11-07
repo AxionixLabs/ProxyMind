@@ -11,6 +11,7 @@ from prompt_toolkit.application import Application
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from agent.application.views import ApprovalView
+from agent.application.views.builders.tools import build_generic_tool_result_view
 from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
@@ -233,7 +234,7 @@ def _patch_payload() -> dict[str, ThawedJsonValue]:
 
 
 async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, cancel: bool = False) -> None:
-    """用真实输出与工具生命周期记录执行和结果等待两个呼吸阶段。"""
+    """用真实输出与工具生命周期记录思考、执行和结果等待的呼吸交接。"""
     runtime.set_execution_active(True)
     session = create_tui_output_session("", context=_SURFACE, runtime=runtime)
     await session.open()
@@ -246,16 +247,16 @@ async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, canc
         screen = application.renderer.last_rendered_screen
         for cells in screen.data_buffer.values():
             line = "".join(cells[column].char for column in sorted(cells))
-            if "Using computer" not in line:
+            label = next((label for label in ("Thinking", "Calling remote_tool", "Using computer") if label in line), None)
+            if label is None:
                 continue
-            dot = next((cell for cell in cells.values() if cell.char == "•"), None)
-            if dot is not None:
-                attrs = application.style.get_attrs_for_style_str(dot.style)
-                frames.append({
-                    "time": time.perf_counter(), "stage": facts.stage,
-                    "glyph": dot.char, "color": attrs.color,
-                    "bold": attrs.bold, "dim": attrs.dim,
-                })
+            dot = cells[line.index(label) - 2]
+            attrs = application.style.get_attrs_for_style_str(dot.style)
+            frames.append({
+                "time": time.perf_counter(), "stage": facts.stage, "label": label,
+                "glyph": dot.char, "color": attrs.color,
+                "bold": attrs.bold, "dim": attrs.dim,
+            })
 
     def interrupt() -> InterruptDisposition:
         """将真实按键交给产品中断展示边界，延迟权威终态以观察残留。"""
@@ -268,6 +269,17 @@ async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, canc
     runtime.screen.application.after_render += capture
     reader = asyncio.create_task(runtime.read_message(PromptContext(model="color-model")))
     try:
+        await session.activity.emit(ModelWaitRequested(**scope, revision=1, reason="server_thinking"))
+        await _checkpoint(runtime, facts, "breathing_thinking")
+        await session.activity.emit(ToolStarted(**scope, tool_id="generic", tool_kind="client", name="remote_tool"))
+        await session.presentation.emit(build_tool_start_view("remote_tool", {"query": "breathing"}, call_id="generic"))
+        await _checkpoint(runtime, facts, "breathing_calling")
+        await session.presentation.emit(build_generic_tool_result_view("remote_tool", "OK", ok=True, call_id="generic"))
+        await session.activity.emit_batch((
+            ToolCompleted(**scope, tool_id="generic", tool_kind="client", name="remote_tool"),
+            ModelWaitRequested(**scope, revision=2, reason="tool_result"),
+        ))
+        await _checkpoint(runtime, facts, "breathing_thinking_returned")
         await session.activity.emit(ToolStarted(**scope, tool_id="breath", tool_kind="client", name="computer"))
         await session.presentation.emit(build_tool_start_view("computer", {"action": "observe"}, call_id="breath"))
         await _checkpoint(runtime, facts, "breathing_execution")
@@ -288,7 +300,7 @@ async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, canc
         await _checkpoint(runtime, facts, "breathing_result_ready")
         await session.activity.emit_batch((
             ToolCompleted(**scope, tool_id="breath", tool_kind="client", name="computer"),
-            ModelWaitRequested(**scope, revision=1, reason="tool_result"),
+            ModelWaitRequested(**scope, revision=3, reason="tool_result"),
         ))
         await _checkpoint(runtime, facts, "breathing_review")
         if cancel:

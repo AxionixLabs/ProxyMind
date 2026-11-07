@@ -110,13 +110,13 @@ async def test_approval_pauses_and_resumes_one_call_without_reserializing_each_f
         with patch("frontends.tui.adapters.tool_calls.call_transcript", side_effect=AssertionError("frame serialized payload")):
             runtime.activity._render_slots()
             before = runtime.document.active_block
-            cycle = runtime.activity._tool_breath.cycle
+            cycle = runtime.activity._activity_breath.cycle
             await session.activity.emit(ApprovalPresentationChanged(**SCOPE, active=True))
             paused = _text(runtime.document.active_block)
             assert paused.startswith("• Calling")
             await asyncio.sleep(0.08)
             assert runtime.document.active_block == before
-            assert runtime.activity._tool_breath.cycle == cycle
+            assert runtime.activity._activity_breath.cycle == cycle
             await session.presentation.emit(ApprovalView(
                 approval={"tool": "remote_tool", "call_id": "one"}, decision="accept", state="approved",
             ))

@@ -44,7 +44,7 @@ from .models import (
     FragmentBlock,
     LineFill,
 )
-from .status_frames import TOOL_BREATH_STEPS
+from .status_frames import ACTIVITY_BREATH_STEPS
 from ..prompting.commands import (
     canonical_command_label,
     resolve_slash_command
@@ -626,7 +626,7 @@ def prompt_style(style: TextStyle) -> str:
     return " ".join(parts)
 
 
-def _tool_breathing_style(semantics: TerminalSemanticStyles, capabilities: TerminalCapabilities) -> BaseStyle:
+def _activity_breathing_style(semantics: TerminalSemanticStyles, capabilities: TerminalCapabilities) -> BaseStyle:
     """按冻结主题生成有界的呼吸色阶，保留低谷可见性与常规字重。"""
     level = capabilities.color_support.render_level
     if level not in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}:
@@ -641,9 +641,9 @@ def _tool_breathing_style(semantics: TerminalSemanticStyles, capabilities: Termi
         peak = (100, 210, 210)
         low = blend_color(peak, background, 0.48)
     styles: dict[str, str] = {}
-    for step in range(TOOL_BREATH_STEPS):
-        color = best_color(blend_color(peak, low, step / (TOOL_BREATH_STEPS - 1)), level)
-        styles[f"tool.breath.{step}"] = f"fg:{color} nobold nodim"
+    for step in range(ACTIVITY_BREATH_STEPS):
+        color = best_color(blend_color(peak, low, step / (ACTIVITY_BREATH_STEPS - 1)), level)
+        styles[f"activity.breath.{step}"] = f"fg:{color} nobold nodim"
     return Style.from_dict(styles)
 
 
@@ -668,7 +668,7 @@ def build_tui_application_style(
         TUI_APPLICATION_OVERRIDES,
         _surface_style(semantics),
         _terminal_semantic_style(semantics),
-        _tool_breathing_style(semantics, capabilities),
+        _activity_breathing_style(semantics, capabilities),
         _footer_style(semantics, capabilities),
     ]
     if capabilities.identity.is_ide_terminal:

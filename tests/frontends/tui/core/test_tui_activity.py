@@ -67,15 +67,16 @@ from frontends.terminal.mcp_status import (
 
 
 @pytest.mark.anyio
-async def test_tool_breathing_recovers_from_stall_without_skipping_brightness_ramp():
+@pytest.mark.parametrize("indicator", ["thinking", "tool", "computer"])
+async def test_activity_breathing_recovers_from_stall_without_skipping_brightness_ramp(indicator):
     activity = TuiActivity(
         set_renderable=lambda _block: None,
         clear_renderable=lambda: None,
         color_level=TerminalColorLevel.TRUECOLOR,
     )
     with patch.object(activity, "_ensure_task"):
-        await activity.show_turn_surface("tool", title="Calling remote_tool", tool_id="one")
-    before = int(activity.tool_indicator()[0].rsplit(".", 1)[1])
+        await activity.show_turn_surface(indicator, tool_id="one")
+    before = int(activity.breathing_indicator()[0].rsplit(".", 1)[1])
     clock = SimpleNamespace(time=Mock(side_effect=[0.0, 0.25]))
     with (
         patch("frontends.tui.core.activity.asyncio.get_running_loop", return_value=clock),
@@ -83,9 +84,60 @@ async def test_tool_breathing_recovers_from_stall_without_skipping_brightness_ra
         patch.object(activity, "_needs_render_task", side_effect=[True, False]),
     ):
         await activity._render_loop()
-    after = int(activity.tool_indicator()[0].rsplit(".", 1)[1])
+    after = int(activity.breathing_indicator()[0].rsplit(".", 1)[1])
     assert 0 < after - before <= 20
     assert activity._slots["foreground"].phase == 0.25
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("level", list(TerminalColorLevel))
+async def test_thinking_preserves_title_sweep_and_breathing_phase_across_tool_handoffs(level):
+    activity = TuiActivity(
+        set_renderable=lambda _block: None, clear_renderable=lambda: None, color_level=level,
+    )
+    with patch.object(activity, "_ensure_task"):
+        await activity.show_turn_surface("thinking", title="Thinking")
+        frames = []
+        for index in range(64):
+            activity._activity_breath.advance(0.032, model_wait=True)
+            frames.append(activity._wait_block(index * 0.032))
+        assert {block.fragments[0][1] for block in frames} == {"•"}
+        assert not any("bold" in block.fragments[0][0] or "dim" in block.fragments[0][0] for block in frames)
+        assert len({block.fragments[2:10] for block in frames}) > 4
+        phase = activity._activity_breath.cycle
+        indicator = activity.breathing_indicator()
+        for kind in ("tool", "computer", "thinking"):
+            await activity.show_turn_surface(kind, tool_id="one")
+            assert activity._wait_block(0.0).fragments[0] == indicator
+            assert activity._activity_breath.cycle == phase
+        activity.handoff_wait()
+        assert activity._wait_block(0.0).fragments[0] == indicator
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("indicator,model_wait,expected_rate", [
+    ("thinking", False, 1 / 1.8),
+    ("tool", False, 1 / 1.35),
+    ("computer", True, 1 / 1.8),
+    ("retrying", False, 1 / 1.8),
+])
+async def test_foreground_clock_selects_breathing_rhythm_and_freezes_during_retry(indicator, model_wait, expected_rate):
+    activity = TuiActivity(set_renderable=lambda _block: None, clear_renderable=lambda: None)
+    with patch.object(activity, "_ensure_task"):
+        await activity.show_turn_surface(indicator, model_wait=model_wait)
+    phase = activity._activity_breath.cycle
+    clock = SimpleNamespace(time=Mock(side_effect=[index * 0.032 for index in range(11)]))
+    with (
+        patch("frontends.tui.core.activity.asyncio.get_running_loop", return_value=clock),
+        patch("frontends.tui.core.activity.asyncio.sleep", new=AsyncMock()),
+        patch.object(activity, "_needs_render_task", side_effect=[True] * 10 + [False]),
+    ):
+        await activity._render_loop()
+    assert activity._activity_breath.rate == pytest.approx(expected_rate, abs=0.002)
+    if indicator == "retrying":
+        assert activity._activity_breath.cycle == phase
+    else:
+        assert activity._activity_breath.cycle != phase
 
 
 async def _render_next_frame(runtime: TuiRuntime):

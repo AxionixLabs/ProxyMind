@@ -26,35 +26,35 @@ SWEEP_FRAME_INTERVAL_SECONDS = 0.032
 INDICATOR_BLINK_INTERVAL_SECONDS = 0.6
 SPINNER_REFRESH_PER_SECOND = 10
 SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-TOOL_BREATH_STEPS = 64
-TOOL_BREATH_EXECUTION_SECONDS = 1.35
-TOOL_BREATH_REVIEW_SECONDS = 1.8
-TOOL_BREATH_TRANSITION_SECONDS = 0.067
+ACTIVITY_BREATH_STEPS = 64
+ACTIVITY_BREATH_EXECUTION_SECONDS = 1.35
+ACTIVITY_BREATH_MODEL_WAIT_SECONDS = 1.8
+ACTIVITY_BREATH_TRANSITION_SECONDS = 0.067
 
 
 @dataclass(slots=True)
-class ToolBreathingMotion:
+class ActivityBreathingMotion:
     """由前景活动时钟推进呼吸相位，阶段切换只平滑改变速度。"""
 
     cycle: float = 0.12
-    rate: float = 1.0 / TOOL_BREATH_EXECUTION_SECONDS
+    rate: float = 1.0 / ACTIVITY_BREATH_MODEL_WAIT_SECONDS
 
-    def advance(self, seconds: float, *, reviewing: bool) -> None:
-        """积分已有时钟的增量，使结果等待在约二百毫秒内自然放慢。"""
+    def advance(self, seconds: float, *, model_wait: bool) -> None:
+        """积分已有时钟的增量，使模型等待与工具执行在约二百毫秒内平滑变速。"""
         elapsed = max(0.0, seconds)
-        target = 1.0 / (TOOL_BREATH_REVIEW_SECONDS if reviewing else TOOL_BREATH_EXECUTION_SECONDS)
-        decay = math.exp(-elapsed / TOOL_BREATH_TRANSITION_SECONDS)
-        distance = target * elapsed + (self.rate - target) * TOOL_BREATH_TRANSITION_SECONDS * (1.0 - decay)
+        target = 1.0 / (ACTIVITY_BREATH_MODEL_WAIT_SECONDS if model_wait else ACTIVITY_BREATH_EXECUTION_SECONDS)
+        decay = math.exp(-elapsed / ACTIVITY_BREATH_TRANSITION_SECONDS)
+        distance = target * elapsed + (self.rate - target) * ACTIVITY_BREATH_TRANSITION_SECONDS * (1.0 - decay)
         self.cycle = (self.cycle + distance) % 1.0
         self.rate = target + (self.rate - target) * decay
 
 
-def tool_breathing_fragment(
+def activity_breathing_fragment(
     cycle: float,
     *,
     color_level: TerminalColorLevel,
 ) -> tuple[str, str]:
-    """生成固定字形、固定字重的工具圆点，低色深使用静态语义色。"""
+    """生成模型等待与工具执行共用的固定字形和字重圆点，低色深使用静态语义色。"""
     if color_level not in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}:
         return _family_style("wait", color_level=color_level), "•"
     position = cycle % 1.0
@@ -68,8 +68,8 @@ def tool_breathing_fragment(
         progress = 0.0
     # 五次缓动在峰谷保持零速度、零加速度，避免转折和循环接缝闪跳。
     intensity = progress ** 3 * (progress * (progress * 6.0 - 15.0) + 10.0)
-    step = round(intensity * (TOOL_BREATH_STEPS - 1))
-    return f"class:tool.breath.{step}", "•"
+    step = round(intensity * (ACTIVITY_BREATH_STEPS - 1))
+    return f"class:activity.breath.{step}", "•"
 
 
 def render_tool_indicator_at_width(

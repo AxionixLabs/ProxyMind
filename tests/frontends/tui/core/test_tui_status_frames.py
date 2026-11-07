@@ -17,6 +17,9 @@ from frontends.terminal.identity import (
 )
 
 from frontends.tui.core.status_frames import (
+    ACTIVITY_BREATH_EXECUTION_SECONDS,
+    ACTIVITY_BREATH_MODEL_WAIT_SECONDS,
+    ActivityBreathingMotion,
     INDICATOR_BLINK_INTERVAL_SECONDS,
     SPINNER_FRAMES,
     SWEEP_BAND_HALF_WIDTH,
@@ -24,26 +27,23 @@ from frontends.tui.core.status_frames import (
     SWEEP_PADDING,
     SWEEP_PERIOD_SECONDS,
     SWEEP_PROFILES,
-    TOOL_BREATH_EXECUTION_SECONDS,
-    TOOL_BREATH_REVIEW_SECONDS,
-    ToolBreathingMotion,
     _character_cells,
     _display_span,
     _sweep_focus,
     _sweep_intensity,
+    activity_breathing_fragment,
     render_status_fragments,
     spinner_indicator_fragment,
     status_indicator_fragment,
     status_interval,
     status_phase_rate,
-    tool_breathing_fragment,
 )
 from frontends.tui.core.styles import build_tui_application_style
 
 
 @pytest.mark.parametrize("level", list(TerminalColorLevel))
-def test_tool_breathing_keeps_exact_bullet_width_and_degrades_without_flicker(level):
-    frames = [tool_breathing_fragment(index / 200, color_level=level) for index in range(201)]
+def test_activity_breathing_keeps_exact_bullet_width_and_degrades_without_flicker(level):
+    frames = [activity_breathing_fragment(index / 200, color_level=level) for index in range(201)]
     assert {glyph for _style, glyph in frames} == {"•"}
     assert {get_cwidth(glyph) for _style, glyph in frames} == {1}
     if level in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}:
@@ -59,28 +59,30 @@ def test_tool_breathing_keeps_exact_bullet_width_and_degrades_without_flicker(le
             assert frames[0][0] == ""
 
 
-def test_tool_breathing_handoff_preserves_phase_and_smoothly_changes_speed():
-    motion = ToolBreathingMotion()
-    motion.advance(TOOL_BREATH_EXECUTION_SECONDS, reviewing=False)
+def test_activity_breathing_handoff_preserves_phase_and_smoothly_changes_speed():
+    motion = ActivityBreathingMotion()
+    motion.advance(ACTIVITY_BREATH_MODEL_WAIT_SECONDS, model_wait=True)
     assert motion.cycle == pytest.approx(0.12)
     before = motion.cycle
-    motion.advance(0, reviewing=True)
+    motion.advance(0, model_wait=False)
     assert motion.cycle == before
-    motion.advance(0.2, reviewing=True)
-    assert motion.rate == pytest.approx(1 / TOOL_BREATH_REVIEW_SECONDS, abs=0.01)
-    assert 0.2 / TOOL_BREATH_REVIEW_SECONDS < motion.cycle - before < 0.2 / TOOL_BREATH_EXECUTION_SECONDS
-    whole = ToolBreathingMotion()
-    divided = ToolBreathingMotion()
-    whole.advance(0.32, reviewing=True)
+    motion.advance(0.2, model_wait=False)
+    assert motion.rate == pytest.approx(1 / ACTIVITY_BREATH_EXECUTION_SECONDS, abs=0.01)
+    assert 0.2 / ACTIVITY_BREATH_MODEL_WAIT_SECONDS < motion.cycle - before < 0.2 / ACTIVITY_BREATH_EXECUTION_SECONDS
+    motion.advance(0.2, model_wait=True)
+    assert motion.rate == pytest.approx(1 / ACTIVITY_BREATH_MODEL_WAIT_SECONDS, abs=0.01)
+    whole = ActivityBreathingMotion()
+    divided = ActivityBreathingMotion()
+    whole.advance(0.32, model_wait=False)
     for _ in range(10):
-        divided.advance(0.032, reviewing=True)
+        divided.advance(0.032, model_wait=False)
     assert whole.cycle == pytest.approx(divided.cycle)
     assert whole.rate == pytest.approx(divided.rate)
 
 
 @pytest.mark.parametrize("background", [(17, 17, 17), (245, 245, 245), None])
 @pytest.mark.parametrize("level", [TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256])
-def test_tool_breathing_palette_preserves_weight_and_visible_trough(background, level):
+def test_activity_breathing_palette_preserves_weight_and_visible_trough(background, level):
     capabilities = TerminalCapabilities(
         identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
         color_support=TerminalColorSupport.fixed(level),
@@ -88,7 +90,7 @@ def test_tool_breathing_palette_preserves_weight_and_visible_trough(background, 
     )
     empty = Style.from_dict({})
     style = build_tui_application_style(empty, empty, empty, capabilities=capabilities)
-    attrs = [style.get_attrs_for_style_str(f"class:tool.breath.{index}") for index in range(64)]
+    attrs = [style.get_attrs_for_style_str(f"class:activity.breath.{index}") for index in range(64)]
     assert not any(attr.bold or attr.dim or attr.bgcolor for attr in attrs)
     assert len({attr.color for attr in attrs}) >= (40 if level is TerminalColorLevel.TRUECOLOR else 3)
     if background is not None:

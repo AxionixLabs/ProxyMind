@@ -113,12 +113,15 @@ def _acknowledge(path: Path, stage: str) -> None:
     ("dark", _ANSI16_TERMINAL, 1),
     ("light", _NO_COLOR_TERMINAL, 1),
 ])
-def test_tool_breathing_rhythm_and_color_depth_in_real_tty(tmp_path, theme, environment, minimum_colors):
+def test_activity_breathing_rhythm_and_color_depth_in_real_tty(tmp_path, theme, environment, minimum_colors):
     facts_path = tmp_path / "facts.json"
     recordings = {}
     paused_color = None
     with _spawn_color_scenario("tool_breathing", theme, facts_path, environment) as terminal:
         for stage, duration, period in (
+            ("breathing_thinking", 3.9, 1.8),
+            ("breathing_calling", 3.1, 1.35),
+            ("breathing_thinking_returned", 3.9, 1.8),
             ("breathing_execution", 3.1, 1.35),
             ("breathing_approval", 0.25, None),
             ("breathing_approval_recorded", 0.25, None),
@@ -126,23 +129,32 @@ def test_tool_breathing_rhythm_and_color_depth_in_real_tty(tmp_path, theme, envi
             ("breathing_review", 3.9, 1.8),
         ):
             _wait_for_stage(facts_path, stage)
-            snapshot = terminal.wait_for_screen_text("reviewing result" if stage == "breathing_review" else "Using computer")
-            row = next(index for index, line in enumerate(snapshot.visible_lines) if "Using computer" in line)
+            thinking = stage in {"breathing_thinking", "breathing_thinking_returned"}
+            label = "Thinking" if thinking else "Calling remote_tool" if stage == "breathing_calling" else "Using computer"
+            snapshot = terminal.wait_for_screen_text("reviewing result" if stage == "breathing_review" else label)
+            row = next(index for index, line in enumerate(snapshot.visible_lines) if label in line)
             line = snapshot.visible_lines[row]
             dot_column = line.index("•")
-            title_column = line.index("Using computer")
+            title_column = line.index(label)
             title_style = terminal.screen.cell(row, title_column)
+            title_frames = set()
             started = time.perf_counter()
             samples = []
             while time.perf_counter() - started < duration:
                 time.sleep(0.02)
                 current = terminal.screen.snapshot()
                 dot = terminal.screen.cell(row, dot_column)
-                assert current.visible_lines[row] == line
-                assert terminal.screen.cell(row, title_column) == title_style
+                assert current.visible_lines[row][:title_column + len(label)] == line[:title_column + len(label)]
+                if thinking:
+                    title_frames.add(tuple(terminal.screen.cell(row, column).bold for column in range(title_column, title_column + len(label))))
+                else:
+                    assert current.visible_lines[row] == line
+                    assert terminal.screen.cell(row, title_column) == title_style
                 assert dot.data == "•" and not dot.bold and not dot.blink
                 samples.append((time.perf_counter() - started, dot.foreground))
             colors = {color for _elapsed, color in samples}
+            if thinking:
+                assert len(title_frames) > 4
             recordings[stage] = samples
             (tmp_path / "breathing-samples.json").write_text(json.dumps(recordings, indent=2), encoding="utf-8")
             assert len(colors) >= (minimum_colors if period is not None else 1)
@@ -170,7 +182,10 @@ def test_tool_breathing_rhythm_and_color_depth_in_real_tty(tmp_path, theme, envi
         _acknowledge(facts_path, "breathing_finished")
         assert terminal.wait_for_exit(timeout=10) == 0
     if minimum_colors == 20 and theme in {"dark", "light"}:
-        for stage, period in (("breathing_execution", 1.35), ("breathing_result_ready", 1.35), ("breathing_review", 1.8)):
+        for stage, period in (
+            ("breathing_thinking", 1.8), ("breathing_calling", 1.35), ("breathing_thinking_returned", 1.8),
+            ("breathing_execution", 1.35), ("breathing_result_ready", 1.35), ("breathing_review", 1.8),
+        ):
             samples = recordings[stage]
             green = [int(color[2:4], 16) for _elapsed, color in samples]
             assert max(abs(right - left) for left, right in zip(green, green[1:])) < 45, stage
@@ -193,6 +208,13 @@ def _details(
 def test_tool_breathing_ctrl_c_stays_hidden_while_terminal_is_delayed(tmp_path):
     facts_path = tmp_path / "facts.json"
     with _spawn_color_scenario("tool_breathing_cancel", "dark", facts_path, _TRUECOLOR_TERMINAL) as terminal:
+        for stage, label in (
+            ("breathing_thinking", "Thinking"), ("breathing_calling", "Calling remote_tool"),
+            ("breathing_thinking_returned", "Thinking"),
+        ):
+            _wait_for_stage(facts_path, stage)
+            terminal.wait_for_screen_text(label)
+            _acknowledge(facts_path, stage)
         for stage in (
             "breathing_execution", "breathing_approval", "breathing_approval_recorded",
             "breathing_result_ready", "breathing_review", "breathing_cancel_ready",
