@@ -681,6 +681,7 @@ class ExternalMcpGroup:
             connect_tasks.append(task)
 
         try:
+
             async def wait_for_startup(server: NormalizedMcpServer, task: asyncio.Task[bool]) -> None:
                 """必需服务完整等待，可选服务共享批次起点且不取消后台连接。"""
                 budget = server.get("optional_startup_wait_sec", 1.0)

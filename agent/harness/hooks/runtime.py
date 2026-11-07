@@ -623,6 +623,7 @@ class HookRuntime:
                 hook_match_candidates(event, match_value)
             )
         )
+
     @staticmethod
     def _observe_failure(
         definition: HookDefinitionConfig,

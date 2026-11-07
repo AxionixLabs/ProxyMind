@@ -94,6 +94,7 @@ def detect_terminal_capabilities(
 
     probe = color_probe
     if probe is None and input_replay is not None:
+
         def probe_with_replay(
             input_value: object,
             output_value: object,

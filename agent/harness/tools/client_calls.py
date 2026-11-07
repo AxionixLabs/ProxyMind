@@ -569,6 +569,7 @@ class ClientToolCallRunner:
         nested_output: NestedToolOutput | None = None
 
         if name == "js_repl":
+
             async def dispatch_nested_tool(
                 tool_name: str,
                 tool_arguments: dict[str, typing.Any],

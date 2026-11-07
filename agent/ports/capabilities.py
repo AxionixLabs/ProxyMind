@@ -523,6 +523,7 @@ class ProtocolCommandClient(typing.Protocol):
     ) -> TurnControlReceipt:
         """提交匹配活动轮次的中断命令。"""
         ...
+
     async def steer_turn(
         self,
         *,

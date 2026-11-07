@@ -66,6 +66,7 @@ async def manage_agents(
         )
 
     def open_agent_menu(snapshot: AgentSnapshot) -> None:
+
         def run_agent_action(action: typing.Any) -> None:
             """启动子执行线程菜单后台操作。"""
             runtime.start_background_task(

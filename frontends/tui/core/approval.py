@@ -398,6 +398,7 @@ class TuiApproval(object):
             self.finish("cancel")
 
         for number in range(1, 10):
+
             @bindings.add(str(number))
             def _(event, selected_number=number) -> None:
                 self._finish_index(selected_number - 1)

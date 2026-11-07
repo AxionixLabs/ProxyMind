@@ -1237,6 +1237,7 @@ class TuiInputModel(object):
                 ) is not None
             )
         )
+
         @bind_key_action(
             bindings,
             self.keymap.editor.cancel_completion,

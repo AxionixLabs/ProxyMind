@@ -541,6 +541,7 @@ class RootConversationSession:
         subagent_snapshots: tuple[AgentSnapshot, ...],
     ) -> None:
         """在已收束子任务后写入终态 Hook 并释放会话资源。"""
+
         def record_session_end() -> None:
             """在结束 Hook 前写入根会话终态。"""
             transcript.open()

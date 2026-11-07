@@ -88,6 +88,7 @@ async def execute_tool(
     progress_callback = None
 
     if enable_progress_notify and supports_progress_notifications(invocation.name):
+
         async def progress_callback(progress: float, total: float | None, message: str | None) -> None:
             await _emit_tool_progress(
                 tool_name=invocation.name,

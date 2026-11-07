@@ -67,6 +67,7 @@ async def bounded_stdio_client(
             server.command, server.args, env={**get_default_environment(), **(server.env or {})},
             cwd=server.cwd, stderr=errlog,
         ) as (stdout, stdin):
+
             async def receive() -> None:
                 """将完整且有界的帧交给 SDK，失败只转交固定诊断，避免记录协议正文。"""
                 async with incoming:

@@ -1783,11 +1783,13 @@ class TuiMenu(object):
         eof_keys = (Keys.ControlD, enhanced_key_token("d", frozenset({"ctrl"})))
         for eof_key in eof_keys:
             if eof_key is not None:
+
                 @bindings.add(eof_key, filter=eof_interrupt)
                 def _(_event) -> None:
                     self.on_ctrl_c()
 
         for number in range(1, 10):
+
             @bindings.add(str(number))
             def _(_event, selected_number=number) -> None:
                 state = self.state

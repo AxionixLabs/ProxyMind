@@ -394,6 +394,7 @@ def bind_key_action(
     typing.Callable[[KeyPressEvent], None],
 ]:
     """把一个已解析动作的全部按键注册到当前输入上下文。"""
+
     def register(
         handler: typing.Callable[[KeyPressEvent], None],
     ) -> typing.Callable[[KeyPressEvent], None]:
@@ -414,6 +415,7 @@ def bind_key_action(
                     )(handler)
             if binding.is_chord:
                 for prefix in binding.strokes[0].key_sequences:
+
                     def settle_timed_out_chord(event: KeyPressEvent) -> None:
                         _ = event
 

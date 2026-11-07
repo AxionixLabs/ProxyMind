@@ -559,6 +559,7 @@ def _validate_review_execution(execution: Mapping[str, JsonValue]) -> None:
                 "review execution tools must declare "
                 "annotations.readOnlyHint=true"
             )
+
 def _object_sequence(
     values: typing.Iterable[ThawedJsonValue],
     *,
