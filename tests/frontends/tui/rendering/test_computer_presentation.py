@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +20,11 @@ from agent.ports import (
 )
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.core.runtime import TuiRuntime
+from frontends.terminal.capabilities import DEGRADED_TERMINAL_CAPABILITIES
+from frontends.terminal.color_support import (
+    TerminalColorLevel,
+    TerminalColorSupport,
+)
 from frontends.terminal.renderers.computer import (
     computer_action,
     render_computer_activity,
@@ -117,21 +123,50 @@ async def test_computer_approval_pauses_animation_and_stays_in_group():
     await session.open()
     try:
         await _start(session, "one")
+        before = runtime.document.active_block
+        cycle = runtime.activity._tool_breath.cycle
         await session.activity.emit(ApprovalPresentationChanged(**_scope(), active=True))
         paused = _text(runtime)
         assert paused.startswith("• ")
         await asyncio.sleep(0.08)
         assert _text(runtime) == paused
+        assert runtime.document.active_block == before
+        assert runtime.activity._tool_breath.cycle == cycle
         await session.presentation.emit(ApprovalView(
             approval={"tool": "computer", "call_id": "one"}, decision="accept", state="approved",
         ))
+        assert runtime.document.active_block == before
+        assert "approved" in runtime.document.active_raw_text
         await session.activity.emit(ApprovalPresentationChanged(**_scope(), active=False))
-        assert not _text(runtime).startswith("• ")
+        assert _text(runtime) == paused
+        assert runtime.activity.active
         await _complete(session, "one", ok=False, error="stale_observation")
         await session.control.prepare_assistant_output()
         assert _stable(runtime).count("Used computer") == 1
         assert "1 failed" in _stable(runtime) and "stale_observation" in _stable(runtime)
         assert "1 action" in _stable(runtime)
+    finally:
+        await session.close()
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+async def test_computer_result_preserves_dot_and_authoritative_activity_clock():
+    runtime = TuiRuntime(terminal_capabilities=replace(
+        DEGRADED_TERMINAL_CAPABILITIES,
+        color_support=TerminalColorSupport.fixed(TerminalColorLevel.TRUECOLOR),
+    ))
+    session = create_tui_output_session("", context=_context(), runtime=runtime)
+    await session.open()
+    try:
+        await _start(session, "one")
+        before = runtime.document.active_block.fragments[0]
+        await session.presentation.emit(_result("one"))
+        assert runtime.document.active_block.fragments[0] == before
+        await asyncio.sleep(0.08)
+        assert runtime.document.active_block.fragments[0] != before
+        assert runtime.document.active_block.fragments[0][1] == "• "
+        assert "Captured screenshot" in _text(runtime)
     finally:
         await session.close()
         await runtime.activity.clear()

@@ -33,7 +33,7 @@ from frontends.tui.core.document import (
     TranscriptBlock,
     WidthBlockRenderer,
 )
-from frontends.tui.core.status_frames import spinner_indicator_fragment
+from frontends.tui.core.status_frames import render_tool_indicator_at_width
 from frontends.tui.core.styles import styled_fragment_block
 
 if typing.TYPE_CHECKING:
@@ -156,7 +156,6 @@ class ComputerPresentation:
         self._raw_parts.append(raw)
         self._transcript = styled_fragment_block(StyledBlock(plain_text="\n\n".join(self._transcript_parts)))
         self._raw = "\n\n".join(self._raw_parts)
-        self._last_frame = None
 
     def _record_parts(self, view: ToolStartView | NativeToolResultView | ApprovalView | ApprovalReviewView) -> tuple[str, str]:
         """记录一次正式展示事件，返回完整记录和复制文本。"""
@@ -181,28 +180,41 @@ class ComputerPresentation:
 
     def render(self, phase: float | None, *, tool_id: str = "", reviewing: bool = False) -> bool:
         """原位更新动作或核对结果的指示符，暂停与回放期间使用静态符号。"""
-        if not self._actions or self.output.runtime.turn_output_suppressed:
+        if not self._actions:
             return False
         runtime = self.output.runtime
+        if runtime.turn_output_suppressed:
+            return reviewing or any(action.call_id == tool_id for action in self._actions)
         if runtime.document.active_block is not None and runtime.document.active_source is not self._source:
             return False
-        reviewing = reviewing and not any(action.pending for action in self._actions)
+        pending = any(action.pending for action in self._actions)
+        reviewing = reviewing and not pending
         owns_activity = reviewing or any(action.call_id == tool_id for action in self._actions)
         renderer = self._reviewing_renderer if reviewing else self._renderer
         if renderer is None:
             return False
         block = renderer(self.output.terminal_width)
-        if owns_activity and phase is not None and self.output.animate and self.output.terminal_width >= 4 and (reviewing or any(action.pending for action in self._actions)):
+        if self.output.animate and self.output.terminal_width >= 4:
             fragments = list(block.fragments)
-            style, symbol = spinner_indicator_fragment(phase, family="wait", color_level=runtime.activity.color_level)
-            fragments[0] = (style, symbol + " ")
+            if owns_activity and phase is not None:
+                style, symbol = runtime.activity.tool_indicator()
+                fragments[0] = (style, symbol + " ")
+            elif self._last_frame is not None:
+                fragments[0] = self._last_frame.fragments[0]
             block = FragmentBlock(tuple(fragments))
-        if block == self._last_frame:
+        if (
+            block == self._last_frame
+            and runtime.document.active_transcript_block == self._transcript
+            and runtime.document.active_raw_text == self._raw
+        ):
             return owns_activity
         runtime.set_active_renderable(
             block, kind="operation", transcript_block=self._transcript,
             source=self._source, raw_text=self._raw,
-            display_renderer=renderer, display_render_width=self.output.terminal_width,
+            display_renderer=partial(
+                render_tool_indicator_at_width, renderer,
+                indicator_style=block.fragments[0][0],
+            ), display_render_width=self.output.terminal_width,
         )
         self._last_frame = block
         return owns_activity

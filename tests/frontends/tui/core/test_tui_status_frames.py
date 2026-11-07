@@ -1,8 +1,20 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from frontends.terminal.color_support import TerminalColorLevel
+from frontends.terminal.capabilities import (
+    TerminalCapabilities,
+    TerminalTheme,
+)
+from frontends.terminal.color_support import (
+    TerminalColorLevel,
+    TerminalColorSupport,
+)
+from frontends.terminal.identity import (
+    TerminalIdentity,
+    TerminalKind,
+)
 
 from frontends.tui.core.status_frames import (
     INDICATOR_BLINK_INTERVAL_SECONDS,
@@ -12,6 +24,9 @@ from frontends.tui.core.status_frames import (
     SWEEP_PADDING,
     SWEEP_PERIOD_SECONDS,
     SWEEP_PROFILES,
+    TOOL_BREATH_EXECUTION_SECONDS,
+    TOOL_BREATH_REVIEW_SECONDS,
+    ToolBreathingMotion,
     _character_cells,
     _display_span,
     _sweep_focus,
@@ -21,15 +36,71 @@ from frontends.tui.core.status_frames import (
     status_indicator_fragment,
     status_interval,
     status_phase_rate,
+    tool_breathing_fragment,
 )
+from frontends.tui.core.styles import build_tui_application_style
+
+
+@pytest.mark.parametrize("level", list(TerminalColorLevel))
+def test_tool_breathing_keeps_exact_bullet_width_and_degrades_without_flicker(level):
+    frames = [tool_breathing_fragment(index / 200, color_level=level) for index in range(201)]
+    assert {glyph for _style, glyph in frames} == {"•"}
+    assert {get_cwidth(glyph) for _style, glyph in frames} == {1}
+    if level in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}:
+        steps = [int(style.rsplit(".", 1)[1]) for style, _glyph in frames]
+        assert len(set(steps)) >= 48
+        assert steps[0] == steps[-1]
+        assert max(abs(right - left) for left, right in zip(steps, steps[1:])) <= 3
+        assert steps[:57] == sorted(steps[:57])
+        assert steps[68:177] == sorted(steps[68:177], reverse=True)
+    else:
+        assert len(set(frames)) == 1
+        if level is TerminalColorLevel.NONE:
+            assert frames[0][0] == ""
+
+
+def test_tool_breathing_handoff_preserves_phase_and_smoothly_changes_speed():
+    motion = ToolBreathingMotion()
+    motion.advance(TOOL_BREATH_EXECUTION_SECONDS, reviewing=False)
+    assert motion.cycle == pytest.approx(0.12)
+    before = motion.cycle
+    motion.advance(0, reviewing=True)
+    assert motion.cycle == before
+    motion.advance(0.2, reviewing=True)
+    assert motion.rate == pytest.approx(1 / TOOL_BREATH_REVIEW_SECONDS, abs=0.01)
+    assert 0.2 / TOOL_BREATH_REVIEW_SECONDS < motion.cycle - before < 0.2 / TOOL_BREATH_EXECUTION_SECONDS
+    whole = ToolBreathingMotion()
+    divided = ToolBreathingMotion()
+    whole.advance(0.32, reviewing=True)
+    for _ in range(10):
+        divided.advance(0.032, reviewing=True)
+    assert whole.cycle == pytest.approx(divided.cycle)
+    assert whole.rate == pytest.approx(divided.rate)
+
+
+@pytest.mark.parametrize("background", [(17, 17, 17), (245, 245, 245), None])
+@pytest.mark.parametrize("level", [TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256])
+def test_tool_breathing_palette_preserves_weight_and_visible_trough(background, level):
+    capabilities = TerminalCapabilities(
+        identity=TerminalIdentity(TerminalKind.UNKNOWN, "unknown"),
+        color_support=TerminalColorSupport.fixed(level),
+        theme=TerminalTheme(background=background),
+    )
+    empty = Style.from_dict({})
+    style = build_tui_application_style(empty, empty, empty, capabilities=capabilities)
+    attrs = [style.get_attrs_for_style_str(f"class:tool.breath.{index}") for index in range(64)]
+    assert not any(attr.bold or attr.dim or attr.bgcolor for attr in attrs)
+    assert len({attr.color for attr in attrs}) >= (40 if level is TerminalColorLevel.TRUECOLOR else 3)
+    if background is not None:
+        for attr in attrs:
+            rgb = tuple(int(attr.color[index:index + 2], 16) for index in (0, 2, 4))
+            assert max(abs(left - right) for left, right in zip(rgb, background)) >= 70
 
 
 @pytest.mark.parametrize(
     ("family", "text"),
     (
-        ("tool", "Calling"),
         ("wait", "Thinking"),
-        ("tool", "运行"),
         ("wait", "处理中"),
         ("retry", "Retrying"),
         ("provider_retry", "Retrying"),
@@ -105,7 +176,7 @@ def test_status_sweep_changes_text_colors_through_active_pass(
     )
 
 
-def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
+def test_wait_and_retry_indicators_alternate_hollow_and_solid_glyphs() -> None:
     indicators = {
         family: {
             status_indicator_fragment(
@@ -115,10 +186,10 @@ def test_status_indicator_breathes_between_hollow_and_solid_glyphs() -> None:
             )[1]
             for index in range(60)
         }
-        for family in ("tool", "wait")
+        for family in ("retry", "wait")
     }
 
-    assert indicators == {"tool": {"◦", "•"}, "wait": {"◦", "•"}}
+    assert indicators == {"retry": {"◦", "•"}, "wait": {"◦", "•"}}
     assert all(
         get_cwidth(glyph) == 1
         for family in indicators.values()
@@ -235,8 +306,8 @@ def test_status_sweep_uses_display_width_and_fixed_codex_period() -> None:
     )
 
     assert 0.0 < short_step < long_step
-    assert status_interval("tool") == SWEEP_FRAME_INTERVAL_SECONDS
-    assert status_phase_rate("tool") == status_phase_rate("wait") == 1.0
+    assert status_interval("wait") == SWEEP_FRAME_INTERVAL_SECONDS
+    assert status_phase_rate("retry") == status_phase_rate("wait") == 1.0
 
 
 def test_status_sweep_uses_codex_padding_and_restarts_after_two_seconds() -> None:

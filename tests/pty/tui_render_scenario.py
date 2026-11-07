@@ -29,6 +29,7 @@ from agent.ports import ToolCompleted
 from agent.ports import ToolStarted
 from agent.ports import TurnTerminal
 from frontends.interaction.contracts import PromptContext
+from frontends.terminal.capabilities import detect_terminal_capabilities
 from frontends.terminal.progress import create_terminal_progress
 from frontends.tui.adapters.input import create_tui_input
 from frontends.tui.adapters.session import create_tui_output_session
@@ -807,6 +808,9 @@ async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     async def checkpoint(name: str) -> None:
         """为父进程标记可观察阶段，持续收集等候期间的动画帧。"""
         stage[0] = name
+        previous_render = runtime.screen.application.render_counter
+        runtime.invalidate()
+        await _wait_until(lambda: runtime.screen.application.render_counter > previous_render, "stage render")
         _record_document(facts, runtime)
         facts.set_detail("display_blocks", [
             {"stable_id": block.stable_id, "text": "".join(text for _, text in block.display_block.fragments)}
@@ -916,9 +920,12 @@ async def _run(scenario: str, facts_path: Path) -> None:
     """在原生终端中运行指定渲染与生命周期场景。"""
     reset_sinks()
     facts = ScenarioFacts(facts_path, scenario)
+    capabilities = detect_terminal_capabilities(input_stream=sys.stdin, output_stream=sys.stdout)
+    facts.set_detail("color_level", capabilities.color_support.effective_level.value)
     runtime = TuiRuntime(
         input_obj=create_tui_input(sys.stdin),
         terminal_progress=create_terminal_progress(sys.stdout),
+        terminal_capabilities=capabilities,
     )
     runtime.set_prompt_context(PromptContext(
         model="pty-model",

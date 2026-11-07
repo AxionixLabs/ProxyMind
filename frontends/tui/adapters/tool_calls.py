@@ -27,7 +27,7 @@ from frontends.tui.core.document import (
     WidthBlockRenderer,
 )
 from frontends.tui.core.models import FragmentBlock
-from frontends.tui.core.status_frames import spinner_indicator_fragment
+from frontends.tui.core.status_frames import render_tool_indicator_at_width
 from frontends.tui.core.styles import styled_fragment_block
 from frontends.tui.rendering.fragments import with_transcript_hint
 
@@ -130,7 +130,8 @@ class ToolCallPresentation:
         entry = self._active
         runtime = self.output.runtime
         if runtime.turn_output_suppressed:
-            return False
+            # 隐藏旧调用后仍消费它的前景槽，避免备用标题在权威终态前重现。
+            return tool_id in self._calls
         if entry is None:
             completed = self._calls.get(tool_id)
             return completed is not None and not completed.snapshot.pending and phase is not None
@@ -140,17 +141,22 @@ class ToolCallPresentation:
             return False
         block = entry.render_at(self.output.terminal_width)
         owns_activity = tool_id == entry.snapshot.view.call_id
-        if owns_activity and phase is not None and self.output.animate and self.output.terminal_width >= 4:
+        if self.output.animate and self.output.terminal_width >= 4:
             fragments = list(block.fragments)
-            style, symbol = spinner_indicator_fragment(phase, family="wait", color_level=runtime.activity.color_level)
             if fragments and fragments[0][1] == "•":
-                fragments[0] = (style, symbol)
+                if owns_activity and phase is not None:
+                    fragments[0] = runtime.activity.tool_indicator()
+                elif self._last_frame is not None:
+                    fragments[0] = self._last_frame.fragments[0]
             block = FragmentBlock(tuple(fragments))
         if block != self._last_frame:
             runtime.set_active_renderable(
                 block, kind="operation", source=entry.snapshot.view,
                 transcript_block=entry.transcript,
-                raw_text=entry.raw, display_renderer=entry.renderer,
+                raw_text=entry.raw, display_renderer=partial(
+                    render_tool_indicator_at_width, entry.renderer,
+                    indicator_style=block.fragments[0][0],
+                ),
                 display_render_width=self.output.terminal_width,
             )
             self._last_frame = block

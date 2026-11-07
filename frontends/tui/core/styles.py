@@ -23,7 +23,11 @@ from frontends.terminal.capabilities import (
     DEGRADED_TERMINAL_CAPABILITIES,
     TerminalCapabilities,
 )
-from frontends.terminal.palette import best_color
+from frontends.terminal.color_support import TerminalColorLevel
+from frontends.terminal.palette import (
+    best_color,
+    blend_color,
+)
 from frontends.terminal.semantic_styles import (
     TerminalSemanticRole,
     TerminalSemanticStyles,
@@ -40,6 +44,7 @@ from .models import (
     FragmentBlock,
     LineFill,
 )
+from .status_frames import TOOL_BREATH_STEPS
 from ..prompting.commands import (
     canonical_command_label,
     resolve_slash_command
@@ -621,6 +626,27 @@ def prompt_style(style: TextStyle) -> str:
     return " ".join(parts)
 
 
+def _tool_breathing_style(semantics: TerminalSemanticStyles, capabilities: TerminalCapabilities) -> BaseStyle:
+    """按冻结主题生成有界的呼吸色阶，保留低谷可见性与常规字重。"""
+    level = capabilities.color_support.render_level
+    if level not in {TerminalColorLevel.TRUECOLOR, TerminalColorLevel.ANSI256}:
+        return Style.from_dict({})
+    background = capabilities.theme.background
+    if background is None:
+        low, peak = (112, 132, 132), (0, 155, 155)
+    elif semantics.tone is TerminalThemeTone.LIGHT:
+        peak = (0, 104, 113)
+        low = blend_color(peak, background, 0.65)
+    else:
+        peak = (100, 210, 210)
+        low = blend_color(peak, background, 0.48)
+    styles: dict[str, str] = {}
+    for step in range(TOOL_BREATH_STEPS):
+        color = best_color(blend_color(peak, low, step / (TOOL_BREATH_STEPS - 1)), level)
+        styles[f"tool.breath.{step}"] = f"fg:{color} nobold nodim"
+    return Style.from_dict(styles)
+
+
 def build_tui_application_style(
     input_style: BaseStyle,
     approval_style: BaseStyle,
@@ -642,6 +668,7 @@ def build_tui_application_style(
         TUI_APPLICATION_OVERRIDES,
         _surface_style(semantics),
         _terminal_semantic_style(semantics),
+        _tool_breathing_style(semantics, capabilities),
         _footer_style(semantics, capabilities),
     ]
     if capabilities.identity.is_ide_terminal:

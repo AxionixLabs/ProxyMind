@@ -104,6 +104,82 @@ def _acknowledge(path: Path, stage: str) -> None:
     path.with_suffix(f".{stage}.ack").write_text("observed", encoding="ascii")
 
 
+@pytest.mark.parametrize("theme,environment,minimum_colors", [
+    ("dark", _TRUECOLOR_TERMINAL, 20),
+    ("light", _TRUECOLOR_TERMINAL, 20),
+    ("unknown", _TRUECOLOR_TERMINAL, 20),
+    ("dark", _ANSI256_TERMINAL, 3),
+    ("light", _ANSI256_TERMINAL, 3),
+    ("dark", _ANSI16_TERMINAL, 1),
+    ("light", _NO_COLOR_TERMINAL, 1),
+])
+def test_tool_breathing_rhythm_and_color_depth_in_real_tty(tmp_path, theme, environment, minimum_colors):
+    facts_path = tmp_path / "facts.json"
+    recordings = {}
+    paused_color = None
+    with _spawn_color_scenario("tool_breathing", theme, facts_path, environment) as terminal:
+        for stage, duration, period in (
+            ("breathing_execution", 3.1, 1.35),
+            ("breathing_approval", 0.25, None),
+            ("breathing_approval_recorded", 0.25, None),
+            ("breathing_result_ready", 3.1, 1.35),
+            ("breathing_review", 3.9, 1.8),
+        ):
+            _wait_for_stage(facts_path, stage)
+            snapshot = terminal.wait_for_screen_text("reviewing result" if stage == "breathing_review" else "Using computer")
+            row = next(index for index, line in enumerate(snapshot.visible_lines) if "Using computer" in line)
+            line = snapshot.visible_lines[row]
+            dot_column = line.index("•")
+            title_column = line.index("Using computer")
+            title_style = terminal.screen.cell(row, title_column)
+            started = time.perf_counter()
+            samples = []
+            while time.perf_counter() - started < duration:
+                time.sleep(0.02)
+                current = terminal.screen.snapshot()
+                dot = terminal.screen.cell(row, dot_column)
+                assert current.visible_lines[row] == line
+                assert terminal.screen.cell(row, title_column) == title_style
+                assert dot.data == "•" and not dot.bold and not dot.blink
+                samples.append((time.perf_counter() - started, dot.foreground))
+            colors = {color for _elapsed, color in samples}
+            recordings[stage] = samples
+            (tmp_path / "breathing-samples.json").write_text(json.dumps(recordings, indent=2), encoding="utf-8")
+            assert len(colors) >= (minimum_colors if period is not None else 1)
+            if minimum_colors == 1 or period is None:
+                assert len(colors) == 1
+            if stage == "breathing_approval":
+                paused_color = samples[0][1]
+            elif stage == "breathing_approval_recorded":
+                assert colors == {paused_color}
+            if environment.no_color:
+                assert colors == {"default"}
+            _acknowledge(facts_path, stage)
+        facts = _wait_for_stage(facts_path, "breathing_finished")
+        frames = _details(facts)["tool_frames"]
+        assert isinstance(frames, list) and frames
+        for frame in frames:
+            assert isinstance(frame, dict)
+            assert frame["glyph"] == "•" and not frame["bold"] and not frame["dim"]
+        assert _details(facts)["injected_stall_seconds"] == 0.25
+        if minimum_colors == 20:
+            greens = [int(frame["color"][2:4], 16) for frame in frames]
+            assert max(abs(right - left) for left, right in zip(greens, greens[1:])) < 45
+        terminal.wait_for_screen_text("Used computer")
+        terminal.save_failure_artifacts(tmp_path / "breathing-recording")
+        _acknowledge(facts_path, "breathing_finished")
+        assert terminal.wait_for_exit(timeout=10) == 0
+    if minimum_colors == 20 and theme in {"dark", "light"}:
+        for stage, period in (("breathing_execution", 1.35), ("breathing_result_ready", 1.35), ("breathing_review", 1.8)):
+            samples = recordings[stage]
+            green = [int(color[2:4], 16) for _elapsed, color in samples]
+            assert max(abs(right - left) for left, right in zip(green, green[1:])) < 45, stage
+            peak = max(green) if theme == "dark" else min(green)
+            peaks = [samples[index][0] for index in range(1, len(samples)) if green[index] == peak and green[index - 1] != peak]
+            assert len(peaks) >= 2, stage
+            assert all(abs(right - left - period) < 0.22 for left, right in zip(peaks, peaks[1:])), stage
+
+
 def _details(
     facts: dict[str, ThawedJsonValue],
 ) -> dict[str, ThawedJsonValue]:
@@ -112,6 +188,32 @@ def _details(
     if not isinstance(details, dict):
         raise TypeError("PTY color details must be an object")
     return details
+
+
+def test_tool_breathing_ctrl_c_stays_hidden_while_terminal_is_delayed(tmp_path):
+    facts_path = tmp_path / "facts.json"
+    with _spawn_color_scenario("tool_breathing_cancel", "dark", facts_path, _TRUECOLOR_TERMINAL) as terminal:
+        for stage in (
+            "breathing_execution", "breathing_approval", "breathing_approval_recorded",
+            "breathing_result_ready", "breathing_review", "breathing_cancel_ready",
+        ):
+            _wait_for_stage(facts_path, stage)
+            terminal.wait_for_screen_text("Using computer")
+            _acknowledge(facts_path, stage)
+        terminal.send_key(PtyKey.CTRL_C)
+        facts = _wait_for_stage(facts_path, "breathing_cancel_pending")
+        assert _details(facts)["pending_terminal"] is True
+        for _ in range(10):
+            time.sleep(0.04)
+            assert "Using computer" not in terminal.screen.snapshot().visible_text
+        _acknowledge(facts_path, "breathing_cancel_pending")
+        _wait_for_stage(facts_path, "breathing_finished")
+        for _ in range(5):
+            time.sleep(0.04)
+            assert "Using computer" not in terminal.screen.snapshot().visible_text
+        terminal.save_failure_artifacts(tmp_path / "breathing-cancel-recording")
+        _acknowledge(facts_path, "breathing_finished")
+        assert terminal.wait_for_exit(timeout=10) == 0
 
 
 def _screen_has_concrete_color(

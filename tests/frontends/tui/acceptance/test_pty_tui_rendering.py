@@ -151,19 +151,25 @@ def test_computer_activity_animation_and_terminal_handoff(tmp_path: Path, scenar
             column = line.index("computer")
             title_cell = terminal.screen.cell(row, column)
             samples = []
-            for _ in range(6):
+            dot_styles = []
+            dot_column = line.index("•")
+            for _ in range(28 if stage in {"computer_one_running", "computer_two_running"} else 6):
                 time.sleep(0.055)
                 current = terminal.screen.snapshot()
                 samples.append(current.visible_lines[row])
+                dot = terminal.screen.cell(row, dot_column)
+                dot_styles.append((dot.foreground, dot.background, dot.bold))
                 assert terminal.screen.cell(row, column).foreground == title_cell.foreground
                 assert terminal.screen.cell(row, column).background == title_cell.background
+            assert len(set(samples)) == 1
             if stage in {"computer_one_running", "computer_two_running"}:
                 if scenario == "computer":
-                    assert len(set(samples)) > 1
+                    assert len(set(dot_styles)) >= 8
+                    assert {bold for _fg, _bg, bold in dot_styles} == {False}
                 else:
-                    assert len(set(samples)) == 1
+                    assert len(set(dot_styles)) == 1
             if stage == "computer_approval":
-                assert len(set(samples)) == 1
+                assert len(set(dot_styles)) == 1
                 assert "• Using computer" in samples[-1]
             assert "Thinking" not in terminal.screen.snapshot().visible_text
             frames.append(f"[{stage}]\n{terminal.screen.snapshot().visible_text}")
@@ -212,17 +218,22 @@ def test_tool_calls_update_in_place_and_handoff_without_title_flash(tmp_path: Pa
                 title_colors = colors
             assert colors == title_colors
             samples = []
-            for _ in range(6):
+            dot_styles = []
+            dot_column = snapshot.visible_lines[row].index("•")
+            for _ in range(28 if running and stage != "tool_approval" else 6):
                 time.sleep(0.055)
                 current = terminal.screen.snapshot()
                 samples.append(current.visible_lines[row])
+                dot = terminal.screen.cell(row, dot_column)
+                dot_styles.append((dot.foreground, dot.background, dot.bold))
                 cell = terminal.screen.cell(row, column)
                 assert (cell.foreground, cell.background) == title_colors
+            assert len(set(samples)) == 1
             if running and stage != "tool_approval" and scenario == "tool_calls":
-                assert len(set(samples)) > 1
-                assert len({line[2:] for line in samples}) == 1
+                assert len(set(dot_styles)) >= 8
+                assert {bold for _fg, _bg, bold in dot_styles} == {False}
             else:
-                assert len(set(samples)) == 1
+                assert len(set(dot_styles)) == 1
             current = terminal.screen.snapshot()
             if stage != "tool_model_wait":
                 assert "Thinking" not in current.visible_text
@@ -278,10 +289,16 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
                     terminal.wait_for_screen_text(expected)
                     time.sleep(0.08)
             samples = []
-            for _ in range(6):
+            dot_styles = []
+            breathing = stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready", "handoff_late_computer", "handoff_late_generic"}
+            for _ in range(36 if breathing else 6):
                 time.sleep(0.055)
                 snapshot = terminal.screen.snapshot()
                 samples.append(snapshot.visible_text)
+                for row, line in enumerate(snapshot.visible_lines):
+                    if "• Calling" in line or "• Using computer" in line:
+                        dot = terminal.screen.cell(row, line.index("•"))
+                        dot_styles.append((dot.foreground, dot.background, dot.bold))
                 assert "Thinking" not in snapshot.visible_text
                 title_rows = [i for i, line in enumerate(snapshot.visible_lines) if "remote_tool" in line]
                 for row in title_rows:
@@ -307,10 +324,13 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
                     assert "Calling remote_tool" not in snapshot.visible_text
                 if stage == "handoff_terminal":
                     assert all(label not in snapshot.visible_text for label in ("Calling", "Using computer", "LATE RESULT"))
-            if stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready", "handoff_late_computer", "handoff_late_generic"}:
-                assert len(set(samples)) > 1
+            if breathing:
+                assert len(set(samples)) == 1
+                assert len(set(dot_styles)) >= 8
+                assert {bold for _fg, _bg, bold in dot_styles} == {False}
             if stage in {"handoff_approval", "handoff_cancel_paused", "handoff_terminal"}:
                 assert len(set(samples)) == 1
+                assert len(set(dot_styles)) <= 1
             snapshots.append(f"[{stage}]\n{samples[-1]}")
             _acknowledge(facts_path, stage)
             if stage == "handoff_cancel_ready":

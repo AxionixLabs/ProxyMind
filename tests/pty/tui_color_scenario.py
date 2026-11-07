@@ -1,17 +1,25 @@
 import argparse
 import asyncio
 import sys
+import time
 import typing
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+from prompt_toolkit.application import Application
+
 from agent.application.approvals.coordinator import ApprovalCoordinator
+from agent.application.views import ApprovalView
 from agent.application.views.builders.tools import build_native_tool_result_view
 from agent.application.views.builders.tools import build_tool_start_view
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports import OutputSurfaceContext
+from agent.ports import ModelWaitRequested
 from agent.ports import RetryChanged
+from agent.ports import ToolCompleted
+from agent.ports import ToolStarted
+from agent.ports import TurnTerminal
 from agent.ports.mcp_runtime import (
     McpControlResult,
     McpRuntimeSnapshot,
@@ -29,6 +37,7 @@ from frontends.tui.adapters.input import create_tui_input
 from frontends.tui.adapters.session import create_tui_output_session
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.queued import TuiSubmission
+from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.styles import failure_text_block
 from frontends.tui.features.mcp import (
@@ -221,6 +230,84 @@ def _patch_payload() -> dict[str, ThawedJsonValue]:
             }],
         },
     }
+
+
+async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, cancel: bool = False) -> None:
+    """用真实输出与工具生命周期记录执行和结果等待两个呼吸阶段。"""
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=_SURFACE, runtime=runtime)
+    await session.open()
+    scope = {"surface_id": _SURFACE.surface_id, "turn_id": _SURFACE.turn_id}
+    interrupted = asyncio.Event()
+    frames: list[ThawedJsonValue] = []
+
+    def capture(application: Application[None]) -> None:
+        """记录全部实际渲染帧的圆点属性，包含事件之间的过渡帧。"""
+        screen = application.renderer.last_rendered_screen
+        for cells in screen.data_buffer.values():
+            line = "".join(cells[column].char for column in sorted(cells))
+            if "Using computer" not in line:
+                continue
+            dot = next((cell for cell in cells.values() if cell.char == "•"), None)
+            if dot is not None:
+                attrs = application.style.get_attrs_for_style_str(dot.style)
+                frames.append({
+                    "time": time.perf_counter(), "stage": facts.stage,
+                    "glyph": dot.char, "color": attrs.color,
+                    "bold": attrs.bold, "dim": attrs.dim,
+                })
+
+    def interrupt() -> InterruptDisposition:
+        """将真实按键交给产品中断展示边界，延迟权威终态以观察残留。"""
+        runtime.begin_interrupt_settlement()
+        runtime.prepare_interrupted_presentation()
+        interrupted.set()
+        return InterruptDisposition.CONSUMED
+
+    runtime.bind_interrupt_handler(interrupt)
+    runtime.screen.application.after_render += capture
+    reader = asyncio.create_task(runtime.read_message(PromptContext(model="color-model")))
+    try:
+        await session.activity.emit(ToolStarted(**scope, tool_id="breath", tool_kind="client", name="computer"))
+        await session.presentation.emit(build_tool_start_view("computer", {"action": "observe"}, call_id="breath"))
+        await _checkpoint(runtime, facts, "breathing_execution")
+        # 模拟慢回调占用主循环，核对恢复帧不会跳过整段渐亮过程。
+        time.sleep(0.25)
+        await asyncio.sleep(0.05)
+        facts.set_detail("injected_stall_seconds", 0.25)
+        await runtime.begin_approval_session()
+        await _checkpoint(runtime, facts, "breathing_approval")
+        await session.presentation.emit(ApprovalView(
+            approval={"tool": "computer", "call_id": "breath"}, decision="accept", state="approved",
+        ))
+        await _checkpoint(runtime, facts, "breathing_approval_recorded")
+        await runtime.end_approval_session()
+        await session.presentation.emit(build_native_tool_result_view(
+            "computer", {"action": "observe"}, ok=True, data={"tree": {"nodes": []}}, call_id="breath",
+        ))
+        await _checkpoint(runtime, facts, "breathing_result_ready")
+        await session.activity.emit_batch((
+            ToolCompleted(**scope, tool_id="breath", tool_kind="client", name="computer"),
+            ModelWaitRequested(**scope, revision=1, reason="tool_result"),
+        ))
+        await _checkpoint(runtime, facts, "breathing_review")
+        if cancel:
+            await _checkpoint(runtime, facts, "breathing_cancel_ready")
+            await asyncio.wait_for(interrupted.wait(), timeout=10)
+            facts.set_detail("pending_terminal", runtime.execution_active and runtime.activity.lease("wait") is not None)
+            await _checkpoint(runtime, facts, "breathing_cancel_pending")
+        await session.activity.emit(TurnTerminal(**scope, status="interrupted" if cancel else "completed"))
+        if cancel:
+            runtime.finish_interrupted_presentation()
+        facts.set_detail("tool_frames", frames)
+        await _checkpoint(runtime, facts, "breathing_finished")
+    finally:
+        runtime.screen.application.after_render -= capture
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+        runtime.bind_interrupt_handler(None)
+        await session.close()
+        runtime.set_execution_active(False)
 
 
 async def _run_completion(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
@@ -522,6 +609,9 @@ async def _execute(
         elif scenario == "mcp_display":
             await _run_mcp_display(runtime, facts)
             facts.stage = "complete"
+        elif scenario in {"tool_breathing", "tool_breathing_cancel"}:
+            await _run_tool_breathing(runtime, facts, cancel=scenario == "tool_breathing_cancel")
+            facts.stage = "complete"
         elif scenario in {"cancel", "failure"}:
             await _run_exit(runtime, facts, scenario)
         else:
@@ -537,7 +627,7 @@ async def _execute(
 def main() -> int:
     """解析真实 TUI 颜色场景入口。"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("scenario", choices=("full", "mcp_display", "cancel", "failure"))
+    parser.add_argument("scenario", choices=("full", "mcp_display", "tool_breathing", "tool_breathing_cancel", "cancel", "failure"))
     parser.add_argument("theme", choices=("dark", "light", "partial", "unknown"))
     parser.add_argument("facts", type=Path)
     arguments = parser.parse_args()

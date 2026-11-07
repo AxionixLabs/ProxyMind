@@ -109,14 +109,20 @@ async def test_approval_pauses_and_resumes_one_call_without_reserializing_each_f
         await _start(session, "one")
         with patch("frontends.tui.adapters.tool_calls.call_transcript", side_effect=AssertionError("frame serialized payload")):
             runtime.activity._render_slots()
+            before = runtime.document.active_block
+            cycle = runtime.activity._tool_breath.cycle
             await session.activity.emit(ApprovalPresentationChanged(**SCOPE, active=True))
             paused = _text(runtime.document.active_block)
             assert paused.startswith("• Calling")
+            await asyncio.sleep(0.08)
+            assert runtime.document.active_block == before
+            assert runtime.activity._tool_breath.cycle == cycle
             await session.presentation.emit(ApprovalView(
                 approval={"tool": "remote_tool", "call_id": "one"}, decision="accept", state="approved",
             ))
             await session.activity.emit(ApprovalPresentationChanged(**SCOPE, active=False))
-            assert not _text(runtime.document.active_block).startswith("•")
+            assert _text(runtime.document.active_block) == paused
+            assert runtime.activity.active
             assert runtime.screen.activity_block is None
     finally:
         await session.close()
@@ -218,6 +224,30 @@ async def test_steer_submission_settles_tools_once_before_next_query(name):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("name,title", [("remote_tool", "Calling"), ("computer", "Using computer")])
+async def test_interrupted_tool_does_not_reopen_fallback_while_waiting_for_terminal(name, title):
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
+    await session.open()
+    try:
+        await session.activity.emit(ToolStarted(**SCOPE, tool_id="one", tool_kind="client", name=name))
+        await session.presentation.emit(ToolStartView(name, {"action": "observe"}, "one"))
+        lease = runtime.activity.lease("wait")
+        runtime.begin_interrupt_settlement()
+        runtime.prepare_interrupted_presentation()
+        runtime.activity._render_slots()
+        assert runtime.document.active_block is None
+        assert title not in _text(runtime.screen.activity_block)
+        assert runtime.activity.lease("wait") == lease
+        assert runtime.execution_active
+    finally:
+        await session.close()
+        runtime.set_execution_active(False)
+        await runtime.activity.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name,title", [("remote_tool", "Calling"), ("computer", "Using computer")])
 async def test_tool_title_style_is_stable_before_and_after_presentation(name, title):
     runtime = TuiRuntime()
     session = create_tui_output_session("", context=CONTEXT, runtime=runtime)
@@ -232,6 +262,10 @@ async def test_tool_title_style_is_stable_before_and_after_presentation(name, ti
         assert active is not None
         after = next(style for style, text in active.fragments if title in text)
         assert before == after
+        renderer = runtime.document.active_display_renderer
+        assert renderer is not None
+        for width in (40, 120):
+            assert renderer(width).fragments[0] == active.fragments[0]
     finally:
         await session.close()
         await runtime.activity.clear()

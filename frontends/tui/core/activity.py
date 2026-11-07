@@ -36,10 +36,12 @@ from frontends.terminal.styles import ACTION_TOOL_CALL_STYLE
 from .models import FragmentBlock
 from .status_frames import (
     StatusFamily,
+    ToolBreathingMotion,
     render_status_fragments,
     spinner_indicator_fragment,
     status_interval,
     status_phase_rate,
+    tool_breathing_fragment,
 )
 from .styles import (
     BODY_STYLE,
@@ -190,6 +192,7 @@ class TuiActivity(object):
         self._wait_paused: bool = False
         self._completed_wait_elapsed_sec: float | None = None
         self._wait_phase: float = 0.0
+        self._tool_breath = ToolBreathingMotion()
         self._turn_surface_indicator: TurnSurfaceIndicator = "thinking"
         self._turn_surface_title: str = "Thinking"
         self._turn_surface_detail: str = ""
@@ -232,7 +235,9 @@ class TuiActivity(object):
         """为新提交接续前景等待动画，重置计时并保留动画相位。"""
         slot = self._slots.get("foreground")
         phase = slot.phase if slot is not None else self._wait_phase
+        tool_breath = self._tool_breath
         self._reset_wait()
+        self._tool_breath = tool_breath
         self._wait_started_at = time.perf_counter()
         self._wait_phase = phase
         self._activate_wait_slot()
@@ -584,12 +589,16 @@ class TuiActivity(object):
 
         return True
 
+    def tool_indicator(self) -> tuple[str, str]:
+        """返回当前前景时钟的工具圆点，供同一所有者的标题与详情复用。"""
+        return tool_breathing_fragment(self._tool_breath.cycle, color_level=self.color_level)
+
     def _wait_block(self, phase: float) -> FragmentBlock:
         """按当前连接状态生成等待帧。"""
         if self._turn_surface_indicator in {"tool", "computer"}:
             title = self._turn_surface_title if self._turn_surface_indicator == "tool" else "Using computer"
             return FragmentBlock((
-                spinner_indicator_fragment(phase, family="wait", color_level=self.color_level),
+                self.tool_indicator(),
                 ("", " "),
                 (prompt_style(ACTION_TOOL_CALL_STYLE), title),
             ))
@@ -707,6 +716,17 @@ class TuiActivity(object):
                 )
 
                 previous_tick = current_tick
+
+                foreground = self._slots.get("foreground")
+                if (
+                    foreground is not None
+                    and not foreground.frozen
+                    and self._turn_surface_indicator in {"tool", "computer", "thinking"}
+                ):
+                    # 卡顿后限制视觉追赶，活动耗时仍使用下方未裁剪的真实增量。
+                    self._tool_breath.advance(
+                        min(step, interval * 2), reviewing=self._turn_surface_model_wait,
+                    )
 
                 for slot in self._slots.values():
                     slot.phase += step
@@ -892,6 +912,7 @@ class TuiActivity(object):
         self._wait_paused = False
         self._completed_wait_elapsed_sec = None
         self._wait_phase = 0.0
+        self._tool_breath = ToolBreathingMotion()
         self._turn_surface_indicator = "thinking"
         self._compaction_started_at = None
         self._compaction_identity = None

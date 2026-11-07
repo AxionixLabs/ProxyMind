@@ -2,7 +2,11 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+    patch,
+)
 
 import pytest
 from prompt_toolkit.data_structures import Size
@@ -60,6 +64,28 @@ from frontends.terminal.mcp_status import (
     external_mcp_status_view,
     inbuild_status_view,
 )
+
+
+@pytest.mark.anyio
+async def test_tool_breathing_recovers_from_stall_without_skipping_brightness_ramp():
+    activity = TuiActivity(
+        set_renderable=lambda _block: None,
+        clear_renderable=lambda: None,
+        color_level=TerminalColorLevel.TRUECOLOR,
+    )
+    with patch.object(activity, "_ensure_task"):
+        await activity.show_turn_surface("tool", title="Calling remote_tool", tool_id="one")
+    before = int(activity.tool_indicator()[0].rsplit(".", 1)[1])
+    clock = SimpleNamespace(time=Mock(side_effect=[0.0, 0.25]))
+    with (
+        patch("frontends.tui.core.activity.asyncio.get_running_loop", return_value=clock),
+        patch("frontends.tui.core.activity.asyncio.sleep", new=AsyncMock()),
+        patch.object(activity, "_needs_render_task", side_effect=[True, False]),
+    ):
+        await activity._render_loop()
+    after = int(activity.tool_indicator()[0].rsplit(".", 1)[1])
+    assert 0 < after - before <= 20
+    assert activity._slots["foreground"].phase == 0.25
 
 
 async def _render_next_frame(runtime: TuiRuntime):
