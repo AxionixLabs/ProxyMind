@@ -141,6 +141,24 @@ def test_sync_runs_from_public_bundle_without_application_sources(
     assert check_docs._validate_generated_pages(public_site) == []
 
 
+def test_readme_links_distinguish_overview_from_document_index(publication) -> None:
+    source_root, site_root, entries = publication
+    (source_root / "README.md").write_text("# Overview\n", encoding="utf-8")
+    entries.append(sync_docs.DocEntry("README.md", "overview.md", "Overview"))
+    (source_root / "docs" / "guide.md").write_text(
+        "[Overview](../README.md#quick-start)\n[Index](README.md)\n", encoding="utf-8",
+    )
+
+    sync_docs.sync_reference_docs(source_root, site_root, entries)
+
+    content = (site_root / "src" / "content" / "docs" / "generated" / "guide.md").read_text(
+        encoding="utf-8",
+    )
+    assert "[Overview](/generated/overview/#quick-start)" in content
+    assert "[Index](/generated/docs-index/)" in content
+    assert check_docs._validate_generated_pages(site_root) == []
+
+
 def test_default_check_reports_publication_error_before_generation(publication) -> None:
     source_root, site_root, _entries = publication
     (source_root / "docs" / "extra.md").write_text("# Extra\n", encoding="utf-8")
