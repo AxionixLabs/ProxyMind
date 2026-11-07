@@ -197,7 +197,7 @@ def test_dollar_skill_rows_bracket_category_labels() -> None:
     )
 
 
-def test_token_menu_caps_long_meta_width() -> None:
+def test_command_menu_uses_available_width_for_long_descriptions() -> None:
     item = TokenMenuItem(
         display_text="/short",
         meta_text="x" * 200,
@@ -207,10 +207,10 @@ def test_token_menu_caps_long_meta_width() -> None:
         lambda: TokenMenuSnapshot(items=(item,))
     )
 
-    assert control.preferred_width(100) == 79
+    assert control.preferred_width(100) == 100
 
 
-def test_token_menu_keeps_short_meta_content_width() -> None:
+def test_command_menu_keeps_full_width_with_short_descriptions() -> None:
     item = TokenMenuItem(
         display_text="/short",
         meta_text="short help",
@@ -220,7 +220,7 @@ def test_token_menu_keeps_short_meta_content_width() -> None:
         lambda: TokenMenuSnapshot(items=(item,))
     )
 
-    assert control.preferred_width(100) == 21
+    assert control.preferred_width(100) == 100
 
 
 def test_token_menu_wraps_command_meta_to_terminal_width() -> None:
@@ -280,10 +280,12 @@ def test_token_menu_render_snapshot_for_mixed_rows() -> None:
             ("class:token-menu.meta.skill", " [Skill] concise help       "),
         ],
         [
-            ("class:token-menu.command.current", "  /model                        "),
+            ("class:token-menu.command.current", "  "),
+            ("class:token-menu.command.current", "/model"),
+            ("class:token-menu.command.current", "                         "),
             (
                 "class:token-menu.meta.command.current",
-                " [Command] set model        ",
+                "[Command] set model",
             ),
         ],
         [
@@ -294,6 +296,60 @@ def test_token_menu_render_snapshot_for_mixed_rows() -> None:
             ("class:token-menu.meta.skill", " [Skill] xxxxxxxxxxxxxxx... "),
         ],
     ]
+
+
+@pytest.mark.parametrize("width", [20, 40, 80])
+def test_command_menu_preserves_long_descriptions_and_reserves_their_column(width: int) -> None:
+    detail = "Manage MCP services 中文宽度 é 👩‍💻 " + "x" * 70
+    item = TokenMenuItem("/very-long-command-name", detail, "command")
+    control = TokenCompletionMenuControl(lambda: TokenMenuSnapshot((item,)))
+    content = control.create_content(width, 100)
+    lines = [fragments_text(content.get_line(i)) for i in range(content.line_count)]
+    description = [
+        text for i in range(content.line_count)
+        for style, text in content.get_line(i) if ".meta." in style
+    ]
+
+    assert "".join("".join(description).split()) == "".join(detail.split())
+    assert all(get_cwidth(line) <= width for line in lines)
+    if width == 20:
+        assert "…" in lines[0]
+    indent = len(lines[1]) - len(lines[1].lstrip())
+    assert all(line.startswith(" " * indent) for line in lines[1:])
+
+
+def test_command_menu_keeps_whole_selected_item_visible_and_clips_oversized_item() -> None:
+    detail = "one two three four five six seven eight nine ten"
+    items = tuple(TokenMenuItem(name, detail, "command") for name in ("/one", "/two", "/three"))
+    snapshots = [TokenMenuSnapshot(items)]
+    control = TokenCompletionMenuControl(lambda: snapshots[0])
+    control.create_content(30, 4)
+    snapshots[0] = TokenMenuSnapshot(items, selected=1)
+    content = control.create_content(30, 4)
+    assert "/two" in fragments_text(content.get_line(0))
+    assert content.cursor_position.y == 0
+    selected_text = " ".join(
+        text for i in range(content.line_count)
+        for style, text in content.get_line(i) if style.endswith("meta.command.current")
+    )
+    assert " ".join(selected_text.split()) == detail
+
+    content = control.create_content(20, 2)
+    assert content.line_count == 2
+    assert "/two" in fragments_text(content.get_line(0))
+    assert "one" in fragments_text(content.get_line(0))
+    snapshots[0] = TokenMenuSnapshot(items, selected=0)
+    assert "/one" in fragments_text(control.create_content(30, 4).get_line(0))
+
+
+def test_command_menu_word_boundary_and_item_limit_use_wrapped_height() -> None:
+    items = tuple(TokenMenuItem(f"/c{i}", "Manage MCP services", "command") for i in range(12))
+    control = TokenCompletionMenuControl(lambda: TokenMenuSnapshot(items))
+    content = control.create_content(18, 40)
+    assert fragments_text(content.get_line(0)).endswith("Manage MCP")
+    assert content.line_count == 16
+    assert control.display_height(18) == 16
+    assert "/c8" not in "".join(fragments_text(content.get_line(i)) for i in range(content.line_count))
 
 
 def test_token_menu_highlights_match_indices_in_rendered_rows() -> None:
@@ -486,7 +542,7 @@ def test_command_completion_discards_text_after_cursor() -> None:
     assert buffer.cursor_position == len("/mcp")
 
 
-@pytest.mark.parametrize(("columns", "resolved_height"), [(32, 4), (80, 2), (120, 1)])
+@pytest.mark.parametrize(("columns", "resolved_height"), [(32, 3), (80, 1), (120, 1)])
 def test_completion_surface_has_no_async_footer_gap(columns, resolved_height) -> None:
     output = DummyOutput()
     with patch.object(output, "get_size", return_value=Size(rows=24, columns=columns)):

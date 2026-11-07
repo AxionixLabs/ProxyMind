@@ -280,9 +280,6 @@ def test_native_exit_entries_share_one_summary(deletion_case, entry):
         offset = len(terminal.session.output())
         if entry == "ctrl_c":
             terminal.send_key(PtyKey.CTRL_C)
-            terminal.wait_for_screen_text("again to exit")
-            assert "Token usage" not in terminal.session.output_text()
-            terminal.send_key(PtyKey.CTRL_C)
         elif entry == "ctrl_d":
             terminal.send_key(PtyKey.CTRL_D)
         else:
@@ -358,15 +355,18 @@ def test_native_exit_uses_actual_lifecycle_outcome(deletion_case, mode):
 
 
 @pytest.mark.parametrize("mode", ["streaming", "tool", "retry"])
-def test_native_active_ctrl_c_prints_usage_only_after_confirmed_exit(deletion_case, mode):
+def test_native_active_ctrl_c_prints_usage_only_after_ctrl_d_exit(deletion_case, mode):
     directory, _plan, server = deletion_case
     with launch(directory, server, mode=mode) as terminal:
         terminal.wait_for_screen_text(f"PTY TUI READY {mode}", timeout=15)
+        facts_path = directory / f"{mode}.json"
         terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
+        wait_for(lambda: json.loads(facts_path.read_text(encoding="utf-8"))["stage"] == "interrupted_once")
+        terminal.send_key(PtyKey.CTRL_C)
+        wait_for(lambda: json.loads(facts_path.read_text(encoding="utf-8"))["stage"] == "interrupted_twice")
         assert "Token usage" not in terminal.session.output_text()
-        terminal.send_key(PtyKey.CTRL_C)
-        assert terminal.wait_for_exit(timeout=15) == 130
+        terminal.send_key(PtyKey.CTRL_D)
+        assert terminal.wait_for_exit(timeout=15) == 0
         terminal.save_failure_artifacts(directory / "active-exit")
         raw = terminal.session.output_text()
         assert raw.count("Token usage so far:") == 1

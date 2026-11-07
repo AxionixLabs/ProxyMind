@@ -20,7 +20,6 @@ from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.render import fragments_text
 from frontends.tui.core.runtime import TuiRuntime
-from frontends.tui.core.submission import TuiInterruptRequested
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.styles import (
     TERMINAL_CYAN_STYLE,
@@ -1403,11 +1402,9 @@ async def test_remote_interrupt_response_loss_does_not_create_status_owner(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("first_key", ("ctrl_c", "escape"))
-@pytest.mark.parametrize("exit_key", ("ctrl_c", "ctrl_d"))
-async def test_confirmed_exit_stops_observation_without_remote_terminal(
+async def test_ctrl_d_stops_observation_after_repeated_interrupts(
     protocol_client: ProtocolCommandClient,
     first_key: str,
-    exit_key: str,
 ) -> None:
     turn_started = asyncio.Event()
     turn_cancelled = asyncio.Event()
@@ -1465,10 +1462,11 @@ async def test_confirmed_exit_stops_observation_without_remote_terminal(
         assert not runtime.submit_pending_steers_after_interrupt
         assert runtime.execution_active
         assert not execution.done()
-    if exit_key == "ctrl_c":
-        assert runtime.submissions.interrupt_input() is InterruptDisposition.EXIT_REQUESTED
-    else:
-        runtime.submissions.exit_input()
+    for _ in range(3):
+        assert runtime.submissions.interrupt_input() is InterruptDisposition.CONSUMED
+        assert not runtime.submissions.interrupt_state.exit_requested
+        assert not execution.done()
+    runtime.submissions.exit_input()
     await asyncio.wait_for(execution, timeout=0.1)
 
     assert turn_cancelled.is_set()
@@ -1476,7 +1474,7 @@ async def test_confirmed_exit_stops_observation_without_remote_terminal(
     protocol_client.get_turn_status.assert_not_awaited()
     protocol_client.steer_turn.assert_not_awaited()
     assert not runtime.execution_active
-    with pytest.raises(TuiInterruptRequested if exit_key == "ctrl_c" else EOFError):
+    with pytest.raises(EOFError):
         await runtime.submissions.read_submission()
 
     await runtime.close()

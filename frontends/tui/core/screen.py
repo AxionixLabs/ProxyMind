@@ -91,7 +91,6 @@ from .input import (
     INPUT_BUFFER_NAME,
     TuiInputModel
 )
-from .interrupt import TuiInterruptState
 from .keymap import (
     KEY_CHORD_TIMEOUT_SEC,
     TuiKeyBinding,
@@ -133,7 +132,6 @@ from .styles import (
 from .token_menu import (
     TOKEN_MENU_LEFT_PADDING,
     TokenCompletionMenuControl,
-    token_menu_display_height,
 )
 from .transcript_overlay import TuiTranscriptOverlay
 from ..prompting.commands import (
@@ -232,7 +230,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         pending_steers: TuiPendingSteers,
         rejected_steers: TuiRejectedSteers,
         queued_messages: TuiQueuedMessages,
-        interrupt_state: TuiInterruptState,
         get_context: typing.Callable[[], PromptContext],
         get_placeholder_text: typing.Callable[[], str],
         get_submission_deferred: typing.Callable[[], bool],
@@ -244,7 +241,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         get_transcript_view_row: typing.Callable[[], int | None],
         accept_input: typing.Callable[[Buffer], bool],
         on_input_text_changed: typing.Callable[[Buffer], None],
-        clear_exit_confirmation: typing.Callable[[], None],
         clear_visible_transcript: typing.Callable[[], None],
         scroll_transcript_page: typing.Callable[[int], None],
         toggle_raw_output_mode: typing.Callable[[], None],
@@ -274,7 +270,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self.pending_steers = pending_steers
         self.rejected_steers = rejected_steers
         self.queued_messages = queued_messages
-        self.interrupt_state = interrupt_state
 
         self._terminal_identity = terminal_capabilities.identity
 
@@ -288,7 +283,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
         self._get_transcript_view_row = get_transcript_view_row
 
         self._can_transcript_backtrack = can_transcript_backtrack
-        self._clear_exit_confirmation = clear_exit_confirmation
         self._clear_visible_transcript = clear_visible_transcript
         self._scroll_transcript_page = scroll_transcript_page
         self._toggle_raw_output_mode = toggle_raw_output_mode
@@ -911,7 +905,7 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
                 )
             ),
             width=Dimension(min=8),
-            height=Dimension(min=1, max=self.COMPLETION_MAX_HEIGHT),
+            height=Dimension(min=1),
             scroll_offsets=ScrollOffsets(top=1, bottom=1),
             dont_extend_width=True,
             style="class:token-menu",
@@ -1205,13 +1199,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             after_render=self._finish_frame_render,
             input=application_input,
             output=application_output,
-        )
-
-        self.application.key_processor.before_key_press += (
-            lambda _sender: self.input_model.begin_key_dispatch()
-        )
-        self.application.key_processor.after_key_press += (
-            lambda _sender: self.input_model.finish_key_dispatch()
         )
 
         self._reserved_output_columns = output_reserved_right_columns(self.application.output)
@@ -2046,7 +2033,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _focus_bottom_surface(self, surface: BottomSurface) -> None:
         """把焦点切换到指定的底部临时交互表面。"""
-        self._clear_exit_confirmation()
         if self.directory_trust.active:
             self._focus_directory_trust()
             return None
@@ -2312,7 +2298,6 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             history_backtrack_primed=(
                 self.input_model.history_backtrack_primed
             ),
-            exit_armed=self.interrupt_state.exit_armed,
             queue_submission_hint_visible=(
                 self._queue_submission_hint_visible()
             ),
@@ -3355,10 +3340,12 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             )
             if menu_width is None:
                 menu_width = self.terminal_width
-            return token_menu_display_height(
-                snapshot,
+            return self.completion_menu.content.preferred_height(
                 max(1, min(self.terminal_width, menu_width)),
-            )
+                self.terminal_height,
+                False,
+                None,
+            ) or 0
 
         state = self.input.buffer.complete_state
         loaded_count = len(state.completions) if state is not None else 0
@@ -3371,6 +3358,11 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
 
     def _measure_composer_layout(self, *, available_height: int) -> ComposerLayout:
         """在给定底部面板预算内计算输入区域高度。"""
+        candidate_height = self._completion_candidate_count()
+        snapshot = self.input_model.token_menu_snapshot(self.input.buffer)
+        max_height = self.COMPLETION_MAX_HEIGHT
+        if snapshot is not None and all(item.kind == "command" for item in snapshot.items):
+            max_height = max(max_height, candidate_height)
         return measure_composer_layout(
             available_height=available_height,
             input_content_height=self._input_content_height(
@@ -3378,9 +3370,9 @@ class TuiScreen(MailboxScreenPort, ResumePickerScreenPort):
             ),
             popup_visible=self._completion_visible(),
             completion_hint_height=self._completion_hint_height(),
-            completion_candidate_count=self._completion_candidate_count(),
+            completion_candidate_count=candidate_height,
             input_surface_padding_height=self.INPUT_SURFACE_PADDING_HEIGHT,
-            completion_max_height=self.COMPLETION_MAX_HEIGHT,
+            completion_max_height=max_height,
         )
 
     def _completion_height(self) -> int:

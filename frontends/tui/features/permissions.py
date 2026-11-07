@@ -20,7 +20,6 @@ from agent.ports.presentation import (
 from metadata import const
 from ..core.models import (
     MenuActionKind,
-    MenuDescriptionLayout,
     MenuOption,
     MenuRequest,
     STANDARD_MENU_FOOTER_HINT
@@ -112,7 +111,6 @@ def _permission_confirmation_menu(
         body_warning=_permission_warning(),
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
-        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=(
             MenuOption(
                 value=settings,
@@ -213,7 +211,6 @@ async def choose_permissions_mode(
         status="Choose how model actions are approved.",
         help_text="",
         footer_hint=STANDARD_MENU_FOOTER_HINT,
-        description_layout=MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW,
         options=tuple(options),
         selected=selected_index,
     ))

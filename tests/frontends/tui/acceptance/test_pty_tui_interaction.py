@@ -359,7 +359,7 @@ def test_ctrl_c_with_draft_only_clears_draft(tmp_path: Path) -> None:
         "ctrl_c_stream_closed",
     ),
 )
-def test_double_ctrl_c_converges_across_turn_phases(
+def test_repeated_ctrl_c_keeps_turn_and_ctrl_d_exits(
     tmp_path: Path,
     scenario: str,
 ) -> None:
@@ -368,17 +368,34 @@ def test_double_ctrl_c_converges_across_turn_phases(
     with _spawn_tui(scenario, facts_path) as terminal:
         _wait_for_tui_ready(terminal, scenario)
         _wait_for_stage(facts_path, "accepting")
+        snapshot = terminal.wait_for_screen_text("test-model")
+        footer_row = next(
+            row for row, line in enumerate(snapshot.visible_lines)
+            if "test-model" in line
+        )
+        footer = snapshot.visible_lines[footer_row]
+        model_column = footer.index("test-model")
+        footer_cell = terminal.screen.cell(footer_row, model_column)
         terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
         _wait_for_stage(facts_path, "interrupted_once")
         terminal.send_key(PtyKey.CTRL_C)
+        _wait_for_stage(facts_path, "interrupted_twice")
+        assert not terminal.session.output_closed
+        assert "again to exit" not in terminal.session.output_text()
+        snapshot = terminal.screen.snapshot()
+        assert snapshot.visible_lines[footer_row] == footer
+        current_cell = terminal.screen.cell(footer_row, model_column)
+        assert current_cell.foreground == footer_cell.foreground
+        assert current_cell.background == footer_cell.background
+        terminal.save_failure_artifacts(tmp_path / "interrupt-recording")
+        terminal.send_key(PtyKey.CTRL_D)
 
         assert terminal.wait_for_exit(timeout=10.0) == 0
         facts = _read_facts(facts_path)
 
     details = _details(facts)
-    assert details["exit_kind"] == "interrupt"
-    assert details["interrupt_invocations"] == 2
+    assert details["exit_kind"] == "eof"
+    assert details["interrupt_invocations"] == 3
     expected_remote_count = 0 if scenario == "ctrl_c_late" else 1
     assert details["interrupt_request_count"] == expected_remote_count
     if scenario == "ctrl_c_early":
@@ -396,28 +413,18 @@ def test_double_ctrl_c_converges_across_turn_phases(
         assert expected_surface_text in details["surface_text"]
 
 
-def test_ctrl_c_confirmation_expiry_rearms_first_press(tmp_path: Path) -> None:
-    """验证确认超时后的 Ctrl-C 重新进入首次按键语义。"""
+def test_idle_ctrl_c_exits_with_one_keypress(tmp_path: Path) -> None:
+    """验证空闲 Ctrl-C 无需额外按键即可结束会话。"""
     facts_path = tmp_path / "facts.json"
-    with _spawn_tui("ctrl_c_expiry", facts_path) as terminal:
-        _wait_for_tui_ready(terminal, "ctrl_c_expiry")
+    with _spawn_tui("ctrl_c_idle", facts_path) as terminal:
+        _wait_for_tui_ready(terminal, "ctrl_c_idle")
         _wait_for_stage(facts_path, "accepting")
         terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
-        _wait_for_stage(facts_path, "expired", timeout=6.0)
-        terminal.send_key(PtyKey.CTRL_C)
-        _wait_for_stage(facts_path, "rearmed")
-        terminal.wait_for_screen_text("again to exit")
-        assert not terminal.session.output_closed
-        terminal.send_key(PtyKey.CTRL_C)
-
         assert terminal.wait_for_exit(timeout=10.0) == 0
         facts = _read_facts(facts_path)
-
-    details = _details(facts)
-    assert details["exit_kind"] == "interrupt"
-    assert details["interrupt_invocations"] == 3
-    assert details["interrupt_request_count"] == 1
+        assert "again to exit" not in terminal.session.output_text()
+        assert not terminal.screen.snapshot().cursor.hidden
+    assert _details(facts)["exit_kind"] == "interrupt"
 
 
 def test_ctrl_d_exits_active_turn_observation(tmp_path: Path) -> None:
@@ -433,35 +440,6 @@ def test_ctrl_d_exits_active_turn_observation(tmp_path: Path) -> None:
     details = _details(facts)
     assert details["exit_kind"] == "eof"
     assert details["interrupt_invocations"] == 1
-    assert details["interrupt_request_count"] == 1
-
-
-def test_ctrl_c_confirmation_requires_consecutive_keypresses(
-    tmp_path: Path,
-) -> None:
-    """验证插入普通编辑键后 Ctrl-C 只会重新武装退出确认。"""
-    facts_path = tmp_path / "facts.json"
-    with _spawn_tui("ctrl_c_intervening_key", facts_path) as terminal:
-        _wait_for_tui_ready(terminal, "ctrl_c_intervening_key")
-        _wait_for_stage(facts_path, "accepting")
-        terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
-        _wait_for_stage(facts_path, "armed")
-
-        terminal.write_user(b"\x1b[D")
-        _wait_for_stage(facts_path, "broken")
-        terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
-        _wait_for_stage(facts_path, "rearmed")
-        assert not terminal.session.output_closed
-
-        terminal.send_key(PtyKey.CTRL_C)
-        assert terminal.wait_for_exit(timeout=10.0) == 0
-        facts = _read_facts(facts_path)
-
-    details = _details(facts)
-    assert details["exit_kind"] == "interrupt"
-    assert details["interrupt_invocations"] == 3
     assert details["interrupt_request_count"] == 1
 
 
@@ -700,7 +678,6 @@ def test_interrupt_restores_all_input_layers_in_order(tmp_path: Path) -> None:
         _wait_for_tui_ready(terminal, "interrupt_restore_order")
         _wait_for_stage(facts_path, "accepting")
         terminal.send_key(PtyKey.CTRL_C)
-        terminal.wait_for_screen_text("again to exit")
         _wait_for_stage(facts_path, "interrupted")
         terminal.write_user_text("current draft")
         _wait_for_stage(facts_path, "restored")

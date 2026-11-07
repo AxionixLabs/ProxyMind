@@ -165,6 +165,15 @@ class TranscriptCoordinator(object):
         self._viewport.stable_content_changed()
         self._flush_background_blocks()
 
+    def clear_active_for_interrupt(self) -> None:
+        """清空中断轮次的动态正文但保留后台摘要到终态收束。"""
+        assistant_stream = self._document.active_kind == "assistant"
+        self._document.clear_active()
+        self._overlay.content_changed()
+        if assistant_stream:
+            self._viewport.stream_finalized()
+        self._viewport.stable_content_changed()
+
 
 class TranscriptOverlayCoordinator(object):
     """协调 transcript overlay、原生滚屏和历史编辑入口的生命周期。"""

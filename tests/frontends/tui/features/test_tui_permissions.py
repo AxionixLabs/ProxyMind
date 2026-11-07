@@ -10,6 +10,7 @@ from metadata import const
 from frontends.interaction.contracts import PromptContext
 from frontends.tui.core.models import (
     MenuDescriptionLayout,
+    MenuRowDisplay,
     STANDARD_MENU_FOOTER_HINT,
 )
 from frontends.tui.core.runtime import TuiRuntime
@@ -46,8 +47,9 @@ async def test_permissions_menu_uses_primary_selection_contract(
     assert request.footer_hint == STANDARD_MENU_FOOTER_HINT
     assert (
         request.description_layout
-        is MenuDescriptionLayout.STACK_BELOW_WHEN_NARROW
+        is MenuDescriptionLayout.COLUMNS
     )
+    assert request.row_display is MenuRowDisplay.WRAPPED
     assert [option.is_current for option in request.options] == [
         False,
         True,

@@ -209,6 +209,7 @@ async def execute_tui_model_turn(
         else:
             interrupt_dispatched = turn_input_control.request_interrupt()
         runtime.begin_interrupt_settlement()
+        runtime.prepare_interrupted_presentation()
         if runtime.submit_pending_steers_after_interrupt and show_interrupt_notice():
             emit_tui_interrupt_notice(application, submit_pending_steers=True)
             interrupt_state.notice_emitted = True

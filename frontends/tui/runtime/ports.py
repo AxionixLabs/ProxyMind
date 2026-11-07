@@ -122,6 +122,10 @@ class TurnRuntimePort(typing.Protocol):
         """登记本地中断反馈，但不结束权威 Turn 展示。"""
         ...
 
+    def prepare_interrupted_presentation(self) -> None:
+        """立即停止旧轮动态正文继续上屏，并保留远端终态观察。"""
+        ...
+
     def finish_interrupted_presentation(self) -> None:
         """收束旧轮活动展示，保留已经上屏的待执行问题。"""
         ...

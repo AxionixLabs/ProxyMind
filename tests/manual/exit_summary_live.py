@@ -112,8 +112,6 @@ def verify_exits(directory, workspace, domain, control, proxy):
             offset = len(terminal.session.output())
             if entry == "ctrl_c":
                 terminal.send_key(PtyKey.CTRL_C)
-                terminal.wait_for_screen_text("again to exit")
-                terminal.send_key(PtyKey.CTRL_C)
             elif entry == "ctrl_d":
                 terminal.send_key(PtyKey.CTRL_D)
             else:

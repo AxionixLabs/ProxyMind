@@ -9,6 +9,7 @@ import pytest
 from agent.protocol.json_value import ThawedJsonValue
 from agent.protocol.json_value import freeze_json
 from agent.protocol.json_value import thaw_object
+from frontends.tui.features.permissions import PERMISSION_OPTIONS
 from tests.pty import PtyKey
 from tests.pty import TerminalHarness
 from tests.pty import TerminalInputSource
@@ -41,6 +42,88 @@ def _spawn_render_scenario(
         size=size,
         failure_artifact_directory=facts_path.parent / "artifacts",
     )
+
+
+def test_permissions_descriptions_wrap_and_scroll_in_real_tty(tmp_path: Path) -> None:
+    facts_path = tmp_path / "facts.json"
+    frames = []
+    with _spawn_render_scenario(
+        "permissions_wrap", facts_path, size=TerminalSize(rows=30, columns=120),
+    ) as terminal:
+        for stage, next_size in (
+            ("permissions_wide", TerminalSize(rows=30, columns=80)),
+            ("permissions_medium", TerminalSize(rows=18, columns=40)),
+        ):
+            facts = _wait_for_stage(facts_path, stage)
+            snapshot = terminal.wait_for_screen_text("Exercise caution when using.")
+            text = "".join(snapshot.visible_text.split())
+            for value, _label, description in PERMISSION_OPTIONS:
+                if value != "read-only" or sys.platform == "win32":
+                    assert "".join(description.split()) in text
+            assert _detail(facts, "tty") == {"stdin": True, "stdout": True}
+            assert "…" not in snapshot.visible_text
+            frames.append(f"[{stage}]\n{snapshot.visible_text}")
+            terminal.resize(next_size)
+            _acknowledge(facts_path, stage)
+        _wait_for_stage(facts_path, "permissions_narrow")
+        snapshot = terminal.wait_for_screen_text("Full Access")
+        assert "Update Model Permissions" in snapshot.visible_text
+        frames.append(f"[permissions_narrow]\n{snapshot.visible_text}")
+        terminal.write_user(b"\x1b[A")
+        _acknowledge(facts_path, "permissions_narrow")
+        _wait_for_stage(facts_path, "permissions_selected")
+        snapshot = terminal.wait_for_screen_text("unsafe.")
+        assert "Onlyaskforactionsdetectedaspotentiallyunsafe." in "".join(snapshot.visible_text.split())
+        frames.append(f"[permissions_selected]\n{snapshot.visible_text}")
+        terminal.save_failure_artifacts(tmp_path / "permissions-recording")
+        terminal.send_key(PtyKey.ESCAPE)
+        _acknowledge(facts_path, "permissions_selected")
+        assert terminal.wait_for_exit(timeout=10) == 0
+    (tmp_path / "permissions-frames.txt").write_text("\n\n".join(frames), encoding="utf-8")
+
+
+def test_slash_completion_wraps_and_keeps_selected_description_visible_in_real_tty(tmp_path: Path) -> None:
+    facts_path = tmp_path / "facts.json"
+    frames = []
+    with _spawn_render_scenario("slash_wrap", facts_path) as terminal:
+        _wait_for_stage(facts_path, "slash_ready")
+        terminal.write_user_text("/m")
+        _acknowledge(facts_path, "slash_ready")
+        facts = _wait_for_stage(facts_path, "slash_wide")
+        snapshot = terminal.wait_for_screen_text("manages all services")
+        frames.append(f"[slash_wide]\n{snapshot.visible_text}")
+        terminal.resize(TerminalSize(rows=9, columns=32))
+        _acknowledge(facts_path, "slash_wide")
+        _wait_for_stage(facts_path, "slash_narrow")
+        mcp_steps = _detail(facts, "mcp_steps")
+        assert isinstance(mcp_steps, int)
+        terminal.write_user(b"\x1b[B" * mcp_steps)
+        _acknowledge(facts_path, "slash_narrow")
+        _wait_for_stage(facts_path, "slash_selected")
+        snapshot = terminal.wait_for_screen_text("services")
+        text = "".join(snapshot.visible_text.split())
+        assert "SelectoneMCPservice;/mcp<action>managesallservices" in text
+        assert "…" not in snapshot.visible_text
+        assert "/model" not in snapshot.visible_text
+        frames.append(f"[slash_selected]\n{snapshot.visible_text}")
+        terminal.resize(TerminalSize(rows=24, columns=80))
+        _acknowledge(facts_path, "slash_selected")
+        _wait_for_stage(facts_path, "slash_expanded")
+        snapshot = terminal.wait_for_screen_text("manages all services")
+        assert "/model" in snapshot.visible_text
+        frames.append(f"[slash_expanded]\n{snapshot.visible_text}")
+        terminal.send_key(PtyKey.ESCAPE)
+        _acknowledge(facts_path, "slash_expanded")
+        _wait_for_stage(facts_path, "slash_closed")
+        terminal.wait_for_screen_text("pty-model")
+        snapshot = terminal.screen.snapshot()
+        assert "/m" in snapshot.visible_text
+        assert "Select one MCP" not in snapshot.visible_text
+        frames.append(f"[slash_closed]\n{snapshot.visible_text}")
+        terminal.save_failure_artifacts(tmp_path / "slash-recording")
+        _acknowledge(facts_path, "slash_closed")
+        assert terminal.wait_for_exit(timeout=10) == 0
+    (tmp_path / "slash-frames.txt").write_text("\n\n".join(frames), encoding="utf-8")
 
 
 @pytest.mark.parametrize("scenario,columns", [("computer", 100), ("computer", 60), ("computer_static", 80)])

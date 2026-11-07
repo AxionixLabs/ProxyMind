@@ -34,7 +34,7 @@ async def _wait_until(predicate: typing.Callable[[], bool]) -> None:
 @pytest.mark.parametrize(
     "cpr_response", ["disabled", "received", "delayed", "missing"],
 )
-async def test_double_ctrl_c_closes_during_scrollback(cpr_response: str) -> None:
+async def test_ctrl_c_closes_during_scrollback(cpr_response: str) -> None:
     with create_pipe_input() as pipe_input:
         output = Vt100_Output(
             TerminalOutput(),
@@ -66,7 +66,6 @@ async def test_double_ctrl_c_closes_during_scrollback(cpr_response: str) -> None
                 while application.renderer.waiting_for_cpr:
                     application.renderer.report_absolute_cursor_row(1)
 
-            runtime.submissions.interrupt_input()
             runtime.submissions.interrupt_input()
             closing = asyncio.create_task(runtime.close())
             if cpr_response == "delayed":

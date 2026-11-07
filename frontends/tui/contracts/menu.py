@@ -196,7 +196,7 @@ class MenuRequest(object):
     tabs_in_header: bool = True
     surface_style: str = "class:menu-card"
     column_width_mode: MenuColumnWidthMode = MenuColumnWidthMode.AUTO_ALL_ROWS
-    row_display: MenuRowDisplay = MenuRowDisplay.CLIPPED
+    row_display: MenuRowDisplay = MenuRowDisplay.WRAPPED
     name_column_width: int | None = None
     title_accent_suffix: str = ""
     body_warning: str = ""

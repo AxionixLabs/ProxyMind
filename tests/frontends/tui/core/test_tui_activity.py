@@ -1442,6 +1442,26 @@ async def test_interrupt_request_keeps_activity_until_terminal_presentation() ->
 
 
 @pytest.mark.anyio
+async def test_interrupt_preparation_hides_stream_before_remote_terminal() -> None:
+    runtime = TuiRuntime()
+    runtime.set_execution_active(True)
+    await runtime.begin_wait_status()
+    runtime.set_active_renderable(FragmentBlock((('', 'partial answer'),)))
+
+    runtime.begin_interrupt_settlement()
+    runtime.prepare_interrupted_presentation()
+
+    assert runtime.execution_active
+    assert runtime.document.active_block is None
+    assert runtime.turn_output_suppressed
+    assert runtime.activity.lease('wait') is not None
+
+    runtime.finish_interrupted_presentation()
+    runtime.set_execution_active(False)
+    await runtime.close()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("old_body_visible", (False, True))
 @pytest.mark.parametrize("next_surface", ("wait", "content", "approval", "failed"))
 async def test_escape_wait_survives_old_cleanup_and_hands_off_without_empty_frames(

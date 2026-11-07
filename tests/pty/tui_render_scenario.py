@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from prompt_toolkit.application import Application
 
+from agent.domain.policies import preset_permissions
 from agent.application.views.builders.approval import build_approval_view
 from agent.application.views.builders.tools import build_generic_tool_result_view
 from agent.application.views.builders.tools import build_native_tool_result_view
@@ -41,6 +42,7 @@ from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.features.processes import monitor_exec_status
+from frontends.tui.features.permissions import choose_permissions_mode
 from infrastructure.platform.process_sessions import (
     ProcessSessionManager,
     ProcessSessionSpec,
@@ -531,6 +533,76 @@ async def _run_sync_failure(
     raise RuntimeError("injected PTY render failure")
 
 
+async def _run_permissions_wrap(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证权限选项的说明折行、窄屏选中项和取消生命周期。"""
+    task = asyncio.create_task(choose_permissions_mode(runtime, preset_permissions("full-access")))
+    facts.set_detail("tty", {"stdin": sys.stdin.isatty(), "stdout": sys.stdout.isatty()})
+    try:
+        await _wait_until(lambda: runtime.screen.menu.active, "permissions menu")
+        await _checkpoint(facts, "permissions_wide")
+        for stage, columns, rows in (("medium", 80, 30), ("narrow", 40, 18)):
+            expected_width = columns - 1 if sys.platform == "win32" else columns
+            await _wait_until(
+                lambda: runtime.viewport._reflowed_geometry == (expected_width, rows),
+                f"permissions {stage} resize",
+            )
+            await _checkpoint(facts, f"permissions_{stage}")
+        await _wait_until(
+            lambda: (
+                runtime.screen.menu.state is not None
+                and runtime.screen.menu.state.request.options[runtime.screen.menu.state.selected].value == "approve-for-me"
+            ),
+            "permissions keyboard selection",
+        )
+        await _checkpoint(facts, "permissions_selected")
+        assert await task is None
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def _run_slash_wrap(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
+    """验证命令补全在窄屏中按完整候选滚动并保留输入草稿。"""
+    reader = asyncio.create_task(runtime.read_message(PromptContext(model="pty-model")))
+    buffer = runtime.screen.input.buffer
+    try:
+        await _checkpoint(facts, "slash_ready")
+        await _wait_until(lambda: buffer.text == "/m" and buffer.complete_state is not None, "slash completion")
+        snapshot = runtime.input_model.token_menu_snapshot(buffer)
+        assert snapshot is not None
+        target = next(i for i, item in enumerate(snapshot.items) if item.display_text == "/mcp")
+        state = buffer.complete_state
+        assert state is not None
+        steps = target + 1 if state.complete_index is None else (target - state.complete_index) % len(snapshot.items)
+        facts.set_detail("mcp_steps", steps)
+        await _checkpoint(facts, "slash_wide")
+        await _wait_until(
+            lambda: runtime.viewport._reflowed_geometry == (31 if sys.platform == "win32" else 32, 9),
+            "slash completion resize",
+        )
+        await _checkpoint(facts, "slash_narrow")
+        await _wait_until(
+            lambda: (
+                buffer.complete_state is not None
+                and buffer.complete_state.current_completion is not None
+                and buffer.complete_state.current_completion.display_text == "/mcp"
+            ),
+            "slash MCP selection",
+        )
+        await _checkpoint(facts, "slash_selected")
+        await _wait_until(
+            lambda: runtime.viewport._reflowed_geometry == (79 if sys.platform == "win32" else 80, 24),
+            "slash completion expansion",
+        )
+        await _checkpoint(facts, "slash_expanded")
+        await _wait_until(lambda: buffer.complete_state is None, "slash dismissal")
+        assert buffer.text == "/m"
+        await _checkpoint(facts, "slash_closed")
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
 async def _run_menu_resize(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     """在输入菜单中缩窄真实终端，验证重排不丢失输入或提前完成请求。"""
     text = "界面预览" * 55
@@ -855,7 +927,11 @@ async def _run(scenario: str, facts_path: Path) -> None:
     ))
     await runtime.open()
     try:
-        if scenario == "handoffs":
+        if scenario == "permissions_wrap":
+            await _run_permissions_wrap(runtime, facts)
+        elif scenario == "slash_wrap":
+            await _run_slash_wrap(runtime, facts)
+        elif scenario == "handoffs":
             await _run_handoffs(runtime, facts)
         elif scenario in {"tool_calls", "tool_calls_static"}:
             await _run_tool_calls(runtime, facts, animate=scenario == "tool_calls")

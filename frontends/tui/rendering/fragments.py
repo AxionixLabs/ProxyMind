@@ -36,6 +36,7 @@ __all__ = [
     "transcript_hint",
     "with_transcript_hint",
     "wrap_formatted_lines",
+    "wrap_text_words",
 ]
 
 ZERO_WIDTH_ESCAPE_STYLE = "[ZeroWidthEscape]"
@@ -320,6 +321,33 @@ def wrap_formatted_lines(
         rows.append(_merge_fragments(current))
 
     return rows
+
+
+def wrap_text_words(text: str, *, width: int) -> tuple[str, ...]:
+    """按终端宽度折行说明文字，优先保留单词且不拆开字素。"""
+    limit = max(1, width)
+    rows: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = f"{current} {word}" if current else word
+        if get_cwidth(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            rows.append(current)
+        current = ""
+        used = 0
+        for unit in iter_text_units(word):
+            unit_width = max(0, get_cwidth(unit))
+            if current and used + unit_width > limit:
+                rows.append(current)
+                current = ""
+                used = 0
+            current += unit
+            used += unit_width
+    if current or not rows:
+        rows.append(current)
+    return tuple(rows)
 
 
 def clip_text(text: typing.Any, *, width: int) -> str:

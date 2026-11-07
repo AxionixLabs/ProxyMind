@@ -166,11 +166,11 @@ def sanitize_column_width_mode(value: typing.Any) -> MenuColumnWidthMode:
 
 
 def sanitize_row_display(value: typing.Any) -> MenuRowDisplay:
-    """清理候选行展示策略并回退到截断模式。"""
+    """清理候选行展示策略并回退到换行模式。"""
     try:
         return MenuRowDisplay(value)
     except (TypeError, ValueError):
-        return MenuRowDisplay.CLIPPED
+        return MenuRowDisplay.WRAPPED
 
 
 def sanitize_footer_tone(value: typing.Any) -> MenuFooterTone:

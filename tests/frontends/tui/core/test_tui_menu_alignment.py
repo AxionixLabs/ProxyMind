@@ -164,13 +164,13 @@ async def test_menu_rows_fit_terminal_width_with_wide_text() -> None:
     await task
 
     assert all(get_cwidth(line) <= width for line in lines)
-    option_lines = lines[4:]
+    option_lines = lines[3:]
     assert "…" in option_lines[0]
     assert all(get_cwidth(line) <= width for line in option_lines)
 
 
 @pytest.mark.anyio
-async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None:
+async def test_clipped_catalog_details_share_adaptive_terminal_width() -> None:
     detail = " ".join(
         f"detail-{index}"
         for index in range(30)
@@ -178,10 +178,12 @@ async def test_skills_and_resume_details_share_adaptive_terminal_width() -> None
     requests = (
         MenuRequest(
             title="Skills",
+            row_display=MenuRowDisplay.CLIPPED,
             options=(MenuOption("skill", "review", detail),),
         ),
         MenuRequest(
             title="Resume conversation",
+            row_display=MenuRowDisplay.CLIPPED,
             options=(MenuOption("record", "08-05 10:30", detail),),
         ),
     )
@@ -1204,7 +1206,7 @@ async def test_menu_stacks_descriptions_only_when_declared_and_narrow(
 
 
 @pytest.mark.anyio
-async def test_default_menu_description_layout_remains_single_line() -> None:
+async def test_clipped_menu_description_remains_single_line() -> None:
     menu = TuiMenu(
         invalidate=lambda: None,
         focus_menu=lambda: None,
@@ -1213,6 +1215,7 @@ async def test_default_menu_description_layout_remains_single_line() -> None:
     )
     task = asyncio.create_task(menu.request(MenuRequest(
         title="Commands",
+        row_display=MenuRowDisplay.CLIPPED,
         options=(MenuOption(
             "command",
             "Configure key binding",
@@ -1225,6 +1228,50 @@ async def test_default_menu_description_layout_remains_single_line() -> None:
 
     menu.cancel()
     assert await task is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("width", [40, 80, 120])
+async def test_default_menu_wraps_descriptions_in_aligned_columns(width: int) -> None:
+    details = (
+        "Mind can read files in the current workspace. Approval is required to edit files or access the internet.",
+        "Mind can edit files outside this workspace. 中文宽度 é 👩‍💻 " + "x" * 60,
+    )
+    menu = TuiMenu(
+        invalidate=lambda: None,
+        focus_menu=lambda: None,
+        focus_input=lambda: None,
+        get_width=lambda: width,
+    )
+    task = asyncio.create_task(menu.request(MenuRequest(
+        title="Permissions",
+        options=(
+            MenuOption("read", "Read Only", details[0]),
+            MenuOption("full", "Full Access", details[1], is_current=True),
+        ),
+    )))
+    await asyncio.sleep(0)
+    try:
+        fragments = menu.fragments()
+        lines = _fragments_text(fragments).splitlines()
+        starts = [i for i, line in enumerate(lines) if ". " in line[:5]]
+        assert len(starts) == 2
+        column = lines[starts[0]].index("Mind")
+        assert lines[starts[1]].index("Mind") == column
+        for index, start in enumerate(starts):
+            end = starts[index + 1] if index + 1 < len(starts) else len(lines)
+            rows = lines[start:end]
+            assert "".join("".join(row[column:] for row in rows).split()) == "".join(details[index].split())
+            assert all(row.startswith(" " * column) for row in rows[1:])
+        assert all(get_cwidth(line) <= width for line in lines)
+        assert menu.height() == len(lines)
+        assert all(
+            "…" not in text for style, text in fragments
+            if style.startswith("class:tui-menu.detail")
+        )
+    finally:
+        menu.cancel()
+        assert await task is None
 
 
 @pytest.mark.anyio
@@ -1653,8 +1700,10 @@ async def test_menu_column_width_modes_keep_rendered_rows_within_width(
 
     lines = _fragments_text(menu.fragments()).splitlines()
     assert all(get_cwidth(line) <= 40 for line in lines)
-    assert any("Short" in line for line in lines)
-    assert any("A much" in line for line in lines)
+    expected_label = "Sho…" if mode is MenuColumnWidthMode.FIXED else "Short"
+    assert any(expected_label in line for line in lines)
+    expected_long_label = "A m…" if mode is MenuColumnWidthMode.FIXED else "A much"
+    assert any(expected_long_label in line for line in lines)
 
     menu.cancel()
     assert await task is None

@@ -26,7 +26,8 @@ from .selection import (
 from .state import MenuState
 from ..fragments import (
     clip_text,
-    wrap_formatted_lines
+    wrap_formatted_lines,
+    wrap_text_words,
 )
 
 
@@ -106,15 +107,10 @@ def option_fragments(
         return [row]
 
     detail = option_detail(option, active=active)
-    if request.row_display is MenuRowDisplay.WRAPPED:
+    if request.row_display is MenuRowDisplay.WRAPPED and not detail:
         content: StyleAndTextTuples = [
             (label_style, option_label(option)),
         ]
-        if detail:
-            content.extend((
-                (detail_style, request.description_separator),
-                (detail_style, detail),
-            ))
         wrapped = wrap_formatted_lines(content, width=max(1, available))
         continuation = " " * get_cwidth(prefix)
         return [
@@ -141,13 +137,10 @@ def option_fragments(
             (label_style, label),
         ]]
         detail_width = max(1, width - row_prefix_width)
-        for detail_row in wrap_formatted_lines(
-            [(detail_style, detail)],
-            width=detail_width,
-        ):
+        for detail_row in wrap_text_words(detail, width=detail_width):
             rows.append([
                 (detail_style, " " * row_prefix_width),
-                *strip_leading_spaces(detail_row),
+                (detail_style, detail_row),
             ])
         return rows
 
@@ -194,6 +187,20 @@ def option_fragments(
         ]]
 
     detail_width = available - label_width - separator_width
+    if request.row_display is MenuRowDisplay.WRAPPED:
+        detail_rows = wrap_text_words(detail, width=detail_width)
+        continuation = " " * (get_cwidth(prefix) + label_width + separator_width)
+        return [
+            [
+                *prefix_fragments,
+                (label_style, f"{label}{padding}"),
+                (detail_style, f"{separator}{detail_rows[0]}"),
+            ],
+            *[
+                [(detail_style, f"{continuation}{row}")]
+                for row in detail_rows[1:]
+            ],
+        ]
     return [[
         *prefix_fragments,
         (label_style, f"{label}{padding}"),
@@ -248,6 +255,7 @@ def row_layout(
         min_label_width=min_label_width,
         min_detail_width=min_detail_width,
         max_detail_reserve=max_detail_reserve,
+        row_prefix_width=prefix_size,
     )
 
     return prefix_size, label_size
@@ -307,7 +315,8 @@ def label_column_width(
     visible_indices: tuple[int, ...],
     min_label_width: int,
     min_detail_width: int,
-    max_detail_reserve: int
+    max_detail_reserve: int,
+    row_prefix_width: int,
 ) -> int | None:
     """计算全部选项共用的主标签列宽。"""
     options = request.options
@@ -331,6 +340,17 @@ def label_column_width(
     )
     if detail_width <= 0:
         return None
+
+    if request.row_display is MenuRowDisplay.WRAPPED:
+        separator_width = get_cwidth(request.description_separator)
+        total_width = available + row_prefix_width
+        column_cap = total_width * 7 // 10
+        if request.column_width_mode is MenuColumnWidthMode.FIXED:
+            column_cap = total_width * 3 // 10
+        return max(0, min(
+            max(natural_label_width, request.name_column_width or 0),
+            column_cap - row_prefix_width - separator_width,
+        ))
 
     detail_reserve = min(
         detail_width,

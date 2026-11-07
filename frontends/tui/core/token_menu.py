@@ -12,6 +12,11 @@ from prompt_toolkit.layout.controls import (
 )
 from prompt_toolkit.utils import get_cwidth
 
+from frontends.tui.rendering.fragments import (
+    clip_text,
+    wrap_text_words,
+)
+
 TokenMenuKind = typing.Literal[
     "command",
     "skill",
@@ -23,6 +28,7 @@ TokenMenuKind = typing.Literal[
 ]
 
 TOKEN_MENU_LEFT_PADDING = 2
+TOKEN_MENU_MAX_COMMAND_ITEMS = 8
 TOKEN_MENU_META_WIDTH_NUMERATOR = 7
 TOKEN_MENU_META_WIDTH_DENOMINATOR = 10
 
@@ -168,54 +174,6 @@ def _field(text: str, width: int) -> str:
     return fitted + " " * max(0, width - get_cwidth(fitted))
 
 
-def _take_display_width(text: str, width: int) -> tuple[str, str]:
-    """从文本开头取出不超过指定显示宽度的部分。"""
-    limit = max(0, int(width))
-    used = 0
-    end = 0
-
-    for index, char in enumerate(str(text)):
-        char_width = max(0, get_cwidth(char))
-        if used + char_width > limit:
-            break
-        used += char_width
-        end = index + 1
-
-    value = str(text)
-    if end == 0 and value:
-        end = 1
-    return value[:end], value[end:]
-
-
-def _wrap_display_text(text: str, width: int) -> tuple[str, ...]:
-    """按终端显示宽度拆分说明文本，并优先在空格处换行。"""
-    limit = max(1, int(width))
-    remaining = " ".join(str(text or "").split())
-    if not remaining:
-        return ("",)
-
-    rows: list[str] = []
-    while remaining:
-        head, tail = _take_display_width(remaining, limit)
-        if not tail:
-            rows.append(head)
-            break
-
-        break_at = head.rfind(" ")
-        if break_at > 0:
-            row = head[:break_at].rstrip()
-            remaining = remaining[break_at + 1:].lstrip()
-        else:
-            row = head
-            remaining = tail
-
-        if not row:
-            row, remaining = _take_display_width(remaining, limit)
-        rows.append(row)
-
-    return tuple(rows)
-
-
 def _skill_meta_text(meta_text: str) -> str:
     """返回 `$` skill 菜单使用的带中括号类别说明。"""
     text = str(meta_text or "").strip()
@@ -295,6 +253,8 @@ class TokenCompletionMenuControl(UIControl):
         snapshot: typing.Callable[[], TokenMenuSnapshot | None]
     ) -> None:
         self._snapshot = snapshot
+        self._command_items: tuple[TokenMenuItem, ...] = ()
+        self._command_scroll_top = 0
 
     @staticmethod
     def _meta_width(
@@ -518,38 +478,34 @@ class TokenCompletionMenuControl(UIControl):
                 meta_width=meta_width,
             )]
 
-        content_width = max(
-            1,
-            min(
-                max(0, meta_width - 2),
-                max(1, total_width - main_width - 1),
-            ),
-        )
-        if get_cwidth(item.meta_text) <= content_width:
-            return [self._line_fragments(
-                item,
-                current=current,
-                main_width=main_width,
-                meta_width=meta_width,
-            )]
-
         suffix = ".current" if current else ""
+        item_style = f"class:token-menu.{item.kind}{suffix}"
         meta_style = f"class:token-menu.meta.{item.kind}{suffix}"
-        rows = _wrap_display_text(item.meta_text, content_width)
-
-        first = list(self._name_fragments(
-            item,
-            current=current,
-            main_width=main_width,
+        description_column = min(max(0, total_width - 1), main_width + 1)
+        left_padding = min(TOKEN_MENU_LEFT_PADDING, description_column)
+        label_limit = max(0, description_column - left_padding - 2)
+        label = item.display_text
+        if get_cwidth(label) > label_limit:
+            label = clip_text(label, width=label_limit + 1)
+        first: StyleAndTextTuples = [(item_style, " " * left_padding)]
+        first.extend(self._field_fragments(
+            label,
+            description_column - left_padding,
+            item_style,
+            item.match_indices,
         ))
-        first.append((meta_style, f" {_field(rows[0], content_width)} "))
+        rows = wrap_text_words(
+            item.meta_text,
+            width=max(1, total_width - description_column),
+        )
+        first.append((meta_style, rows[0]))
 
         return [
             first,
             *[
                 [
-                    (meta_style, " " * main_width),
-                    (meta_style, f" {row}"),
+                    (meta_style, " " * description_column),
+                    (meta_style, row),
                 ]
                 for row in rows[1:]
             ],
@@ -561,6 +517,14 @@ class TokenCompletionMenuControl(UIControl):
         items: tuple[TokenMenuItem, ...]
     ) -> tuple[int, int]:
         """根据当前窗口宽度计算名称列和说明列宽度。"""
+        if all(item.kind == "command" for item in items):
+            content_width = max(1, width - TOKEN_MENU_LEFT_PADDING)
+            description_column = min(
+                max(get_cwidth(item.display_text) for item in items) + 2,
+                content_width * 7 // 10,
+            )
+            main_width = min(width, TOKEN_MENU_LEFT_PADDING + description_column) - 1
+            return max(0, main_width), max(0, width - main_width)
         main_width = self._main_width(width, items)
         meta_width = TokenCompletionMenuControl._meta_width(
             width - main_width,
@@ -578,6 +542,10 @@ class TokenCompletionMenuControl(UIControl):
             return 0
 
         main_width, meta_width = self._layout_widths(width, snapshot.items)
+        items = snapshot.items
+        if all(item.kind == "command" for item in items):
+            start = self._command_window_start(snapshot)
+            items = items[start:start + TOKEN_MENU_MAX_COMMAND_ITEMS]
         return sum(
             len(self._row_fragments(
                 item,
@@ -586,8 +554,14 @@ class TokenCompletionMenuControl(UIControl):
                 meta_width=meta_width,
                 total_width=width,
             ))
-            for item in snapshot.items
+            for item in items
         )
+
+    def _command_window_start(self, snapshot: TokenMenuSnapshot) -> int:
+        """按候选数量计算窗口起点，物理行裁剪不改变此位置。"""
+        previous = self._command_scroll_top if snapshot.items == self._command_items else 0
+        selected = snapshot.normalized_selected
+        return max(min(previous, selected), selected + 1 - TOKEN_MENU_MAX_COMMAND_ITEMS)
 
     def preferred_width(
         self,
@@ -597,7 +571,10 @@ class TokenCompletionMenuControl(UIControl):
         if snapshot is None or not snapshot.items:
             return 0
 
-        if any(item.kind in MENTION_MENU_KINDS for item in snapshot.items):
+        if (
+            all(item.kind == "command" for item in snapshot.items)
+            or any(item.kind in MENTION_MENU_KINDS for item in snapshot.items)
+        ):
             return max(0, int(max_available_width))
 
         main_width = self._main_width(max_available_width, snapshot.items)
@@ -617,19 +594,17 @@ class TokenCompletionMenuControl(UIControl):
         get_line_prefix
     ) -> int | None:
         _ = max_available_height, wrap_lines, get_line_prefix
-        snapshot = self._snapshot()
-        if snapshot is None:
-            return 0
-        return token_menu_display_height(snapshot, width)
+        return self.display_height(width)
 
     def create_content(
         self,
         width: int,
         height: int
     ) -> UIContent:
-        _ = height
         snapshot = self._snapshot()
         if snapshot is None or not snapshot.items:
+            self._command_items = ()
+            self._command_scroll_top = 0
             return UIContent()
 
         items = snapshot.items
@@ -640,8 +615,10 @@ class TokenCompletionMenuControl(UIControl):
         rendered_lines: list[StyleAndTextTuples] = []
 
         selected_line: int = 0
+        row_starts: list[int] = []
 
         for index, item in enumerate(items):
+            row_starts.append(len(rendered_lines))
             if index == selected:
                 selected_line = len(rendered_lines)
 
@@ -654,6 +631,21 @@ class TokenCompletionMenuControl(UIControl):
                     total_width=width,
                 )
             )
+
+        row_starts.append(len(rendered_lines))
+        if all(item.kind == "command" for item in items):
+            if height <= 0 or width <= 0:
+                return UIContent()
+            start = self._command_window_start(snapshot)
+            self._command_items = items
+            self._command_scroll_top = start
+            while start < selected and row_starts[selected + 1] - row_starts[start] > height:
+                start += 1
+            end = min(len(items), start + TOKEN_MENU_MAX_COMMAND_ITEMS)
+            rendered_lines = rendered_lines[
+                row_starts[start]:min(row_starts[end], row_starts[start] + height)
+            ]
+            selected_line -= row_starts[start]
 
         def get_line(idx: int) -> StyleAndTextTuples:
             return rendered_lines[idx]
