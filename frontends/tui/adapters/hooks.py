@@ -26,18 +26,14 @@ from ..core.styles import (
     BODY_STYLE,
     MUTED_STYLE,
     SUCCESS_STYLE,
-    prompt_style
+    prompt_style,
 )
 from ..rendering.fragments import (
-    clip_fragments,
     fragments_text,
     join_formatted_lines,
     split_formatted_lines,
-    transcript_hint,
-    wrap_formatted_lines
+    wrap_formatted_lines,
 )
-
-HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3
 
 _FAILURE_BULLET = semantic_text_style(TerminalSemanticRole.FAILURE, bold=True)
 _WARNING_BULLET = TextStyle(bold=True)
@@ -65,34 +61,33 @@ class TuiHookStatusAdapter:
                 return
         self._runtime.activity.start_hook(
             run.id,
-            run.status_message or f"Running {run.event} hook",
+            _run_label(run),
+            started_at=run.started_at,
             turn_scoped=turn_scoped,
+            background=run.execution_mode == "async",
         )
 
     async def completed(self, run: HookRunSummary) -> None:
         """收束临时活动，过滤旧轮输出并保存需要用户关注的结果。"""
-        self._runtime.activity.finish_hook(run.id)
-        generation = self._run_generations.pop(run.id, None)
-        if (run.scope == "turn" or generation is not None) and (
-            (generation is not None and generation != self._turn_generation)
-            or (self._runtime.turn_output_suppressed and run.event != "Interrupt")
-        ):
-            return
-        if run.status == "completed" and not run.entries:
-            return
-        completion = _completion_blocks(
-            run,
-            self._runtime.terminal_width,
-            transcript_key=self._runtime.keymap.open_transcript_label,
-        )
-        self._runtime.append_block(
-            completion.display,
-            kind="operation",
-            transcript_block=completion.transcript,
-            raw_text=completion.raw_text,
-            display_renderer=completion.display_renderer,
-            display_render_width=self._runtime.terminal_width,
-        )
+        with self._runtime.screen.visual_update():
+            self._runtime.activity.finish_hook(run.id)
+            generation = self._run_generations.pop(run.id, None)
+            if (run.scope == "turn" or generation is not None) and (
+                (generation is not None and generation != self._turn_generation)
+                or (self._runtime.turn_output_suppressed and run.event != "Interrupt")
+            ):
+                return
+            if run.status == "completed" and all(entry.kind == "context" for entry in run.entries):
+                return
+            completion = _completion_blocks(run, self._runtime.terminal_width)
+            self._runtime.append_block(
+                completion.display,
+                kind="operation",
+                transcript_block=completion.transcript,
+                raw_text=completion.raw_text,
+                display_renderer=completion.display_renderer,
+                display_render_width=self._runtime.terminal_width,
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,77 +102,47 @@ class _HookCompletionBlocks:
 def _completion_blocks(
     run: HookRunSummary,
     width: int,
-    *,
-    transcript_key: str
 ) -> _HookCompletionBlocks:
     """生成完成结果的宽度感知展示块。"""
-    display = _render_completion(
-        run,
-        width,
-        full_context=False,
-        transcript_key=transcript_key,
-    )
-
-    transcript = _render_completion(run, None, full_context=True)
+    display = _render_completion(run, width)
+    transcript = _render_completion(run, None)
 
     return _HookCompletionBlocks(
         display=display,
         transcript=transcript,
         raw_text=fragments_text(transcript.fragments),
-        display_renderer=partial(
-            _render_completion,
-            run,
-            full_context=False,
-            transcript_key=transcript_key,
-        ),
+        display_renderer=partial(_render_completion, run),
     )
+
+
+def _run_label(run: HookRunSummary) -> str:
+    """为运行与结果保持同一条单行标题。"""
+    return " ".join(run.status_message.split()) or f"{run.event} hook"
 
 
 def _render_completion(
     run: HookRunSummary,
     width: int | None,
-    *,
-    full_context: bool,
-    transcript_key: str = ""
 ) -> FragmentBlock:
     """按当前宽度渲染一项可持久 Hook 完成结果。"""
-    header = f"Ran {run.event} hook"
-    if run.status_message:
-        header = f"{header}: {run.status_message}"
-
-    result_content: FormattedText = [
-        (prompt_style(MUTED_STYLE), run.status),
+    header: FormattedText = [
+        (prompt_style(BODY_STYLE), _run_label(run)),
+        (prompt_style(MUTED_STYLE), f" · {run.status}"),
     ]
     if run.duration_ms is not None:
-        result_content.append((
+        header.append((
             prompt_style(MUTED_STYLE),
             f" · {format_duration_ms(run.duration_ms)}",
         ))
 
     lines = _prefixed_rows(
-        [(prompt_style(BODY_STYLE), header)],
+        header,
         first_prefix=[(prompt_style(_completion_bullet_style(run)), "• ")],
         continuation_prefix=[(prompt_style(BODY_STYLE), "  ")],
         width=width,
     )
-    lines.extend(_prefixed_rows(
-        result_content,
-        first_prefix=[(prompt_style(MUTED_STYLE), "  └ ")],
-        continuation_prefix=[(prompt_style(MUTED_STYLE), "    ")],
-        width=width,
-    ))
-
     for entry in run.entries:
-        entry_lines = _entry_lines(entry, width=width)
-
-        if entry.kind == "context" and not full_context:
-            lines.extend(_context_preview(
-                entry_lines,
-                width=width,
-                transcript_key=transcript_key,
-            ))
-        else:
-            lines.extend(entry_lines)
+        lines.extend(_entry_lines(entry, width=width))
 
     return FragmentBlock(tuple(join_formatted_lines(lines)))
 
@@ -187,16 +152,11 @@ def _entry_lines(
     *,
     width: int | None,
 ) -> list[FormattedText]:
-    """把结构化输出条目转换为带缩进的逻辑行。"""
-    prefix = {
-        "warning": "warning: ",
-        "stop": "stop: ",
-        "feedback": "feedback: ",
-        "context": "hook context: ",
-        "error": "error: ",
-    }[entry.kind]
+    """过滤模型上下文，把面向用户的条目转换为带缩进的逻辑行。"""
+    if entry.kind == "context":
+        return []
 
-    source = str(entry.text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    source = entry.text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     while source and not source[0].strip():
         source.pop(0)
     while source and not source[-1].strip():
@@ -206,57 +166,15 @@ def _entry_lines(
 
     lines: list[FormattedText] = []
     for index, line in enumerate(source):
-        content = f"{prefix}{line}" if index == 0 else line
+        content = f"{entry.kind}: {line}" if index == 0 else line
         lines.extend(_prefixed_rows(
             [(prompt_style(BODY_STYLE), content)],
-            first_prefix=[(prompt_style(BODY_STYLE), "    ")],
+            first_prefix=[(prompt_style(BODY_STYLE), "  └ " if index == 0 else "    ")],
             continuation_prefix=[(prompt_style(BODY_STYLE), "    ")],
             width=width,
         ))
 
     return lines
-
-
-def _context_preview(
-    lines: list[FormattedText],
-    *,
-    width: int | None,
-    transcript_key: str
-) -> list[FormattedText]:
-    """把上下文限制为三行并保留完整记录提示。"""
-    if not isinstance(width, int) or width <= 0:
-        return lines
-
-    rows = lines
-    rows = [
-        clip_fragments(row, width=max(1, int(width)))
-        for row in rows
-    ]
-    if len(rows) <= HOOK_CONTEXT_MAX_DISPLAY_ROWS:
-        return rows
-
-    retained = HOOK_CONTEXT_MAX_DISPLAY_ROWS - 1
-    omitted = len(rows) - retained
-    marker = f"… +{omitted} lines"
-
-    hint_suffix = transcript_hint(
-        marker,
-        transcript_key,
-        width,
-        prefix="    ",
-    )
-    hint = clip_fragments([
-        (prompt_style(BODY_STYLE), "    "),
-        (
-            prompt_style(MUTED_STYLE),
-            f"{marker}{hint_suffix}",
-        ),
-    ], width=max(1, int(width)))
-
-    return [
-        *rows[:retained],
-        hint,
-    ]
 
 
 def _prefixed_rows(

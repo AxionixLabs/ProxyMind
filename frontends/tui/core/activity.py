@@ -171,10 +171,12 @@ class ActivityLease(object):
 
 @dataclass(frozen=True, slots=True)
 class _HookActivity:
-    """保存临时 Hook 状态的显示期限和轮次归属。"""
+    """保存临时 Hook 的单调时钟、执行方式和展示归属。"""
     label: str
+    started_at: float
     reveal_at: float
     turn_scoped: bool
+    background: bool
 
 
 class TuiActivity(object):
@@ -214,12 +216,25 @@ class TuiActivity(object):
         self._tool_renderers: list[InlineToolActivityRenderer] = []
         self._hooks: dict[str, _HookActivity] = {}
 
-    def start_hook(self, run_id: str, label: str, *, turn_scoped: bool) -> None:
+    def start_hook(
+        self,
+        run_id: str,
+        label: str,
+        *,
+        started_at: float,
+        turn_scoped: bool,
+        background: bool,
+    ) -> None:
         """登记延迟显示的 Hook，复用当前活动时钟。"""
+        if run_id in self._hooks:
+            return
+        now = time.monotonic()
         self._hooks[run_id] = _HookActivity(
             label=" ".join(label.split()) or "Running hook",
-            reveal_at=time.perf_counter() + HOOK_REVEAL_DELAY_SEC,
+            started_at=started_at if started_at > 0 else now,
+            reveal_at=now + HOOK_REVEAL_DELAY_SEC,
             turn_scoped=turn_scoped,
+            background=background,
         )
         self._ensure_task()
         self._render_slots()
@@ -760,15 +775,22 @@ class TuiActivity(object):
                 previous_tick = current_tick
 
                 foreground = self._slots.get("foreground")
-                if self._hooks or (
-                    foreground is not None
-                    and not foreground.frozen
-                    and self._turn_surface_indicator in {"tool", "computer", "thinking"}
+                if not self._wait_paused and (
+                    (foreground is None and self._hooks)
+                    or (
+                        foreground is not None
+                        and not foreground.frozen
+                        and self._turn_surface_indicator in {"tool", "computer", "thinking"}
+                    )
                 ):
                     # 卡顿后限制视觉追赶，活动耗时仍使用下方未裁剪的真实增量。
                     self._activity_breath.advance(
                         min(step, interval * 2),
-                        model_wait=self._turn_surface_model_wait or self._turn_surface_indicator == "thinking",
+                        model_wait=(
+                            foreground is not None
+                            and all(hook.background for hook in self._hooks.values())
+                            and (self._turn_surface_model_wait or self._turn_surface_indicator == "thinking")
+                        ),
                     )
 
                 for slot in self._slots.values():
@@ -787,20 +809,39 @@ class TuiActivity(object):
         preserve_newlines: bool = False
 
         foreground = self._slots.get("foreground")
-        now = time.perf_counter()
-        hook_labels = tuple(
-            hook.label for hook in self._hooks.values() if now >= hook.reveal_at
+        now = time.monotonic()
+        hooks = tuple(
+            hook for hook in self._hooks.values()
+            if now >= hook.reveal_at and not self._wait_paused
+        )
+        synchronous_hooks = tuple(hook for hook in hooks if not hook.background)
+        hook_owns_foreground = bool(hooks) and (
+            foreground is None
+            or (
+                bool(synchronous_hooks)
+                and not foreground.frozen
+                and self._turn_surface_indicator in {"tool", "computer", "thinking"}
+            )
         )
         hook_block = None
-        if hook_labels:
-            label = hook_labels[0] if len(set(hook_labels)) == 1 else "Running hooks"
-            hook_block = FragmentBlock((
-                self.breathing_indicator(),
-                (prompt_style(BODY_STYLE), f" {label}"),
-            ))
+        if hooks:
+            primary_hooks = synchronous_hooks or hooks
+            hook_block = self._hook_block(
+                primary_hooks if hook_owns_foreground else hooks,
+                now=now,
+                primary=hook_owns_foreground,
+            )
+            if hook_owns_foreground and synchronous_hooks:
+                background_hooks = tuple(hook for hook in hooks if hook.background)
+                if background_hooks:
+                    background_block = self._hook_block(background_hooks, now=now, primary=False)
+                    hook_block = FragmentBlock(
+                        (*hook_block.fragments, ("", "\n"), *background_block.fragments),
+                        preserve_newlines=True,
+                    )
         inline_tools = (
             foreground is not None
-            and hook_block is None
+            and not hook_owns_foreground
             and self._turn_surface_indicator in {"computer", "tool", "thinking"}
         )
         if not inline_tools:
@@ -817,9 +858,15 @@ class TuiActivity(object):
                         reviewing=self._turn_surface_model_wait,
                     ) or consumed
                 if consumed:
+                    if hook_block is not None:
+                        if fragments:
+                            fragments.append(("", "\n\n"))
+                        fragments.extend(hook_block.fragments)
+                        preserve_newlines = True
                     continue
             block = (
-                hook_block if slot is foreground and hook_block is not None
+                hook_block
+                if slot is foreground and hook_owns_foreground and hook_block is not None
                 else slot.render(slot.phase)
             )
             if not block.fragments:
@@ -838,8 +885,12 @@ class TuiActivity(object):
                 preserve_newlines = True
                 fragments.append(("", "\n\n"))
             fragments.extend(clipped)
+            if slot is foreground and not hook_owns_foreground and hook_block is not None:
+                fragments.extend((("", "\n"), *hook_block.fragments))
+                preserve_newlines = True
 
         if hook_block is not None and foreground is None:
+            preserve_newlines = preserve_newlines or hook_block.preserve_newlines
             if fragments:
                 preserve_newlines = True
                 fragments.append(("", "\n\n"))
@@ -854,6 +905,34 @@ class TuiActivity(object):
             ))
         else:
             self.clear_renderable()
+
+    def _hook_block(
+        self,
+        hooks: tuple[_HookActivity, ...],
+        *,
+        now: float,
+        primary: bool,
+    ) -> FragmentBlock:
+        """合并已显示的 Hook，预留自身耗时宽度并避免覆盖主活动。"""
+        labels = {hook.label for hook in hooks}
+        label = hooks[0].label if len(labels) == 1 else "Running hooks"
+        elapsed = _compact_elapsed_label(now - min(hook.started_at for hook in hooks))
+        background = all(hook.background for hook in hooks)
+        if background:
+            label = "Background hooks" if len(labels) > 1 else f"Background hook: {label}"
+        elif not primary:
+            label = f"Hook: {label}"
+        prefix = "• " if primary else "  └ "
+        suffix = f" · {elapsed}"
+        width = max(1, int(self.get_width()))
+        label = _truncate_display_text(label, limit=max(1, width - get_cwidth(prefix + suffix)))
+        fragments = (
+            self.breathing_indicator() if primary
+            else (prompt_style(STATUS_MUTED), "  └"),
+            (prompt_style(BODY_STYLE if primary else STATUS_MUTED), f" {label}"),
+            (prompt_style(STATUS_MUTED), suffix),
+        )
+        return FragmentBlock(tuple(_clip_activity_line(list(fragments), width=width)))
 
     def _leased_slot(self, lease: ActivityLease) -> _ActivitySlot | None:
         """返回仍与租约匹配的活动槽位。"""
@@ -975,7 +1054,8 @@ class TuiActivity(object):
         self._wait_paused = False
         self._completed_wait_elapsed_sec = None
         self._wait_phase = 0.0
-        self._activity_breath = ActivityBreathingMotion()
+        if not self._hooks:
+            self._activity_breath = ActivityBreathingMotion()
         self._turn_surface_indicator = "thinking"
         self._compaction_started_at = None
         self._compaction_identity = None

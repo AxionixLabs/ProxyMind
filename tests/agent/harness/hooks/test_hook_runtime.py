@@ -74,12 +74,14 @@ class _RecordingHookStatus:
     def __init__(self) -> None:
         self.started_runs = []
         self.completed_runs = []
+        self.completion = asyncio.Event()
 
     async def started(self, run):
         self.started_runs.append(run)
 
     async def completed(self, run):
         self.completed_runs.append(run)
+        self.completion.set()
 
 
 def _wire_output(event, output):
@@ -618,6 +620,7 @@ async def test_non_session_async_hook_runs_in_owned_background_task() -> None:
     assert result.records[0].error == ""
     await asyncio.wait_for(started.wait(), timeout=1)
     release.set()
+    await asyncio.wait_for(status.completion.wait(), timeout=1)
     await owner.close()
     assert [run.status for run in status.started_runs] == ["running"]
     assert [run.status for run in status.completed_runs] == ["completed"]

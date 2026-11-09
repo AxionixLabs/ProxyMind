@@ -42,7 +42,7 @@ class HookAsyncTaskOwnerPort(typing.Protocol):
         ...
 
     async def close(self) -> None:
-        """停止新任务并等待已提交任务收束。"""
+        """停止新任务，取消已提交任务并等待其清理完成。"""
         ...
 
 

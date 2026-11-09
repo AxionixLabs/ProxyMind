@@ -36,6 +36,45 @@ async def test_hook_async_task_owner_enforces_concurrency_and_closes() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("start_before_close", [False, True])
+async def test_shutdown_cancels_running_and_queued_hooks_and_awaits_cleanup(start_before_close) -> None:
+    owner = HookAsyncTaskOwner(max_concurrency=1)
+    started = asyncio.Event()
+    cleaned = asyncio.Event()
+    queued_started = asyncio.Event()
+
+    async def running() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned.set()
+
+    async def queued() -> None:
+        queued_started.set()
+
+    first = running()
+    second = queued()
+    assert owner.submit(first, name="running hook")
+    assert owner.submit(second, name="queued hook")
+    if start_before_close:
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+    async with asyncio.timeout(1):
+        if start_before_close:
+            await asyncio.gather(owner.close(), owner.close())
+        else:
+            await owner.close()
+            await owner.close()
+
+    assert cleaned.is_set() is start_before_close
+    assert not queued_started.is_set()
+    assert first.cr_frame is None
+    assert second.cr_frame is None
+
+
+@pytest.mark.anyio
 async def test_hook_async_task_owner_rejects_new_tasks_after_close() -> None:
     owner = HookAsyncTaskOwner()
     await owner.close()
