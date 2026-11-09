@@ -39,33 +39,47 @@ from ..rendering.fragments import (
 
 HOOK_CONTEXT_MAX_DISPLAY_ROWS: typing.Final[int] = 3
 
-_NEUTRAL_BULLET = semantic_text_style(TerminalSemanticRole.SECONDARY, bold=True)
 _FAILURE_BULLET = semantic_text_style(TerminalSemanticRole.FAILURE, bold=True)
 _WARNING_BULLET = TextStyle(bold=True)
 
 
 class TuiHookStatusAdapter:
-    """把 Hook 生命周期转换为稳定 TUI 正文块。"""
+    """投影临时 Hook 活动，并只持久展示有输出或异常的完成结果。"""
 
     def __init__(self, runtime: TuiRuntime) -> None:
         self._runtime = runtime
+        self._turn_generation = 0
+        self._run_generations: dict[str, int] = {}
+        runtime.add_turn_finished_callback(self._finish_turn)
+
+    def _finish_turn(self) -> None:
+        """隔离旧轮异步 Hook 的迟到完成事件。"""
+        self._turn_generation += 1
 
     async def started(self, run: HookRunSummary) -> None:
-        """把 Hook 开始事件直接写入稳定正文。"""
-        width = self._runtime.terminal_width
-        block = _render_start(run, width)
-        transcript = _render_start(run, None)
-        self._runtime.append_block(
-            block,
-            kind="operation",
-            transcript_block=transcript,
-            raw_text=fragments_text(transcript.fragments),
-            display_renderer=partial(_render_start, run),
-            display_render_width=width,
+        """在活动区域延迟显示 Hook，避免快速执行闪烁或污染正文。"""
+        turn_scoped = run.scope == "turn" or self._runtime.execution_active
+        if turn_scoped:
+            self._run_generations[run.id] = self._turn_generation
+            if self._runtime.turn_output_suppressed:
+                return
+        self._runtime.activity.start_hook(
+            run.id,
+            run.status_message or f"Running {run.event} hook",
+            turn_scoped=turn_scoped,
         )
 
     async def completed(self, run: HookRunSummary) -> None:
-        """把 Hook 完成事件直接写入稳定正文。"""
+        """收束临时活动，过滤旧轮输出并保存需要用户关注的结果。"""
+        self._runtime.activity.finish_hook(run.id)
+        generation = self._run_generations.pop(run.id, None)
+        if (run.scope == "turn" or generation is not None) and (
+            (generation is not None and generation != self._turn_generation)
+            or (self._runtime.turn_output_suppressed and run.event != "Interrupt")
+        ):
+            return
+        if run.status == "completed" and not run.entries:
+            return
         completion = _completion_blocks(
             run,
             self._runtime.terminal_width,
@@ -79,29 +93,6 @@ class TuiHookStatusAdapter:
             display_renderer=completion.display_renderer,
             display_render_width=self._runtime.terminal_width,
         )
-
-
-def _render_start(
-    run: HookRunSummary,
-    width: int | None,
-) -> FragmentBlock:
-    """生成一项 Hook 开始记录。"""
-    label = f"Running {run.event} hook"
-    content: FormattedText = [
-        (prompt_style(BODY_STYLE), label),
-    ]
-    if run.status_message:
-        content.extend((
-            (prompt_style(BODY_STYLE), ": "),
-            (prompt_style(MUTED_STYLE), run.status_message),
-        ))
-    lines = _prefixed_rows(
-        content,
-        first_prefix=[(prompt_style(_NEUTRAL_BULLET), "• ")],
-        continuation_prefix=[(prompt_style(MUTED_STYLE), "  ")],
-        width=width,
-    )
-    return FragmentBlock(tuple(join_formatted_lines(lines)))
 
 
 @dataclass(frozen=True, slots=True)

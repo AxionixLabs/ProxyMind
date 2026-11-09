@@ -121,6 +121,36 @@ def _mark_started(
     control.handle_event(MarkerEvent(type="turn.started", turn_id=turn_id))
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("phase", ["preparing", "submitted", "settled"])
+async def test_interrupt_cancels_local_execution_only_outside_remote_turn(
+    protocol_client: ProtocolCommandClient,
+    phase: str,
+) -> None:
+    runtime = TuiRuntime()
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()), runtime, _State(),
+        cid="cid_1", sid="sid_1", turn_id="turn_001",
+        protocol_client=protocol_client,
+    )
+    cancel = Mock()
+    control.bind_local_execution(cancel)
+    try:
+        if phase != "preparing":
+            control.begin_remote_submission()
+        if phase == "settled":
+            _mark_started(control)
+            control.handle_event(_completed())
+        assert control.request_interrupt()
+        assert control.request_interrupt()
+        await asyncio.sleep(0)
+        assert cancel.call_count == (0 if phase == "submitted" else 1)
+        assert protocol_client.interrupt_turn.await_count == (1 if phase == "submitted" else 0)
+    finally:
+        await control.close()
+        await runtime.close()
+
+
 def _completed(
     *,
     turn_id: str = "turn_001",

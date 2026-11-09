@@ -719,17 +719,20 @@ def test_hook_handler_uses_event_timeout_defaults() -> None:
         "hooks": {
             "PreToolUse": [{"hooks": [_command_handler("check")]}],
             "SessionEnd": [{"hooks": [_command_handler("close")]}],
+            "Interrupt": [{"hooks": [_command_handler("interrupt")]}],
         },
     })
 
     assert config["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"] == 600
     assert config["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"] == 1
+    assert config["hooks"]["Interrupt"][0]["hooks"][0]["timeout"] == 1
 
 
-def test_session_end_hook_timeout_is_clamped_with_warning(tmp_path) -> None:
+@pytest.mark.parametrize("event", ["SessionEnd", "Interrupt"])
+def test_cleanup_hook_timeout_is_clamped_with_warning(tmp_path, event) -> None:
     store = ConfigStore(tmp_path / "config.toml")
     store.update({
-        ("hooks", "SessionEnd"): [{
+        ("hooks", event): [{
             "hooks": [_command_handler("close", timeout=4)],
         }],
     })
@@ -737,7 +740,7 @@ def test_session_end_hook_timeout_is_clamped_with_warning(tmp_path) -> None:
     resolution = ConfigSession(store).resolve()
 
     assert resolution.hooks[0].handler.timeout_sec == 3
-    assert "clamping SessionEnd hook timeout to 3s" in (
+    assert f"clamping {event} hook timeout to 3s" in (
         resolution.hook_warnings[0]
     )
 

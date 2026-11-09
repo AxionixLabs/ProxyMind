@@ -303,7 +303,7 @@ class TurnSessionStatePort(typing.Protocol):
     """定义单轮失败上下文和最近回复的会话写回端口。"""
 
     def observe_remote_turn(self, cid: str, sid: str, turn_id: str, *, terminal: bool) -> None:
-        """记录根会话的观察开始或正式远端终态；本地取消不能确认远端已停止。"""
+        """在请求冻结后登记远端观察，或记录正式终态；本地准备不得确认会话已提交。"""
         ...
 
     def record_context_usage(self, record: ContextUsageRecord) -> None:

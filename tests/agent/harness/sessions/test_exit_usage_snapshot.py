@@ -148,6 +148,21 @@ async def test_unbound_and_never_confirmed_new_session_have_no_resume():
 
 
 @pytest.mark.anyio
+async def test_cancelled_preparation_keeps_new_session_until_remote_submission():
+    session, _ = _root_session()
+    first = await session.begin_turn()
+    retry = await session.begin_turn()
+    assert first.metadata() == retry.metadata()
+    assert first.session_mode == retry.session_mode == "create"
+    assert not session.fork_source_available
+
+    session.observe_remote_turn(retry.cid, retry.sid, "submitted", terminal=False)
+    following = await session.begin_turn()
+    assert following.session_mode == "existing"
+    assert session.fork_source_available
+
+
+@pytest.mark.anyio
 async def test_archive_keeps_usage_and_does_not_become_normal_resume(record):
     session, _ = await resumed(record)
     await session.archive_current()

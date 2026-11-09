@@ -43,8 +43,8 @@ _HANDLER_FIELDS = frozenset({
 })
 
 _DEFAULT_HOOK_TIMEOUT_SEC = 600
-_DEFAULT_SESSION_END_TIMEOUT_SEC = 1
-_MAX_SESSION_END_TIMEOUT_SEC = 3
+_DEFAULT_CLEANUP_HOOK_TIMEOUT_SEC = 1
+_MAX_CLEANUP_HOOK_TIMEOUT_SEC = 3
 
 HOOKS_FILE_NAME = "hooks.json"
 
@@ -886,8 +886,8 @@ def _normalize_timeout(
     """规范化命令 Hook 的超时策略。"""
     if raw_timeout is None:
         raw_timeout = (
-            _DEFAULT_SESSION_END_TIMEOUT_SEC
-            if event == "SessionEnd"
+            _DEFAULT_CLEANUP_HOOK_TIMEOUT_SEC
+            if event in {"SessionEnd", "Interrupt"}
             else _DEFAULT_HOOK_TIMEOUT_SEC
         )
     if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, int):
@@ -904,13 +904,13 @@ def _normalize_timeout(
         return None
 
     timeout = max(1, raw_timeout)
-    if event == "SessionEnd" and timeout > _MAX_SESSION_END_TIMEOUT_SEC:
+    if event in {"SessionEnd", "Interrupt"} and timeout > _MAX_CLEANUP_HOOK_TIMEOUT_SEC:
         _append_warning(
             warnings,
-            f"clamping SessionEnd hook timeout to {_MAX_SESSION_END_TIMEOUT_SEC}s "
+            f"clamping {event} hook timeout to {_MAX_CLEANUP_HOOK_TIMEOUT_SEC}s "
             f"in {source}",
         )
-        timeout = _MAX_SESSION_END_TIMEOUT_SEC
+        timeout = _MAX_CLEANUP_HOOK_TIMEOUT_SEC
     return timeout
 
 

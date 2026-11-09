@@ -56,6 +56,7 @@ STATUS_WARNING = semantic_text_style(TerminalSemanticRole.ATTENTION)
 STATUS_FAILURE = semantic_text_style(TerminalSemanticRole.FAILURE)
 
 ACTIVITY_SETTLE_SEC: typing.Final[float] = 0.7
+HOOK_REVEAL_DELAY_SEC: typing.Final[float] = 0.3
 
 ActivitySlotKey = typing.Literal[
     "foreground",
@@ -168,6 +169,14 @@ class ActivityLease(object):
     preserve_title_anchor: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _HookActivity:
+    """保存临时 Hook 状态的显示期限和轮次归属。"""
+    label: str
+    reveal_at: float
+    turn_scoped: bool
+
+
 class TuiActivity(object):
     """生成 TUI 动画专属区域使用的运行期状态帧。"""
 
@@ -203,6 +212,33 @@ class TuiActivity(object):
         self._slots: dict[ActivitySlotKey, _ActivitySlot] = {}
         self._settle_deadlines: dict[ActivitySlotKey, float] = {}
         self._tool_renderers: list[InlineToolActivityRenderer] = []
+        self._hooks: dict[str, _HookActivity] = {}
+
+    def start_hook(self, run_id: str, label: str, *, turn_scoped: bool) -> None:
+        """登记延迟显示的 Hook，复用当前活动时钟。"""
+        self._hooks[run_id] = _HookActivity(
+            label=" ".join(label.split()) or "Running hook",
+            reveal_at=time.perf_counter() + HOOK_REVEAL_DELAY_SEC,
+            turn_scoped=turn_scoped,
+        )
+        self._ensure_task()
+        self._render_slots()
+
+    def finish_hook(self, run_id: str) -> None:
+        """移除匹配的临时 Hook 并恢复当前轮次活动。"""
+        self._hooks.pop(run_id, None)
+        self._render_slots()
+        if not self._needs_render_task():
+            self._retire_task()
+
+    def clear_turn_hooks(self) -> None:
+        """在轮次取消或结束时撤下其 Hook，保留线程级活动。"""
+        self._hooks = {
+            key: hook for key, hook in self._hooks.items() if not hook.turn_scoped
+        }
+        self._render_slots()
+        if not self._needs_render_task():
+            self._retire_task()
 
     def bind_tool_renderer(self, renderer: InlineToolActivityRenderer) -> None:
         """注册当前输出会话的工具展示，只有尾部所有者可消费前景帧。"""
@@ -223,7 +259,9 @@ class TuiActivity(object):
     @property
     def active(self) -> bool:
         """返回当前是否存在运行期活动槽位。"""
-        return any(key not in self._settle_deadlines for key in self._slots)
+        return bool(self._hooks) or any(
+            key not in self._settle_deadlines for key in self._slots
+        )
 
     async def begin_wait(self) -> None:
         """启动覆盖当前交互周期的等待动画。"""
@@ -434,6 +472,7 @@ class TuiActivity(object):
         """停止全部活动动画且不生成最终状态。"""
         self.finish_tool_presentations("")
         self._slots.clear()
+        self._hooks.clear()
         self._settle_deadlines.clear()
         self._cancel_settle_expiry()
         self._reset_wait()
@@ -544,7 +583,7 @@ class TuiActivity(object):
         self._slots.pop(slot.key, None)
         self._settle_deadlines.pop(slot.key, None)
 
-        if not self._slots:
+        if not self._slots and not self._hooks:
             for renderer in self._tool_renderers:
                 renderer.render(None)
             self._retire_task()
@@ -686,7 +725,7 @@ class TuiActivity(object):
 
     async def _refresh_task(self) -> None:
         """根据剩余槽位刷新合成任务和活动区域。"""
-        if not self._slots:
+        if not self._slots and not self._hooks:
             for renderer in self._tool_renderers:
                 renderer.render(None)
             self._cancel_settle_expiry()
@@ -721,7 +760,7 @@ class TuiActivity(object):
                 previous_tick = current_tick
 
                 foreground = self._slots.get("foreground")
-                if (
+                if self._hooks or (
                     foreground is not None
                     and not foreground.frozen
                     and self._turn_surface_indicator in {"tool", "computer", "thinking"}
@@ -748,8 +787,20 @@ class TuiActivity(object):
         preserve_newlines: bool = False
 
         foreground = self._slots.get("foreground")
+        now = time.perf_counter()
+        hook_labels = tuple(
+            hook.label for hook in self._hooks.values() if now >= hook.reveal_at
+        )
+        hook_block = None
+        if hook_labels:
+            label = hook_labels[0] if len(set(hook_labels)) == 1 else "Running hooks"
+            hook_block = FragmentBlock((
+                self.breathing_indicator(),
+                (prompt_style(BODY_STYLE), f" {label}"),
+            ))
         inline_tools = (
             foreground is not None
+            and hook_block is None
             and self._turn_surface_indicator in {"computer", "tool", "thinking"}
         )
         if not inline_tools:
@@ -767,7 +818,10 @@ class TuiActivity(object):
                     ) or consumed
                 if consumed:
                     continue
-            block = slot.render(slot.phase)
+            block = (
+                hook_block if slot is foreground and hook_block is not None
+                else slot.render(slot.phase)
+            )
             if not block.fragments:
                 continue
 
@@ -784,6 +838,14 @@ class TuiActivity(object):
                 preserve_newlines = True
                 fragments.append(("", "\n\n"))
             fragments.extend(clipped)
+
+        if hook_block is not None and foreground is None:
+            if fragments:
+                preserve_newlines = True
+                fragments.append(("", "\n\n"))
+            fragments.extend(_clip_activity_block(
+                list(hook_block.fragments), width=max(1, int(self.get_width())),
+            ))
 
         if fragments:
             self.set_renderable(FragmentBlock(
@@ -806,7 +868,7 @@ class TuiActivity(object):
 
     def _needs_render_task(self) -> bool:
         """返回当前槽位是否仍需周期刷新。"""
-        return any(not slot.frozen for slot in self._slots.values())
+        return bool(self._hooks) or any(not slot.frozen for slot in self._slots.values())
 
     def _schedule_settle_expiry(self) -> None:
         """按最近截止时间安排冻结状态清理。"""
@@ -850,10 +912,7 @@ class TuiActivity(object):
                     self._slots.pop(key, None)
                     self._settle_deadlines.pop(key, None)
 
-                if self._slots:
-                    self._render_slots()
-                else:
-                    self.clear_renderable()
+                self._render_slots()
 
             self._settle_task = None
             self._schedule_settle_expiry()

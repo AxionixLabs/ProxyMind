@@ -81,6 +81,7 @@ class StreamTurnFinalizer:
         hook_events: TurnHookEvents | None,
         prompt_blocked: bool,
         assistant_text: str,
+        interrupted_before_submission: bool = False,
     ) -> StopHookDecision:
         """按既定顺序收束当前轮次并返回可选的停止 Hook 续跑决定。"""
         self._clear_turn_state()
@@ -98,20 +99,21 @@ class StreamTurnFinalizer:
             terminal_meta=self._outcome.terminal_meta,
         )
 
-        if self._outcome.interrupt_confirmed and hook_events is not None:
-            await hook_events.interrupt()
-
-        stop_decision = await self._run_stop_hook(
-            hook_events,
-            prompt_blocked=prompt_blocked,
-            assistant_text=assistant_text,
-        )
-
-        self._transcript.close()
-        await self._await_cleanup(self._output_session.close(
-            blink=not self._outcome.is_interrupted,
-        ))
-        return stop_decision
+        try:
+            if (
+                self._outcome.interrupt_confirmed or interrupted_before_submission
+            ) and hook_events is not None:
+                await hook_events.interrupt()
+            return await self._run_stop_hook(
+                hook_events,
+                prompt_blocked=prompt_blocked,
+                assistant_text=assistant_text,
+            )
+        finally:
+            self._transcript.close()
+            await self._await_cleanup(self._output_session.close(
+                blink=not self._outcome.is_interrupted,
+            ))
 
     def _clear_turn_state(self) -> None:
         """清除所有绑定到当前逻辑轮次的临时状态。"""
@@ -131,7 +133,7 @@ class StreamTurnFinalizer:
     ) -> StopHookDecision:
         """执行允许的停止 Hook，并隔离其失败和中断态续跑决定。"""
         stop_decision = StopHookDecision.stop()
-        if hook_events is None or prompt_blocked:
+        if hook_events is None or prompt_blocked or self._outcome.is_interrupted:
             return stop_decision
 
         try:
@@ -142,10 +144,7 @@ class StreamTurnFinalizer:
                 last_assistant_message=assistant_text,
                 continuation_count=self._continuation_count,
             )
-            if self._outcome.is_interrupted:
-                await self._await_cleanup(_discard_stop_hook_decision(stop_hook))
-            else:
-                stop_decision = await stop_hook
+            stop_decision = await stop_hook
         except Exception as error:
             observe_exception(
                 "hooks.stop.failed",
@@ -154,13 +153,6 @@ class StreamTurnFinalizer:
                 turn_id=self._turn_id,
             )
         return stop_decision
-
-
-async def _discard_stop_hook_decision(
-    awaitable: typing.Awaitable[StopHookDecision],
-) -> None:
-    """执行停止 Hook 并丢弃清理阶段不应消费的续跑决定。"""
-    await awaitable
 
 
 if __name__ == '__main__':

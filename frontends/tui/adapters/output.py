@@ -734,7 +734,7 @@ class TuiOutputControl(OutputControlPort):
         ))
 
     async def complete_turn(self, *, duration_ms: int | None = None) -> None:
-        """按服务端权威耗时或本地兜底耗时提交完成分隔线。"""
+        """固定已完成的正文，再按权威或本地耗时提交完成分隔线。"""
         if self.runtime.turn_output_suppressed:
             self._discard_visible_output_state()
             return None
@@ -742,6 +742,7 @@ class TuiOutputControl(OutputControlPort):
             elapsed_sec = max(0, duration_ms) / 1000
         else:
             elapsed_sec = self.runtime.activity.wait_elapsed_seconds()
+        await self._commit_current()
         await self._append_pending_separator(elapsed_sec=elapsed_sec)
 
     async def stop(self, *, blink: bool = True) -> None:

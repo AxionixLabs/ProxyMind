@@ -72,6 +72,9 @@ class _HookEvents:
             raise self.error
         return self.decision
 
+    async def interrupt(self) -> None:
+        self.operations.append("hook.interrupt")
+
 
 def _completed_outcome() -> StreamTurnOutcome:
     """构造携带用量的已完成终态。"""
@@ -176,7 +179,8 @@ async def test_finalizer_closes_completed_turn_in_lifecycle_order() -> None:
 
 
 @pytest.mark.anyio
-async def test_finalizer_discards_interrupted_stop_hook_decision() -> None:
+@pytest.mark.parametrize("before_submission", [False, True])
+async def test_finalizer_skips_stop_hook_after_interruption(before_submission) -> None:
     operations: list[typing.Any] = []
     outcome = StreamTurnOutcome()
     outcome.interrupt()
@@ -198,17 +202,17 @@ async def test_finalizer_discards_interrupted_stop_hook_decision() -> None:
         hook_events=hooks,
         prompt_blocked=False,
         assistant_text="interrupted answer",
+        interrupted_before_submission=before_submission,
     )
 
     assert decision == StopHookDecision.stop()
-    assert operations[-5:] == [
-        "cleanup.await",
-        "hook.stop",
+    assert operations[-3:] == [
         "transcript.close",
         "cleanup.await",
         ("output.close", False),
     ]
-    assert hooks.calls[0]["outcome"] == "interrupted"
+    assert hooks.calls == []
+    assert ("hook.interrupt" in operations) is before_submission
 
 
 @pytest.mark.anyio

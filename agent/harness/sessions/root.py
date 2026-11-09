@@ -218,9 +218,10 @@ class RootConversationSession:
         return snapshot
 
     def observe_remote_turn(self, cid: str, sid: str, turn_id: str, *, terminal: bool) -> None:
-        """仅以匹配身份的正式终态确认观察对象停止，不把断流或取消当成终态。"""
+        """登记远端提交后的会话续用意图，仅以正式终态确认观察对象停止。"""
         if (cid, sid) != (self.cid, self.sid):
             return
+        self._state.fork_source_available = True
         if terminal:
             self._remote_session_confirmed = True
             self._unconfirmed_remote_turns.discard(turn_id)

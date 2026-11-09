@@ -9,6 +9,8 @@ from agent.domain.policies import PermissionSettings
 from agent.ports import ModelRequestFrozenCallback
 from agent.ports import RunRecoveryRequired
 from agent.application.turns.observation import TurnObservationCallbacks
+from agent.application.turns.run_result import RunResult
+from agent.protocol import ModelStreamRequest
 from agent.protocol import ReviewStreamRequest
 from agent.protocol.json_value import ThawedJsonValue
 from agent.ports.presentation import (
@@ -27,9 +29,6 @@ from ..core.styles import (
     fragment_block,
 )
 from ..runtime.ports import TurnRuntimePort
-
-if typing.TYPE_CHECKING:
-    from agent.application.turns.run_result import RunResult
 
 TurnValue = typing.TypeVar("TurnValue")
 
@@ -374,17 +373,45 @@ async def run_tui_model_turn(
     }
     if extras:
         prompt_kwargs["extras"] = extras
-    if turn_input_control is not None:
-        prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
-        prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
-        prompt_kwargs["on_turn_stream_end"] = turn_input_control.handle_stream_end
-    if on_model_request_frozen is not None:
-        prompt_kwargs["on_model_request_frozen"] = on_model_request_frozen
-    return await turn_runner(
+    if turn_input_control is None:
+        if on_model_request_frozen is not None:
+            prompt_kwargs["on_model_request_frozen"] = on_model_request_frozen
+        return await turn_runner(pref_config, message=message_text, **prompt_kwargs)
+
+    async def freeze_model_request(request: ModelStreamRequest) -> None:
+        """关闭本地取消窗口并持久化即将提交的冻结请求。"""
+        turn_input_control.begin_remote_submission()
+        if on_model_request_frozen is not None:
+            await on_model_request_frozen(request)
+
+    prompt_kwargs["on_turn_input_context"] = turn_input_control.activate
+    prompt_kwargs["on_turn_input_event"] = turn_input_control.handle_event
+    prompt_kwargs["on_turn_stream_end"] = turn_input_control.handle_stream_end
+    prompt_kwargs["on_model_request_frozen"] = freeze_model_request
+    task = asyncio.create_task(turn_runner(
         pref_config,
         message=message_text,
         **prompt_kwargs,
-    )
+    ), name="tui root turn execution")
+
+    def cancel_local_execution() -> None:
+        """取消当前根轮次拥有的执行任务并由原等待方回收。"""
+        if not task.done():
+            task.cancel()
+
+    turn_input_control.bind_local_execution(cancel_local_execution)
+    try:
+        return await task
+    except asyncio.CancelledError:
+        caller = asyncio.current_task()
+        if (
+            not turn_input_control.local_interrupt_requested
+            or (caller is not None and caller.cancelling())
+        ):
+            raise
+        return RunResult(status="interrupted")
+    finally:
+        turn_input_control.bind_local_execution(None)
 
 
 if __name__ == '__main__':

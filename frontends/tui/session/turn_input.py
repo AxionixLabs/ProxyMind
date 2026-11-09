@@ -212,6 +212,26 @@ class TuiTurnInputControl(object):
         self._interrupt_failed: bool = False
         self._interrupt_waiting_for_start: bool = False
         self._tasks: set[asyncio.Task[None]] = set()
+        self._cancel_local_execution: typing.Callable[[], None] | None = None
+        self._remote_submission_started = False
+        self._local_interrupt_requested = False
+
+    @property
+    def local_interrupt_requested(self) -> bool:
+        """返回本次中断是否取消了尚未提交或已经终结的本地执行。"""
+        return self._local_interrupt_requested
+
+    def bind_local_execution(self, cancel: typing.Callable[[], None] | None) -> None:
+        """绑定当前根轮次的本地取消入口，由调用方在执行结束时解绑。"""
+        self._cancel_local_execution = cancel
+        if cancel is not None and self._lifecycle.interrupt_requested:
+            self.request_interrupt()
+
+    def begin_remote_submission(self) -> None:
+        """在冻结请求交给远端前关闭本地取消窗口。"""
+        if self._local_interrupt_requested:
+            raise asyncio.CancelledError
+        self._remote_submission_started = True
 
     @property
     def phase(self) -> TurnInputPhase:
@@ -223,6 +243,7 @@ class TuiTurnInputControl(object):
         previous_settled = self._lifecycle.settled
         if context.turn_id != self._target[2]:
             self._retire_target_workers()
+            self._remote_submission_started = False
         resolution = self._runtime.advance_pending_steers(
             tuple(self._steer_ids),
             settled=previous_settled,
@@ -297,6 +318,7 @@ class TuiTurnInputControl(object):
         if event.type == "turn.started":
             if not self._lifecycle.mark_started():
                 return None
+            self._remote_submission_started = True
             if self._lifecycle.interrupt_requested:
                 self._interrupt_waiting_for_start = False
                 self._start_interrupt_worker()
@@ -341,8 +363,17 @@ class TuiTurnInputControl(object):
         self._stream_end_reason = reason
 
     def request_interrupt(self) -> bool:
-        """记录中断意图，并立即尝试中断已知坐标的远端轮次。"""
-        if not self._lifecycle.request_interrupt():
+        """取消本地准备或收尾；请求已提交时只中断远端并继续观察终态。"""
+        can_interrupt_remote = self._lifecycle.request_interrupt()
+        cancel_local = self._cancel_local_execution
+        if cancel_local is not None and (
+            not self._remote_submission_started or self._lifecycle.settled
+        ):
+            if not self._local_interrupt_requested:
+                self._local_interrupt_requested = True
+                cancel_local()
+            return True
+        if not can_interrupt_remote:
             return False
         steer_task = self._steer_task
         if steer_task is not None and not steer_task.done():
@@ -357,6 +388,10 @@ class TuiTurnInputControl(object):
             or not sid
             or not turn_id
             or not self._lifecycle.can_send_interrupt
+            or (
+                self._cancel_local_execution is not None
+                and not self._remote_submission_started
+            )
         ):
             return False
         if self._interrupt_target != self._target:

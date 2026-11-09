@@ -186,6 +186,8 @@ async def stream_turn(
     prompt_blocked: bool = False
     turn_hook_events: TurnHookEvents | None = None
     event_stream = None
+    opening_stream = False
+    interrupted_before_submission = False
     tool_dispatcher: StreamToolDispatcher | None = None
     assistant_text: str = ""
     transcript_factory = turn_context.transcript_factory
@@ -400,10 +402,7 @@ async def stream_turn(
             usage_session.context_usage_recovery(
                 turn_context.cid, turn_context.sid, pending=True,
             )
-        if usage_session is not None:
-            usage_session.observe_remote_turn(
-                turn_context.cid, turn_context.sid, turn_context.turn_id, terminal=False,
-            )
+        opening_stream = True
         event_stream = await source.open(
             turn_context,
             pref_config=pref_config,
@@ -415,6 +414,10 @@ async def stream_turn(
         )
         if not isinstance(event_stream, ModelEventStream):
             raise TypeError("model capability returned an invalid event stream")
+        if usage_session is not None:
+            usage_session.observe_remote_turn(
+                turn_context.cid, turn_context.sid, turn_context.turn_id, terminal=False,
+            )
 
         event_iterator = aiter(event_stream)
         while True:
@@ -690,6 +693,9 @@ async def stream_turn(
             await command_projection.failure(outcome)
     except asyncio.CancelledError:
         outcome.interrupt()
+        interrupted_before_submission = (
+            isinstance(source, SubmittingTurnStreamSource) and not opening_stream
+        )
         if failed_tool_context and turn_context.agent.depth == 0:
             session_state.queue_turn_context(failed_tool_context)
         observe(
@@ -762,6 +768,7 @@ async def stream_turn(
         )
         await project_terminal_activity()
         stop_decision = await turn_finalizer.finalize(
+            interrupted_before_submission=interrupted_before_submission,
             stream_end_reason=stream_end_reason or (
                 "cancelled" if event_stream is not None else None
             ),

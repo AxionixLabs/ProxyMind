@@ -10,6 +10,8 @@ def test_conversation_turn_marks_only_initial_boundary() -> None:
     assert state.fork_source_available is False
 
     first = state.begin_turn(start_reason="calling")
+    assert state.fork_source_available is False
+    state.fork_source_available = True
     second = state.begin_turn(start_reason="calling")
 
     assert first.turn_index == 1
@@ -36,7 +38,7 @@ def test_conversation_reset_defers_boundary_until_next_turn() -> None:
     assert started.turn_index == 1
     assert started.session_started is True
     assert started.start_reason == "command:/new"
-    assert state.fork_source_available is True
+    assert state.fork_source_available is False
     assert started.metadata() != previous.metadata()
 
 

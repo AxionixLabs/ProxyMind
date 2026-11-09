@@ -234,6 +234,22 @@ async def test_pure_assistant_turn_does_not_insert_separator() -> None:
 
 
 @pytest.mark.anyio
+async def test_completed_answer_survives_cancellation_during_stop_hook() -> None:
+    runtime = TuiRuntime()
+    output = TuiOutputControl("", runtime=runtime, animate=False)
+    try:
+        await output.append_assistant_delta("Completed answer")
+        await output.complete_turn()
+        runtime.prepare_interrupted_presentation()
+        await output.stop(blink=False)
+        assert runtime.document.active_block is None
+        assert [item.kind for item in runtime.document.blocks] == ["assistant"]
+        assert "Completed answer" in fragments_text(runtime.document.fragments(width=80))
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.anyio
 async def test_completed_work_adds_finished_label_only_at_turn_tail() -> None:
     runtime = TuiRuntime()
     output = TuiOutputControl("", runtime=runtime, animate=False)

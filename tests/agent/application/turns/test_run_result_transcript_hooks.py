@@ -1540,7 +1540,7 @@ async def test_stop_hook_failure_does_not_replace_completed_result(
 
 
 @pytest.mark.anyio
-async def test_stream_cancellation_reports_interrupted_stop_hook(
+async def test_stream_cancellation_does_not_run_normal_stop_hook(
     monkeypatch,
 ) -> None:
     started = asyncio.Event()
@@ -1580,8 +1580,7 @@ async def test_stream_cancellation_reports_interrupted_stop_hook(
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert [event for event, _payload in runner.calls] == ["Stop"]
-    assert runner.calls[0][1]["stop_hook_active"] is False
+    assert runner.calls == []
 
 
 @pytest.mark.anyio

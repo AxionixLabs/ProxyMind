@@ -2122,6 +2122,7 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             self._turn_output_suppressed = True
             self.activity.hide_wait()
+            self.activity.clear_turn_hooks()
             self._transcript.clear_active_for_interrupt()
             self.invalidate()
 
@@ -2130,6 +2131,7 @@ class TuiRuntime(object):
         with self.screen.visual_update():
             self._turn_output_suppressed = True
             self.activity.finish_tool_presentations("")
+            self.activity.clear_turn_hooks()
             self._transcript.clear_active()
             if not self.submission_wait_pending:
                 self.activity.finish_wait()
@@ -2149,6 +2151,7 @@ class TuiRuntime(object):
                 self.activity.finish_wait()
             self.execution_active = active
             if not self.execution_active:
+                self.activity.clear_turn_hooks()
                 self._interrupt_notice = None
                 if was_active:
                     for callback in tuple(self._turn_finished_callbacks):

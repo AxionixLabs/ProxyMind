@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
+from dataclasses import replace
+
 import pytest
 from prompt_toolkit.utils import get_cwidth
 
@@ -43,7 +46,7 @@ def _block_text(runtime: TuiRuntime, index: int) -> str:
 
 
 @pytest.mark.anyio
-async def test_tui_hook_adapter_prints_start_as_stable_operation() -> None:
+async def test_tui_hook_adapter_delays_transient_activity_without_history() -> None:
     runtime = TuiRuntime()
     adapter = TuiHookStatusAdapter(runtime)
 
@@ -55,22 +58,16 @@ async def test_tui_hook_adapter_prints_start_as_stable_operation() -> None:
         ))
 
         assert runtime.screen.activity_block is None
-        assert len(runtime.document.blocks) == 1
-        assert runtime.document.blocks[0].kind == "operation"
-        assert _block_text(runtime, 0) == (
-            "• Running UserPromptSubmit hook: Checking prompt"
-        )
-        assert runtime.document.blocks[0].raw_text == (
-            "• Running UserPromptSubmit hook: Checking prompt"
-        )
-        prefix_style = runtime.document.blocks[0].display_block.fragments[0][0]
-        assert prefix_style == "bold dim"
+        assert runtime.document.blocks == []
+        await asyncio.sleep(0.4)
+        assert fragments_text(runtime.screen.activity_block.fragments) == "• Checking prompt"
+        assert runtime.document.blocks == []
     finally:
         await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_tui_hook_adapter_does_not_join_thinking_activity() -> None:
+async def test_tui_hook_adapter_shares_and_restores_thinking_activity() -> None:
     runtime = TuiRuntime()
     adapter = TuiHookStatusAdapter(runtime)
 
@@ -83,14 +80,17 @@ async def test_tui_hook_adapter_does_not_join_thinking_activity() -> None:
 
         activity = fragments_text(runtime.screen.activity_block.fragments)
         assert "Thinking" in activity
-        assert "Hook" not in activity
-        assert "Running PreToolUse hook" in _block_text(runtime, 0)
+        await asyncio.sleep(0.4)
+        assert fragments_text(runtime.screen.activity_block.fragments) == "• Checking command"
+        await adapter.completed(_run("started", status="completed"))
+        assert "Thinking" in fragments_text(runtime.screen.activity_block.fragments)
+        assert runtime.document.blocks == []
     finally:
         await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_tui_hook_adapter_prints_quiet_success_result() -> None:
+async def test_tui_hook_adapter_omits_quiet_success_result() -> None:
     runtime = TuiRuntime()
     adapter = TuiHookStatusAdapter(runtime)
 
@@ -108,40 +108,29 @@ async def test_tui_hook_adapter_prints_quiet_success_result() -> None:
             duration_ms=25,
         ))
 
-        assert len(runtime.document.blocks) == 2
-        assert _block_text(runtime, 0) == (
-            "• Running UserPromptSubmit hook: Visible quiet prompt hook"
-        )
-        assert _block_text(runtime, 1) == (
-            "• Ran UserPromptSubmit hook: Visible quiet prompt hook\n"
-            "  └ completed · 25ms"
-        )
+        assert runtime.document.blocks == []
         assert runtime.screen.activity_block is None
-
-        runtime.toggle_transcript_overlay()
-        assert fragments_text(runtime.screen.transcript_overlay.fragments()) == (
-            "• Running UserPromptSubmit hook: Visible quiet prompt hook\n\n"
-            "• Ran UserPromptSubmit hook: Visible quiet prompt hook\n"
-            "  └ completed · 25ms"
-        )
     finally:
         await runtime.close()
 
 
 @pytest.mark.anyio
-async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
+async def test_tui_hook_adapter_combines_concurrent_activity_and_keeps_failure() -> None:
     runtime = TuiRuntime()
     adapter = TuiHookStatusAdapter(runtime)
 
     try:
         await adapter.started(_run("first", status_message="First policy"))
         await adapter.started(_run("second", status_message="Second policy"))
+        await asyncio.sleep(0.4)
+        assert fragments_text(runtime.screen.activity_block.fragments) == "• Running hooks"
         await adapter.completed(_run(
             "second",
             status="completed",
             status_message="Second policy",
             duration_ms=1200,
         ))
+        assert fragments_text(runtime.screen.activity_block.fragments) == "• First policy"
         await adapter.completed(_run(
             "first",
             status="failed",
@@ -150,14 +139,9 @@ async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
             entries=(HookOutputEntry("error", "First policy failed"),),
         ))
 
-        assert len(runtime.document.blocks) == 4
-        assert "First policy" in _block_text(runtime, 0)
-        assert "Second policy" in _block_text(runtime, 1)
-        assert _block_text(runtime, 2) == (
-            "• Ran PreToolUse hook: Second policy\n"
-            "  └ completed · 1.20s"
-        )
-        assert _block_text(runtime, 3) == (
+        assert len(runtime.document.blocks) == 1
+        assert runtime.screen.activity_block is None
+        assert _block_text(runtime, 0) == (
             "• Ran PreToolUse hook: First policy\n"
             "  └ failed · 32ms\n"
             "    error: First policy failed"
@@ -167,10 +151,8 @@ async def test_tui_hook_adapter_prints_each_concurrent_hook() -> None:
         transcript = fragments_text(
             runtime.screen.transcript_overlay.fragments()
         )
-        assert transcript.count("\n\n") == 3
-        assert transcript.index("Second policy\n  └ completed · 1.20s") < (
-            transcript.index("First policy\n  └ failed · 32ms")
-        )
+        assert "Second policy" not in transcript
+        assert "First policy failed" in transcript
     finally:
         await runtime.close()
 
@@ -225,6 +207,10 @@ async def test_tui_hook_records_follow_active_assistant_stream() -> None:
         runtime.set_active_renderable(live, kind="assistant")
 
         await adapter.started(_run("during-stream"))
+        await adapter.completed(_run(
+            "during-stream", status="completed",
+            entries=(HookOutputEntry("warning", "Review output"),),
+        ))
 
         assert fragments_text(runtime.document.active_block.fragments) == (
             "assistant live"
@@ -238,7 +224,7 @@ async def test_tui_hook_records_follow_active_assistant_stream() -> None:
             "operation",
         ]
         assert _block_text(runtime, 0) == "assistant final"
-        assert _block_text(runtime, 1) == "• Running PreToolUse hook"
+        assert "Review output" in _block_text(runtime, 1)
     finally:
         await runtime.close()
 
@@ -352,13 +338,37 @@ async def test_tui_hook_records_are_committed_in_transcript() -> None:
             "record",
             status="completed",
             duration_ms=25,
+            entries=(HookOutputEntry("context", "Hook context"),),
         ))
         runtime.toggle_transcript_overlay()
 
         transcript = fragments_text(runtime.screen.transcript_overlay.fragments())
-        assert "Running PreToolUse hook" in transcript
         assert "PreToolUse hook\n  └ completed · 25ms" in transcript
+        assert "Hook context" in transcript
         assert runtime.document.transcript_snapshot().live_tail is None
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("scope", ["turn", "thread"])
+async def test_interrupted_hook_cannot_reappear_in_next_turn(scope) -> None:
+    runtime = TuiRuntime()
+    adapter = TuiHookStatusAdapter(runtime)
+    try:
+        runtime.set_execution_active(True)
+        await adapter.started(replace(_run("old", status_message="Old hook"), scope=scope))
+        await asyncio.sleep(0.4)
+        runtime.prepare_interrupted_presentation()
+        assert runtime.screen.activity_block is None
+        runtime.set_execution_active(False)
+        runtime.set_execution_active(True)
+        await runtime.begin_wait_status()
+        await adapter.completed(replace(_run(
+            "old", status="failed", entries=(HookOutputEntry("error", "Old failure"),),
+        ), scope=scope))
+        assert runtime.document.blocks == []
+        assert "Thinking" in fragments_text(runtime.screen.activity_block.fragments)
     finally:
         await runtime.close()
 

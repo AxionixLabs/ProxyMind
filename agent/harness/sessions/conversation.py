@@ -98,7 +98,6 @@ class ConversationState(object):
 
         self.turn_count += 1
         self.session_bound = True
-        self.fork_source_available = True
         metadata = self.snapshot()
 
         additional_context, system_message = self.consume_turn_context()
