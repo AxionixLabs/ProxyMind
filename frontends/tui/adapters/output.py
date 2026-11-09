@@ -797,6 +797,8 @@ class TuiOutputControl(OutputControlPort):
 
     async def prepare_assistant_output(self) -> None:
         """先提交前段正文和工作分隔线，避免清除下一 Item 的可见性绑定。"""
+        if self.runtime.turn_output_suppressed:
+            return None
         self.computer.suspend()
         self.tool_calls.suspend()
         await self._append_pending_separator(elapsed_sec=None)
@@ -934,6 +936,8 @@ class TuiOutputControl(OutputControlPort):
 
     async def prepare_active_presentation(self) -> None:
         """提交当前工具和 assistant 正文，为新的动态展示保留当前位置。"""
+        if self.runtime.turn_output_suppressed:
+            return None
         self.computer.suspend()
         self.tool_calls.suspend()
         self.assistant.discard_boundary()

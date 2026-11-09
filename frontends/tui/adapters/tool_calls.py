@@ -166,6 +166,13 @@ class ToolCallPresentation:
         """以同一视觉事务更新活动尾部或已经提交的原始位置。"""
         runtime = self.output.runtime
         snapshot = entry.snapshot
+        # 已提交记录仍可原位补齐结果，撤下的活动尾部不得重新上屏。
+        if (
+            runtime.turn_output_suppressed
+            and entry.target is None
+            and runtime.document.active_source is not snapshot.view
+        ):
+            return
         block = entry.render_at(self.output.terminal_width)
         if entry.target is not None:
             runtime.replace_stable_renderable(
@@ -191,6 +198,8 @@ class ToolCallPresentation:
 
     def suspend(self) -> None:
         """让出动态尾部，保留未完成调用的原位更新目标。"""
+        if self.output.runtime.turn_output_suppressed:
+            return
         if self._active is not None:
             self._commit(self._active)
 

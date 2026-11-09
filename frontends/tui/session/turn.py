@@ -187,7 +187,6 @@ async def execute_tui_model_turn(
 
     fatal_error: BaseException | None = None
     interrupted: bool = False
-    terminal_status: str = ""
 
     def cancel_local_stream() -> None:
         """取消当前轮次持有的本地事件流。"""
@@ -195,24 +194,27 @@ async def execute_tui_model_turn(
             task.cancel()
 
     def cancel_turn() -> InterruptDisposition:
-        """登记中断，并继续观察远端权威终态。"""
+        """同步提交本地中断展示，再继续观察远端权威终态。"""
         if interrupt_state.requested:
             return InterruptDisposition.CONSUMED
-        if task.done():
-            return InterruptDisposition.IGNORED
-
         interrupt_state.request()
 
-        if turn_input_control is None:
+        runtime.begin_interrupt_settlement()
+        runtime.prepare_interrupted_presentation()
+        if show_interrupt_notice():
+            emit_tui_interrupt_notice(
+                application,
+                submit_pending_steers=runtime.submit_pending_steers_after_interrupt,
+            )
+            interrupt_state.notice_emitted = True
+
+        if task.done():
+            interrupt_dispatched = False
+        elif turn_input_control is None:
             interrupt_dispatched = False
             cancel_local_stream()
         else:
             interrupt_dispatched = turn_input_control.request_interrupt()
-        runtime.begin_interrupt_settlement()
-        runtime.prepare_interrupted_presentation()
-        if runtime.submit_pending_steers_after_interrupt and show_interrupt_notice():
-            emit_tui_interrupt_notice(application, submit_pending_steers=True)
-            interrupt_state.notice_emitted = True
 
         observe(
             "tui.turn.interrupt.local",
@@ -292,22 +294,19 @@ async def execute_tui_model_turn(
         )
 
         runtime.bind_stream_command_handler(None)
-        runtime.bind_turn_input_handler(None)
         try:
             if turn_input_control is not None:
                 await turn_input_control.close()
-                if interrupted or (
-                    runtime.submit_pending_steers_after_interrupt
-                    and terminal_status in {"completed", "failed", "interrupted", "cancelled"}
-                ):
+                if interrupted or interrupt_state.requested:
                     runtime.restore_interrupted_submissions()
                 else:
                     runtime.clear_pending_steer_interrupt_intent()
             else:
                 runtime.clear_pending_steer_interrupt_intent()
         finally:
-            if interrupted:
+            if interrupted or interrupt_state.requested:
                 runtime.finish_interrupted_presentation()
+            runtime.bind_turn_input_handler(None)
             runtime.bind_interrupt_handler(None)
 
             if not runtime.uncertain_steers_active:

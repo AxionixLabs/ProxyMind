@@ -125,6 +125,106 @@ def _details(facts: dict[str, ThawedJsonValue]) -> dict[str, ThawedJsonValue]:
     return details
 
 
+@pytest.mark.parametrize("phase", (
+    "early", "thinking", "streaming", "tool", "computer", "provider_retry",
+    "reconnect", "terminal_wait", "slow_ack", "response_lost", "timeout",
+    "scrollback", "resize",
+))
+def test_ctrl_c_feedback_precedes_remote_settlement(
+    tmp_path: Path,
+    phase: str,
+    record_property,
+) -> None:
+    """实际按键到终端提示须小于 500ms，旧轮事件及慢终态不能恢复动画。"""
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(f"interrupt_feedback_{phase}", facts_path) as terminal:
+        _wait_for_stage(facts_path, "feedback_ready")
+        _wait_for_tui_ready(terminal, f"interrupt_feedback_{phase}")
+        if phase == "scrollback":
+            facts_path.with_suffix(".handoff").write_text("start", encoding="ascii")
+            _wait_for_stage(facts_path, "feedback_handoff")
+        elif phase == "resize":
+            terminal.resize(TerminalSize(rows=24, columns=60))
+        started = time.perf_counter()
+        terminal.send_key(PtyKey.CTRL_C)
+        if phase == "scrollback":
+            facts_path.with_suffix(".resume").write_text("resume", encoding="ascii")
+        feedback = terminal.wait_for_screen_text("Conversation interrupted", timeout=0.5)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        assert "Conversation interrupted" in feedback.visible_text
+        record_property("interrupt_feedback_ms", round(elapsed_ms, 2))
+        _wait_for_stage(facts_path, "feedback_pending")
+        for _ in range(3):
+            terminal.send_key(PtyKey.CTRL_C)
+        time.sleep(0.15)
+        assert "Thinking" not in terminal.screen.snapshot().visible_text
+        terminal.write_user_text("next after interrupt")
+        terminal.send_key(PtyKey.ENTER)
+        terminal.wait_for_screen_text("next after interrupt", timeout=0.5)
+        terminal.write_user_text("third query")
+        terminal.send_key(PtyKey.ENTER)
+        terminal.wait_for_screen_text("third query", timeout=0.5)
+        deadline = started + 3.5
+        while time.perf_counter() < deadline:
+            screen = terminal.screen.snapshot().visible_text
+            assert screen.count("Conversation interrupted") == 1
+            assert screen.count("next after interrupt") == 1
+            assert screen.count("third query") == 1
+            for stale in (
+                "Thinking", "Calling", "Using computer", "Reconnecting", "Retrying", "Waiting",
+                "LATE OUTPUT MUST STAY HIDDEN", "long-running command",
+            ):
+                assert stale not in screen
+            time.sleep(0.05)
+        assert _read_facts(facts_path)["stage"] == "feedback_pending"
+        facts_path.with_suffix(".terminal").write_text("release", encoding="ascii")
+        facts = _wait_for_stage(facts_path, "feedback_restored")
+        details = _details(facts)
+        assert details["pending_before_terminal"] is True
+        assert details["queued_before_terminal"] is True
+        assert details["steer_requests"] == 0
+        assert details["accepted_interrupts"] == 1
+        suppressed_frames = details["suppressed_frames"]
+        assert isinstance(suppressed_frames, int) and suppressed_frames > 0
+        assert details["stale_frames"] == []
+        assert details["restored_draft"] == "next after interrupt\nthird query"
+        terminal.send_key(PtyKey.ENTER)
+        facts = _wait_for_stage(facts_path, "feedback_settled")
+        terminal.wait_for_screen_text("Thinking")
+        screen = terminal.screen.snapshot().visible_text
+        assert screen.count("Conversation interrupted") == 1
+        assert screen.count("next after interrupt") == 1
+        assert screen.count("third query") == 1
+        details = _details(facts)
+        assert details["follow_up"] == "next after interrupt\nthird query"
+        facts_path.with_suffix(".ack").write_text("observed", encoding="ascii")
+        assert terminal.wait_for_exit(timeout=10.0) == 0
+
+
+@pytest.mark.parametrize("phase", ("exit_pending", "exit_settled"))
+def test_second_ctrl_c_depends_on_settlement_not_press_count(
+    tmp_path: Path,
+    phase: str,
+) -> None:
+    facts_path = tmp_path / "facts.json"
+    with _spawn_tui(f"interrupt_feedback_{phase}", facts_path) as terminal:
+        _wait_for_stage(facts_path, "feedback_ready")
+        terminal.wait_for_screen_text("Thinking")
+        terminal.send_key(PtyKey.CTRL_C)
+        terminal.wait_for_screen_text("Conversation interrupted", timeout=0.5)
+        _wait_for_stage(facts_path, "feedback_pending")
+        if phase == "exit_settled":
+            facts_path.with_suffix(".terminal").write_text("release", encoding="ascii")
+            _wait_for_stage(facts_path, "feedback_restored")
+        terminal.send_key(PtyKey.CTRL_C)
+        if phase == "exit_pending":
+            time.sleep(0.15)
+            assert _read_facts(facts_path)["stage"] == "feedback_pending"
+            assert terminal.screen.snapshot().visible_text.count("Conversation interrupted") == 1
+            terminal.send_key(PtyKey.CTRL_D)
+        assert terminal.wait_for_exit(timeout=2.0) == 0
+
+
 @pytest.mark.parametrize(
     ("scenario", "key"),
     (

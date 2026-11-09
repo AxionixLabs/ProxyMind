@@ -850,7 +850,10 @@ class TuiTranscriptViewport(object):
             try:
                 synchronized = self._begin_synchronized_output()
 
-                async with in_terminal(render_cli_done=False):
+                async with in_terminal(
+                    render_cli_done=False,
+                    preserve_input_mode=True,
+                ):
                     if not self._scrollback_candidate_still_valid(candidate):
                         candidate = self._prepare_scrollback_candidate()
                         if candidate is None:
@@ -984,7 +987,10 @@ class TuiTranscriptViewport(object):
         try:
             synchronized = self._begin_synchronized_output()
 
-            async with in_terminal(render_cli_done=False):
+            async with in_terminal(
+                render_cli_done=False,
+                preserve_input_mode=True,
+            ):
                 if (
                     generation != self._reflow_generation
                     or target_geometry != self._observed_geometry

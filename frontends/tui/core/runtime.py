@@ -2118,9 +2118,10 @@ class TuiRuntime(object):
             self.invalidate()
 
     def prepare_interrupted_presentation(self) -> None:
-        """立即收起旧轮动态正文并抑制后续流式事件的可见输出。"""
+        """同步撤下旧轮正文和动画，抑制后续事件但保留权威终态屏障。"""
         with self.screen.visual_update():
             self._turn_output_suppressed = True
+            self.activity.hide_wait()
             self._transcript.clear_active_for_interrupt()
             self.invalidate()
 

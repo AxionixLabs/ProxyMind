@@ -225,6 +225,7 @@ def test_tool_breathing_ctrl_c_stays_hidden_while_terminal_is_delayed(tmp_path):
         terminal.send_key(PtyKey.CTRL_C)
         facts = _wait_for_stage(facts_path, "breathing_cancel_pending")
         assert _details(facts)["pending_terminal"] is True
+        assert _details(facts)["old_animation_hidden"] is True
         for _ in range(10):
             time.sleep(0.04)
             assert "Using computer" not in terminal.screen.snapshot().visible_text

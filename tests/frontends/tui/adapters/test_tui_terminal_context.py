@@ -138,10 +138,12 @@ async def test_cpr_wait_failure_releases_terminal_without_changing_input_mode(
 @pytest.mark.anyio
 @pytest.mark.parametrize("outcome", ["normal", "cancel", "error"])
 @pytest.mark.parametrize("render_cli_done", [False, True])
+@pytest.mark.parametrize("preserve_input_mode", [False, True])
 async def test_terminal_modes_restore_in_owning_task(
     application: Application[None],
     outcome: str,
     render_cli_done: bool,
+    preserve_input_mode: bool,
 ) -> None:
     entered = asyncio.Event()
     transitions: list[str] = []
@@ -157,7 +159,10 @@ async def test_terminal_modes_restore_in_owning_task(
             transitions.append(f"exit {name}")
 
     async def handover() -> None:
-        async with in_terminal(render_cli_done=render_cli_done):
+        async with in_terminal(
+            render_cli_done=render_cli_done,
+            preserve_input_mode=preserve_input_mode,
+        ):
             assert application._running_in_terminal
             entered.set()
             if outcome == "cancel":
@@ -182,9 +187,10 @@ async def test_terminal_modes_restore_in_owning_task(
                     await task
             else:
                 await task
-            assert transitions == [
-                "enter detach", "enter cooked", "exit cooked", "exit detach",
-            ]
+            assert transitions == (
+                ["enter detach", "exit detach"] if preserve_input_mode
+                else ["enter detach", "enter cooked", "exit cooked", "exit detach"]
+            )
             completion = application._running_in_terminal_f
             assert completion is not None and completion.done()
             assert not completion.cancelled()

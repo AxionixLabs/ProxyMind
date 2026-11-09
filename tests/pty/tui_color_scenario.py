@@ -306,7 +306,8 @@ async def _run_tool_breathing(runtime: TuiRuntime, facts: ScenarioFacts, *, canc
         if cancel:
             await _checkpoint(runtime, facts, "breathing_cancel_ready")
             await asyncio.wait_for(interrupted.wait(), timeout=10)
-            facts.set_detail("pending_terminal", runtime.execution_active and runtime.activity.lease("wait") is not None)
+            facts.set_detail("pending_terminal", runtime.execution_active)
+            facts.set_detail("old_animation_hidden", runtime.activity.lease("wait") is None)
             await _checkpoint(runtime, facts, "breathing_cancel_pending")
         await session.activity.emit(TurnTerminal(**scope, status="interrupted" if cancel else "completed"))
         if cancel:

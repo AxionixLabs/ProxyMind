@@ -285,9 +285,15 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
             terminal.wait_for_screen_text(expected)
             if stage in {"handoff_tool", "handoff_resize"}:
                 for width in (40, 110, columns):
-                    terminal.resize(TerminalSize(rows=38, columns=width))
+                    size = TerminalSize(rows=38, columns=width)
+                    terminal.resize(size)
+                    deadline = time.monotonic() + 2.0
+                    expected_geometry = [_expected_tui_width(size), size.rows]
+                    while _detail(_read_facts(facts_path), "settled_geometry") != expected_geometry:
+                        if time.monotonic() >= deadline:
+                            raise AssertionError(f"handoff resize did not settle at {width} columns")
+                        time.sleep(0.01)
                     terminal.wait_for_screen_text(expected)
-                    time.sleep(0.08)
             samples = []
             dot_styles = []
             breathing = stage in {"handoff_tool", "handoff_resumed", "handoff_same_name", "handoff_resize", "handoff_reviewing", "handoff_cancel_ready", "handoff_late_computer", "handoff_late_generic"}
@@ -325,7 +331,12 @@ def test_continuous_handoffs_keep_one_animation_owner_in_real_tty(tmp_path: Path
                 if stage == "handoff_terminal":
                     assert all(label not in snapshot.visible_text for label in ("Calling", "Using computer", "LATE RESULT"))
             if breathing:
-                assert len(set(samples)) == 1
+                if len(set(samples)) != 1:
+                    (tmp_path / "unstable-frames.txt").write_text(
+                        f"[{stage}]\n" + "\n[frame]\n".join(dict.fromkeys(samples)),
+                        encoding="utf-8",
+                    )
+                assert len(set(samples)) == 1, stage
                 assert len(set(dot_styles)) >= 8
                 assert {bold for _fg, _bg, bold in dot_styles} == {False}
             if stage in {"handoff_approval", "handoff_cancel_paused", "handoff_terminal"}:

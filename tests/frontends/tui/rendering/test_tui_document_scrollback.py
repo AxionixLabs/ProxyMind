@@ -2291,7 +2291,12 @@ async def test_scrollback_synchronizes_the_complete_terminal_transition() -> Non
         printed: list[str] = []
 
         @asynccontextmanager
-        async def controlled_terminal(render_cli_done: bool = False):
+        async def controlled_terminal(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             events.append("wait")
             await asyncio.sleep(0)
@@ -2422,7 +2427,12 @@ async def test_scrollback_releases_sync_when_terminal_wait_is_cancelled() -> Non
         events: list[str] = []
 
         @asynccontextmanager
-        async def blocked_terminal(render_cli_done: bool = False):
+        async def blocked_terminal(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             events.append("wait")
             waiting.set()
@@ -2580,7 +2590,12 @@ async def test_scrollback_candidate_ignores_active_cell_changes() -> None:
         query = _block("\n".join(f"query {index}" for index in range(20)))
 
         @asynccontextmanager
-        async def update_active_while_waiting(render_cli_done: bool = False):
+        async def update_active_while_waiting(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             runtime.set_active_renderable(
                 _block("streaming response"),
@@ -2643,7 +2658,12 @@ async def test_scrollback_discards_candidate_after_unobserved_resize() -> None:
         terminal_size = {"value": Size(rows=8, columns=40)}
 
         @asynccontextmanager
-        async def resize_while_waiting(render_cli_done: bool = False):
+        async def resize_while_waiting(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             terminal_size["value"] = Size(rows=8, columns=24)
             yield
@@ -2764,7 +2784,12 @@ async def test_active_stream_does_not_schedule_native_scrollback() -> None:
         events: list[str] = []
 
         @asynccontextmanager
-        async def controlled_terminal(render_cli_done: bool = False):
+        async def controlled_terminal(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             events.append("terminal enter")
             try:

@@ -232,13 +232,14 @@ async def test_interrupted_tool_does_not_reopen_fallback_while_waiting_for_termi
     try:
         await session.activity.emit(ToolStarted(**SCOPE, tool_id="one", tool_kind="client", name=name))
         await session.presentation.emit(ToolStartView(name, {"action": "observe"}, "one"))
-        lease = runtime.activity.lease("wait")
+        assert runtime.activity.lease("wait") is not None
         runtime.begin_interrupt_settlement()
         runtime.prepare_interrupted_presentation()
         runtime.activity._render_slots()
         assert runtime.document.active_block is None
         assert title not in _text(runtime.screen.activity_block)
-        assert runtime.activity.lease("wait") == lease
+        assert runtime.activity.lease("wait") is None
+        assert runtime.activity.task is None
         assert runtime.execution_active
     finally:
         await session.close()

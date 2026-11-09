@@ -1532,7 +1532,10 @@ async def test_interrupt_preparation_hides_stream_before_remote_terminal() -> No
     assert runtime.execution_active
     assert runtime.document.active_block is None
     assert runtime.turn_output_suppressed
-    assert runtime.activity.lease('wait') is not None
+    assert runtime.activity.lease('wait') is None
+    assert runtime.screen.activity_block is None
+    assert runtime.activity.task is None
+    assert runtime.activity.wait_elapsed_seconds() is not None
 
     runtime.finish_interrupted_presentation()
     runtime.set_execution_active(False)

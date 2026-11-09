@@ -641,7 +641,10 @@ async def test_resize_storm_replays_once_in_synchronized_output() -> None:
                 @asynccontextmanager
                 async def controlled_terminal(
                     render_cli_done: bool = False,
+                    *,
+                    preserve_input_mode: bool = False,
                 ):
+                    assert preserve_input_mode
                     _ = render_cli_done
                     events.append("wait")
                     await asyncio.sleep(0)
@@ -729,7 +732,12 @@ async def test_resize_reflow_releases_sync_when_terminal_wait_is_cancelled(
         events: list[str] = []
 
         @asynccontextmanager
-        async def blocked_terminal(render_cli_done: bool = False):
+        async def blocked_terminal(
+            render_cli_done: bool = False,
+            *,
+            preserve_input_mode: bool = False,
+        ):
+            assert preserve_input_mode
             _ = render_cli_done
             events.append("wait")
             waiting.set()
@@ -831,7 +839,10 @@ async def test_resize_invalidated_while_acquiring_terminal_keeps_position() -> N
                 @asynccontextmanager
                 async def resize_while_waiting(
                     render_cli_done: bool = False,
+                    *,
+                    preserve_input_mode: bool = False,
                 ):
+                    assert preserve_input_mode
                     _ = render_cli_done
                     terminal_size["value"] = Size(rows=8, columns=40)
                     runtime.viewport.observe_terminal_geometry(40, 8)
@@ -900,7 +911,10 @@ async def test_resize_replay_failure_restores_scrollback_position() -> None:
                 @asynccontextmanager
                 async def controlled_terminal(
                     render_cli_done: bool = False,
+                    *,
+                    preserve_input_mode: bool = False,
                 ):
+                    assert preserve_input_mode
                     _ = render_cli_done
                     yield
 

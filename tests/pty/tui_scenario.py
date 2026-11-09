@@ -17,35 +17,58 @@ from dataclasses import (
     field,
 )
 from pathlib import Path
+from unittest.mock import patch
+
+from prompt_toolkit.application import Application
 
 from agent.adapters.protocol.activity_events import TurnActivityProjector
 from agent.application.approvals.coordinator import ApprovalCoordinator
-from agent.ports import AssistantTextDelta
-from agent.ports import OutputSurfaceContext
-from agent.ports import ResponseIdentity
-from agent.protocol.json_value import ThawedJsonValue
-from agent.protocol.json_value import freeze_json
-from agent.protocol.json_value import thaw_object
+from agent.application.views.builders.tools import (
+    build_generic_tool_result_view,
+    build_tool_start_view,
+)
+from agent.ports import (
+    AssistantTextDelta,
+    OutputSurfaceContext,
+    ResponseIdentity,
+)
+from agent.protocol import TurnControlReceipt
+from agent.protocol.json_value import (
+    ThawedJsonValue,
+    freeze_json,
+    thaw_object,
+)
 from frontends.interaction.contracts import PromptContext
+from frontends.tui.adapters.application import TuiApplicationSink
 from frontends.tui.adapters.input import create_tui_input
 from frontends.tui.adapters.session import create_tui_output_session
-from frontends.tui.contracts.menu import MenuOption
-from frontends.tui.contracts.menu import MenuRequest
+from frontends.tui.adapters.terminal_context import in_terminal
+from frontends.tui.contracts.menu import (
+    MenuOption,
+    MenuRequest,
+)
 from frontends.tui.contracts.text import FragmentBlock
 from frontends.tui.core.interrupt import InterruptDisposition
 from frontends.tui.core.queued import TuiSubmission
 from frontends.tui.core.runtime import TuiRuntime
 from frontends.tui.core.submission import TuiInterruptRequested
-from frontends.tui.features.transcript_export import _filename_prompt
-from frontends.tui.features.model import next_model_reasoning_effort
 from frontends.tui.features.conversation import confirm_delete_session
+from frontends.tui.features.model import next_model_reasoning_effort
+from frontends.tui.features.transcript_export import _filename_prompt
+from frontends.tui.session.turn import execute_tui_model_turn
 from frontends.tui.session.turn_input import TuiTurnInputControl
 from infrastructure.skills import SkillSpec
 from observability import reset_sinks
-from protocol.schema.stream_events import MarkerEvent
-from protocol.schema.stream_events import TurnCompletedEvent
-from protocol.schema.stream_events import TurnInputAcceptedEvent
-from tests.fakes.mind_chat import FakeMindChatServer
+from protocol.schema.stream_events import (
+    MarkerEvent,
+    TurnCompletedEvent,
+    TurnInputAcceptedEvent,
+)
+from tests.fakes.mind_chat import (
+    CommandFault,
+    FakeMindChatFaultPlan,
+    FakeMindChatServer,
+)
 
 
 _CID = "cid-pty"
@@ -681,6 +704,177 @@ async def _run_ctrl_c_draft(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
     facts.set_detail("interrupt_invocations", counter.value)
     runtime.bind_interrupt_handler(None)
     runtime.set_execution_active(False)
+
+
+async def _run_interrupt_feedback(
+    runtime: TuiRuntime,
+    facts: ScenarioFacts,
+    *,
+    phase: str,
+) -> None:
+    """经产品轮次执行器验收按键反馈，远端回执和终态由父进程放行。"""
+    control, server = _active_turn(runtime, started=phase != "early")
+    if phase in {"response_lost", "timeout"}:
+        server.fault_plan = FakeMindChatFaultPlan(interrupt=CommandFault(phase))
+    context = OutputSurfaceContext(
+        surface_id="surface-interrupt-feedback", cid=_CID, sid=_SID,
+        turn_id=_TURN_ID, agent_id="root",
+    )
+    session = create_tui_output_session("", context=context, animate=True, runtime=runtime)
+    activity = TurnActivityProjector(context, session.activity)
+    request_started = asyncio.Event()
+    original_interrupt = server.interrupt_turn
+    release_terminal = facts.path.with_suffix(".terminal")
+    suppressed_frames = _ActionCounter()
+    stale_frames: list[str] = []
+
+    def capture_interrupted_frame(application: Application[None]) -> None:
+        """检查完整产品渲染帧，避免只抽样时遗漏旧动画短暂复现。"""
+        screen = application.renderer.last_rendered_screen
+        if not runtime.turn_output_suppressed or screen is None:
+            return
+        suppressed_frames.value += 1
+        for cells in screen.data_buffer.values():
+            line = "".join(cells[column].char for column in sorted(cells))
+            if any(label in line for label in (
+                "Thinking", "Calling", "Using computer", "Reconnecting", "Retrying", "Waiting",
+                "LATE OUTPUT MUST STAY HIDDEN", "long-running command",
+            )):
+                stale_frames.append(line)
+
+    runtime.screen.application.after_render += capture_interrupted_frame
+
+    async def interrupt_remote(
+        *,
+        cid: str,
+        sid: str,
+        turn_id: str,
+        request_id: str | None = None,
+    ) -> TurnControlReceipt:
+        """保留真实幂等控制行为，允许验收阻塞中的 HTTP 回执。"""
+        request_started.set()
+        if phase == "slow_ack":
+            await _wait_until(release_terminal.exists, "remote interrupt receipt")
+        return await original_interrupt(
+            cid=cid, sid=sid, turn_id=turn_id, request_id=request_id,
+        )
+
+    async def turn() -> None:
+        """在中断前后持续投递旧轮事件，检查重连和迟到输出不会复活动画。"""
+        await session.open()
+        await activity.request_model_wait("initial")
+        identity = ResponseIdentity(_TURN_ID, 1, 1, 1)
+        if phase == "streaming":
+            await activity.assistant_buffered(identity, "item-feedback")
+            await session.content.emit(AssistantTextDelta(
+                "partial response\n", identity, item_id="item-feedback",
+            ))
+        elif phase in {"tool", "computer"}:
+            name = "computer" if phase == "computer" else "remote_tool"
+            await activity.tool_started("call-feedback", "client", name=name)
+            await session.presentation.emit(build_tool_start_view(
+                name, {"action": "observe"}, call_id="call-feedback",
+            ))
+        elif phase == "provider_retry":
+            await activity.provider_retry_started(presentation_epoch=1, round_no=1, attempt=2)
+        elif phase == "reconnect":
+            await activity.transport_recovery_changed("reconnecting", 3)
+        elif phase == "terminal_wait":
+            await activity.terminal_wait_started(
+                "call-feedback", "process-feedback", command="long-running command",
+            )
+        _ready(runtime, facts)
+        facts.stage = "feedback_ready"
+        facts.write()
+        if phase == "scrollback":
+            await _wait_until(facts.path.with_suffix(".handoff").exists, "output handoff start")
+            async with in_terminal(preserve_input_mode=True):
+                facts.stage = "feedback_handoff"
+                facts.write()
+                await _wait_until(facts.path.with_suffix(".resume").exists, "output handoff release")
+        await request_started.wait()
+        if phase == "early":
+            control.handle_event(MarkerEvent(type="turn.started", turn_id=_TURN_ID))
+        await session.content.emit(AssistantTextDelta(
+            "LATE OUTPUT MUST STAY HIDDEN\n", identity, item_id="item-feedback",
+        ))
+        await activity.tool_started("late-tool", "client", name="remote_tool")
+        await session.presentation.emit(build_tool_start_view(
+            "remote_tool", {"query": "late"}, call_id="late-tool",
+        ))
+        await session.presentation.emit(build_generic_tool_result_view(
+            "remote_tool", "LATE OUTPUT MUST STAY HIDDEN", ok=True, call_id="late-tool",
+        ))
+        facts.stage = "feedback_pending"
+        facts.write()
+        while not release_terminal.exists():
+            await activity.transport_recovery_changed("reconnecting", 3)
+            await activity.transport_recovery_changed("replaying", 3)
+            await activity.transport_recovery_changed("caught_up", 3)
+            await activity.request_model_wait("server_thinking")
+            if runtime.document.active_block is not None or runtime.screen.activity_block is not None:
+                raise AssertionError("interrupted Turn presentation became visible again")
+            await asyncio.sleep(0.02)
+        facts.set_detail("pending_before_terminal", runtime.execution_active)
+        facts.set_detail("queued_before_terminal", runtime.submissions.queued_messages.active)
+        facts.set_detail("steer_requests", len(server.steer_requests))
+        facts.set_detail("suppressed_frames", suppressed_frames.value)
+        facts.set_detail("stale_frames", stale_frames)
+        if phase == "slow_ack":
+            await _wait_until(lambda: bool(server.interrupt_requests), "delayed receipt delivery")
+        _complete_turn(control, server, status="interrupted")
+        await activity.turn_terminal("interrupted")
+
+    try:
+        with patch.object(server, "interrupt_turn", new=interrupt_remote):
+            await execute_tui_model_turn(
+                TuiApplicationSink(runtime), runtime, turn(), turn_input_control=control,
+            )
+        if phase == "exit_pending":
+            if server.terminal is not None:
+                raise AssertionError("local exit unexpectedly waited for remote terminal")
+            return
+        facts.set_detail("interrupt_requests", len(server.interrupt_requests))
+        facts.set_detail("accepted_interrupts", server.accepted_interrupt_count)
+        facts.set_detail("restored_draft", runtime.screen.input.buffer.text)
+        await session.close()
+        facts.stage = "feedback_restored"
+        facts.write()
+        try:
+            follow_up = await runtime.read_message(PromptContext(model="test-model"))
+        except TuiInterruptRequested:
+            if phase != "exit_settled":
+                raise
+            return
+        facts.set_detail("follow_up", follow_up)
+        next_context = OutputSurfaceContext(
+            surface_id="surface-follow-up", cid=_CID, sid=_SID,
+            turn_id="next-turn", agent_id="root",
+        )
+        following = create_tui_output_session("", context=next_context, runtime=runtime)
+        next_activity = TurnActivityProjector(next_context, following.activity)
+
+        async def next_turn() -> None:
+            """以真实下一轮生命周期验证恢复后提交及正文去重。"""
+            await following.open()
+            try:
+                await next_activity.request_model_wait("initial")
+                facts.stage = "feedback_settled"
+                facts.write()
+                await _wait_until(facts.path.with_suffix(".ack").exists, "settled screen assertion")
+                identity = ResponseIdentity("next-turn", 1, 1, 1)
+                await next_activity.assistant_buffered(identity, "next-answer")
+                await following.content.emit(AssistantTextDelta(
+                    "FOLLOW-UP RESPONSE\n", identity, item_id="next-answer",
+                ))
+                await next_activity.turn_terminal("completed")
+            finally:
+                await following.close()
+
+        await execute_tui_model_turn(TuiApplicationSink(runtime), runtime, next_turn())
+    finally:
+        runtime.screen.application.after_render -= capture_interrupted_frame
+        await session.close()
 
 
 async def _run_ctrl_c_exit(
@@ -1438,6 +1632,10 @@ async def _run(scenario: str, facts_path: Path) -> None:
             await _run_non_steer_enter(runtime, facts)
         elif scenario == "ctrl_c_draft":
             await _run_ctrl_c_draft(runtime, facts)
+        elif scenario.startswith("interrupt_feedback_"):
+            await _run_interrupt_feedback(
+                runtime, facts, phase=scenario.removeprefix("interrupt_feedback_"),
+            )
         elif scenario in {
             "ctrl_c_early",
             "ctrl_c_thinking",

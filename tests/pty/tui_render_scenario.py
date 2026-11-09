@@ -804,6 +804,15 @@ async def _run_handoffs(runtime: TuiRuntime, facts: ScenarioFacts) -> None:
         lines = ["".join(cells[column].char for column in sorted(cells)).rstrip()
                  for _, cells in sorted(screen.data_buffer.items())]
         frames.append({"stage": stage[0], "revision": application.render_counter, "text": "\n".join(lines)})
+        size = application.renderer._last_size
+        if size is not None and not runtime.viewport._scrollback_reflow_pending():
+            geometry = [size.columns, size.rows]
+            if (
+                runtime.viewport._reflowed_geometry == (size.columns, size.rows)
+                and facts.details.get("settled_geometry") != geometry
+            ):
+                facts.set_detail("settled_geometry", geometry)
+                facts.write()
 
     async def checkpoint(name: str) -> None:
         """为父进程标记可观察阶段，持续收集等候期间的动画帧。"""

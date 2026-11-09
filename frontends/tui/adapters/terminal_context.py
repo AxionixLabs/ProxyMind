@@ -4,7 +4,8 @@
 """隔离 prompt-toolkit 终端交接的取消语义及私有状态访问。
 
 沿用 Application 的交接队列，由每次调用负责完成自己的信号；上游在等待前驱和
-CPR 时也保证取消清理、且通过相同回归测试后，可删除此适配并恢复上游入口。
+CPR 时也保证取消清理，并支持纯输出交接保留输入模式，且通过相同回归测试后，
+可删除此适配并恢复上游入口。
 """
 
 # Adapted from prompt_toolkit.application.run_in_terminal (3.0.52).
@@ -36,7 +37,10 @@ CPR 时也保证取消清理、且通过相同回归测试后，可删除此适�
 
 import asyncio
 import typing
-from contextlib import asynccontextmanager
+from contextlib import (
+    asynccontextmanager,
+    nullcontext,
+)
 
 from prompt_toolkit.application.current import get_app_or_none
 
@@ -44,8 +48,10 @@ from prompt_toolkit.application.current import get_app_or_none
 @asynccontextmanager
 async def in_terminal(
     render_cli_done: bool = False,
+    *,
+    preserve_input_mode: bool = False,
 ) -> typing.AsyncIterator[None]:
-    """串行交接终端，并在等待、绘制及正文取消时释放所属完成信号。"""
+    """串行交接终端；仅输出时保留输入模式，避免按键转成进程信号。"""
     application = get_app_or_none()
     if application is None or not application.is_running:
         yield
@@ -77,7 +83,12 @@ async def in_terminal(
         else:
             application.renderer.erase()
         application._running_in_terminal = True
-        with application.input.detach(), application.input.cooked_mode():
+        input_mode = (
+            nullcontext()
+            if preserve_input_mode
+            else application.input.cooked_mode()
+        )
+        with application.input.detach(), input_mode:
             yield
     finally:
         try:

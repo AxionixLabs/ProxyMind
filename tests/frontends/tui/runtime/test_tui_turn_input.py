@@ -7,7 +7,11 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import (
+    AsyncMock,
+    Mock,
+    patch,
+)
 
 import pytest
 
@@ -1674,12 +1678,13 @@ async def test_ctrl_c_restores_pending_steers_and_tab_queue_after_terminal(
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    application.emit.assert_not_called()
+    application.emit.assert_called_once()
     assert not runtime.submit_pending_steers_after_interrupt
 
     release_terminal.set()
     await asyncio.wait_for(execution, timeout=0.1)
 
+    application.emit.assert_called_once()
     notice = application.emit.call_args.args[0]
     assert fragments_text(notice.renderable.fragments).startswith(
         "■ Conversation interrupted"
@@ -1747,9 +1752,10 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
-    assert runtime.activity.lease("wait") is not None
+    assert runtime.activity.lease("wait") is None
+    assert runtime.screen.activity_block is None
     assert runtime.execution_active
-    application.emit.assert_not_called()
+    application.emit.assert_called_once()
     assert not execution.done()
     await remote_started.wait()
 
@@ -1780,6 +1786,55 @@ async def test_local_interrupt_waits_for_remote_turn_settlement(
     assert application.emit.call_count == 1
 
     await runtime.close()
+
+
+@pytest.mark.anyio
+async def test_interrupt_during_completed_turn_cleanup_displays_immediately(
+    protocol_client: ProtocolCommandClient,
+) -> None:
+    runtime = TuiRuntime()
+    application = SimpleNamespace(emit=Mock())
+    control = TuiTurnInputControl(
+        SimpleNamespace(attach=_Attachments()), runtime, _State(),
+        cid="cid_1", sid="sid_1", turn_id="turn_001", protocol_client=protocol_client,
+    )
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    original_close = control.close
+
+    async def close() -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+        await original_close()
+
+    async def turn() -> SimpleNamespace:
+        await runtime.activity.begin_wait()
+        control.handle_event(_completed(status="completed", event_seq=2))
+        return SimpleNamespace(status="completed")
+
+    with patch.object(control, "close", new=close):
+        execution = asyncio.create_task(execute_tui_model_turn(
+            application, runtime, turn(), turn_input_control=control,
+        ))
+        try:
+            await cleanup_started.wait()
+            assert runtime.submissions.interrupt_input() is InterruptDisposition.CONSUMED
+            application.emit.assert_called_once()
+            assert runtime.execution_active
+            assert runtime.activity.lease("wait") is None
+            protocol_client.interrupt_turn.assert_not_awaited()
+            buffer = runtime.screen.input.buffer
+            buffer.text = "next after cleanup"
+            assert runtime.submissions.accept_input(buffer)
+            assert runtime.submissions.message_queue.empty()
+        finally:
+            release_cleanup.set()
+            await asyncio.wait_for(execution, timeout=1.0)
+            await runtime.close()
+
+    application.emit.assert_called_once()
+    assert buffer.text == "next after cleanup"
+    protocol_client.steer_turn.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -1833,7 +1888,7 @@ async def test_interrupt_before_turn_start_dispatches_remote_control_immediately
         InterruptDisposition.CONSUMED
     )
     assert runtime.execution_active
-    application.emit.assert_not_called()
+    application.emit.assert_called_once()
     await remote_started.wait()
     assert control.request_interrupt()
     protocol_client.interrupt_turn.assert_awaited_once()

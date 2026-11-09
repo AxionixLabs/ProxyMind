@@ -403,10 +403,16 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     runtime = TuiRuntime()
     application = SimpleNamespace(emit=Mock())
     started = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
 
     async def turn() -> None:
         started.set()
-        await asyncio.Future()
+        try:
+            await asyncio.Future()
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
 
     task = asyncio.create_task(execute_tui_model_turn(
         application,
@@ -418,8 +424,13 @@ async def test_user_interrupt_cancels_only_current_turn_and_commits_notice() -> 
     assert runtime.submissions.interrupt_input() is (
         InterruptDisposition.CONSUMED
     )
+    application.emit.assert_called_once()
+    await cleanup_started.wait()
+    assert not task.done()
+    release_cleanup.set()
     await task
 
+    application.emit.assert_called_once()
     assert not runtime.execution_active
     assert not runtime.submissions.interrupt_state.exit_requested
     view = application.emit.call_args.args[0]
