@@ -20,6 +20,7 @@ from agent.ports import SubscriptionHost
 from agent.protocol import SubmitTurnCommand
 from infrastructure.errors import AppError
 from observability import observe
+from protocol.schema.json_value import JsonValue
 from .client import AgentClient
 from .models import (
     AgentInboxItem,
@@ -73,6 +74,10 @@ async def run_root_turn(
 class AgentForwardHandler(typing.Protocol):
     """处理一条服务端 forward 请求。"""
 
+    async def handle_control(self, message: dict[str, JsonValue]) -> None:
+        """处理绑定当前订阅任务的控制请求。"""
+        ...
+
     async def handle(
         self,
         host: SubscriptionHost,
@@ -86,27 +91,9 @@ class AgentForwardHandler(typing.Protocol):
         ...
 
 
-def resolve_intent_summary(payload: dict[str, typing.Any]) -> str | None:
-    """提取服务端下发的任务意图摘要。"""
-    intent_raw = payload.get("intent")
-    if intent_raw in (None, ""):
-        return None
-    if not isinstance(intent_raw, dict):
-        raise ValueError("mind.forward payload.intent must be an object")
-
-    summary_raw = intent_raw.get("summary")
-    if summary_raw in (None, ""):
-        return None
-    if not isinstance(summary_raw, str):
-        raise ValueError("mind.forward payload.intent.summary must be a string")
-
-    summary = summary_raw.strip()
-    return summary or None
-
-
 def normalize_forward_request(
     payload: dict[str, typing.Any]
-) -> tuple[str, str | None]:
+) -> str:
     """解析 `mind.forward` 载荷中的执行参数。"""
     message = payload.get("message")
     if not isinstance(message, str):
@@ -118,7 +105,7 @@ def normalize_forward_request(
     if metadata_raw is not None and not isinstance(metadata_raw, dict):
         raise ValueError("mind.forward payload.metadata must be an object")
 
-    return message, resolve_intent_summary(payload)
+    return message
 
 
 def resolve_forward_timeout_sec(payload: dict[str, typing.Any]) -> float | None:
@@ -179,7 +166,7 @@ class AgentExecutor(object):
         status_outbox: AgentStatusOutbox | None = None
     ) -> None:
         """执行一条服务端下发的本地任务。"""
-        message, intent_summary = normalize_forward_request(request.payload)
+        message = normalize_forward_request(request.payload)
 
         timeout_sec = resolve_forward_timeout_sec(request.payload)
         metadata_raw = request.payload.get("metadata")
@@ -188,9 +175,6 @@ class AgentExecutor(object):
         metadata = dict(forward_metadata)
         metadata["cid"] = request.cid
         metadata["sid"] = request.sid
-
-        if intent_summary is not None:
-            metadata["intent_summary"] = intent_summary
 
         started_at = time.perf_counter()
 
@@ -208,6 +192,14 @@ class AgentExecutor(object):
             )
 
         try:
+            session_mode = request.payload["session_mode"]
+            if session_mode == "existing":
+                await host.conversation.bind(request.cid, request.sid, source="web")
+            elif session_mode != "create":
+                raise ValueError("mind.forward session_mode must be create or existing")
+            turn_id = request.payload["turn_id"]
+            if not isinstance(turn_id, str) or not turn_id.strip():
+                raise ValueError("mind.forward turn_id is required")
             await client.send_mind_started(
                 connection,
                 session_id=runtime.session_id,
@@ -320,23 +312,6 @@ class AgentExecutor(object):
         environment_snapshot: Mapping[str, typing.Any] | None,
     ) -> SubmitTurnCommand:
         """把订阅请求冻结为可恢复的主动 Turn 命令。"""
-        payload_extras = request.payload.get("extras")
-        if payload_extras is not None and not isinstance(payload_extras, Mapping):
-            raise ValueError("mind.forward payload.extras must be an object")
-
-        raw_attachments = request.payload.get("attachments", ())
-        if raw_attachments in (None, ""):
-            raw_attachments = ()
-        if not isinstance(raw_attachments, (tuple, list)):
-            raise ValueError("mind.forward payload.attachments must be a sequence")
-        attachments: list[Mapping[str, typing.Any]] = []
-        for attachment in raw_attachments:
-            if not isinstance(attachment, Mapping):
-                raise ValueError(
-                    "mind.forward payload.attachments entries must be objects"
-                )
-            attachments.append(dict(attachment))
-
         command_extras: dict[str, typing.Any] = {
             "cid": request.cid,
             "sid": request.sid,
@@ -344,8 +319,6 @@ class AgentExecutor(object):
             "message_id": request.message_id,
             "metadata": dict(metadata),
         }
-        if payload_extras:
-            command_extras["request_extras"] = dict(payload_extras)
         if timeout_sec is not None:
             command_extras["timeout_sec"] = timeout_sec
         if turn_id:
@@ -365,7 +338,7 @@ class AgentExecutor(object):
             run_id=f"agent-forward:{request.sid}:{request.call_id}",
             session_id=request.sid,
             message=message,
-            attachments=attachments,
+            attachments=[],
             environment_snapshot=environment_snapshot,
             extras=command_extras,
             trace_context=trace_context,
@@ -385,6 +358,7 @@ class AgentExecutor(object):
             "client_shutdown"
         ]
     ) -> None:
+        """提交取消回执并保留终态重发能力。"""
         if status_outbox is not None:
             await status_outbox.cancelled(
                 request,
@@ -546,13 +520,20 @@ class InboxForwardHandler(object):
         inbox: AgentInbox,
         context_callback: InboxContextCallback | None = None,
         changed_callback: InboxChangedCallback | None = None,
-        disposition_resolver: ReceiptDispositionResolver | None = None
+        disposition_resolver: ReceiptDispositionResolver | None = None,
+        control_callback: Callable[[dict[str, JsonValue]], typing.Awaitable[None]] | None = None,
     ) -> None:
         """保存服务端请求收件箱。"""
         self.inbox = inbox
         self.context_callback = context_callback
         self.changed_callback = changed_callback
         self.disposition_resolver = disposition_resolver
+        self.control_callback = control_callback
+
+    async def handle_control(self, message: dict[str, JsonValue]) -> None:
+        """把控制消息交给持有任务生命周期的订阅运行时。"""
+        if self.control_callback is not None:
+            await self.control_callback(message)
 
     def _receipt_disposition(self) -> ReceiptDisposition:
         """返回当前请求入箱后的处理意图。"""

@@ -12,7 +12,7 @@ from .routers import register_routers
 def create_app(config_session: ConfigSession) -> FastAPI:
     """创建配置服务应用。"""
     app = FastAPI()
-    app.state.agent_example = None
+    app.state.agent_access = None
     app.state.config_session = config_session
 
     register_routers(app)

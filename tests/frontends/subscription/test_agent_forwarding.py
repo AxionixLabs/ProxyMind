@@ -58,6 +58,7 @@ def _forward_message() -> dict[str, object]:
         "cid": "cid-1",
         "sid": "sid-1",
         "payload": {
+            "turn_id": "turn_remote", "session_mode": "create",
             "call_id": "call-1",
             "message": "inspect workspace",
         },
@@ -103,11 +104,10 @@ def test_normalize_forward_request_requires_message() -> None:
         normalize_forward_request({"message": "  "})
 
 
-def test_normalize_forward_request_preserves_message_and_intent() -> None:
+def test_normalize_forward_request_preserves_message() -> None:
     assert normalize_forward_request({
         "message": " inspect ",
-        "intent": {"summary": "diagnose"},
-    }) == (" inspect ", "diagnose")
+    }) == " inspect "
 
 
 @pytest.mark.anyio
@@ -126,9 +126,9 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         cid="cid-1",
         sid="sid-1",
         payload={
+            "turn_id": "turn_remote", "session_mode": "create",
             "message": "inspect workspace",
             "metadata": {"origin": "server"},
-            "intent": {"summary": "inspect"},
         },
     )
 
@@ -147,15 +147,32 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         host,
         message="inspect workspace",
         exec_env={"snapshot_id": "envsnap_subscription"},
+        turn_id="turn_remote",
+        on_model_request_frozen=ANY,
         metadata={
             "origin": "server",
             "cid": "cid-1",
             "sid": "sid-1",
-            "intent_summary": "inspect",
         },
     )
     client.send_mind_started.assert_awaited_once()
     client.send_mind_completed.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_existing_remote_conversation_binds_before_continuing_with_server_turn_id():
+    sequence = []
+    bind = _recording_mock(sequence, "bind")
+    run = _recording_mock(sequence, "run", RunResult(status="completed",assistant_text="continued"))
+    host = SimpleNamespace(history_workspace=".",conversation=SimpleNamespace(bind=bind))
+    client = SimpleNamespace(send_mind_started=AsyncMock(),send_mind_completed=AsyncMock())
+    request = AgentForwardRequest(message_id="message",call_id="call",cid="same-cid",sid="same-sid",
+        payload={"turn_id":"next-turn","session_mode":"existing","message":"继续"})
+    await AgentExecutor(run,turn_application=_turn_application()).execute(
+        host,client,SimpleNamespace(),SimpleNamespace(session_id="session"),request)
+    assert sequence == ["bind","run"]
+    bind.assert_awaited_once_with("same-cid","same-sid",source="web")
+    assert run.await_args.kwargs["turn_id"] == "next-turn"
 
 
 @pytest.mark.anyio
@@ -183,10 +200,9 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
         cid="cid-1",
         sid="sid-1",
         payload={
+            "turn_id": "turn_remote", "session_mode": "create",
             "message": "inspect workspace",
             "metadata": {"origin": "server"},
-            "attachments": [{"path": "README.md"}],
-            "extras": {"source": "agent"},
         },
     )
 
@@ -202,7 +218,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
     assert application.command.command_id == "agent-forward:message-1"
     assert application.command.run_id == "agent-forward:sid-1:call-1"
     assert application.command.session_id == "sid-1"
-    assert application.command.attachment_values() == [{"path": "README.md"}]
+    assert application.command.attachment_values() == []
     assert application.command.environment_snapshot_value() == {
         "snapshot_id": "envsnap_subscription",
     }
@@ -216,7 +232,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
             "cid": "cid-1",
             "sid": "sid-1",
         },
-        "request_extras": {"source": "agent"},
+        "turn_id": "turn_remote",
     }
     await executor.close()
 
@@ -235,7 +251,7 @@ async def test_agent_executor_propagates_tui_turn_id() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
 
     await AgentExecutor(
@@ -266,7 +282,7 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
 
     await AgentExecutor(
@@ -308,7 +324,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
 
     task = asyncio.create_task(AgentExecutor(
@@ -345,7 +361,7 @@ async def test_agent_executor_reports_execution_failure() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
 
     with pytest.raises(RuntimeError, match="execution failed"):
@@ -381,7 +397,7 @@ async def test_terminal_outbox_resends_stable_envelope_until_ack() -> None:
         call_id="call-1",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
     first_connection = object()
     second_connection = object()
@@ -698,7 +714,7 @@ def _ws_runtime() -> AgentSessionRuntime:
         ws_token="token",
         resume_token=None,
         credential=None,
-        mind_call_example=None,
+        web_url=None,
         ws_url=None,
         device_id="device-1",
         client_version="1.0.0",

@@ -223,7 +223,7 @@ def verify_worker_recovery(directory, workspace, domain):
 def verify_access_denied(directory, workspace, domain, identity):
     """核对真实服务拒绝读取时，完整客户端不再给出误导的恢复命令。"""
     with httpx.Client(base_url=domain, headers=build_service_headers(), timeout=20, trust_env=False) as client:
-        response = client.post("/reports/open", json={"cid": identity["cid"], "sid": identity["sid"], "proto": "mind.chat"})
+        response = client.post("/sessions/view-access", json={"cid": identity["cid"], "sid": identity["sid"], "proto": "mind.chat"})
         assert response.status_code == 403
         assert response.json()["details"]["code"] == "owner_mismatch"
     with launch(directory, workspace, "resume", identity["sid"]) as terminal:

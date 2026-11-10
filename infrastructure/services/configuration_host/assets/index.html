@@ -11,6 +11,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-title" content="Mind" />
   <link rel="manifest" href="/static/site.webmanifest" />
+  <link rel="stylesheet" href="/static/toast.css">
   <style>
     :root{
       --bg:#0d141b;
@@ -553,49 +554,6 @@
       line-height:1.55;
     }
     .tip code{color:var(--accent2)}
-    .toast-stage{
-      position:fixed;
-      top:24px;
-      left:50%;
-      transform:translateX(-50%);
-      z-index:30;
-      pointer-events:none;
-    }
-    .toast{
-      min-width:280px;
-      max-width:min(420px, calc(100vw - 32px));
-      padding:14px 16px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(6,14,20,.88);
-      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(142,202,230,.08) inset;
-      backdrop-filter:blur(12px);
-      opacity:0;
-      transform:translate(-50%, -8px) scale(.98);
-      transition:opacity .18s ease, transform .18s ease;
-      position:relative;
-      left:50%;
-    }
-    .toast.show{
-      opacity:1;
-      transform:translate(-50%, 0) scale(1);
-    }
-    .toast.err{
-      border-color:rgba(224,122,122,.26);
-      box-shadow:0 18px 44px rgba(0,0,0,.35), 0 0 0 1px rgba(224,122,122,.12) inset;
-    }
-    .toast-title{
-      display:block;
-      margin-bottom:4px;
-      font-size:13px;
-      letter-spacing:.08em;
-      text-transform:uppercase;
-      color:var(--fg);
-    }
-    .toast-body{
-      color:var(--muted);
-      font-size:13px;
-    }
     .page-footer-slot{
       padding:20px 0 24px;
     }
@@ -698,6 +656,7 @@
               <div class="status-list-row">
                 <span class="status-pill">Workspace</span>
                 <span class="status-pill">Preferences</span>
+                <span class="status-pill">Agent</span>
               </div>
             </div>
             <div class="tip" id="entry-tip"></div>
@@ -709,11 +668,12 @@
     <div class="page-footer-slot" id="page-footer"></div>
   </main>
 
-  <script>
+  <script type="module">
+    import { createToast } from "/static/toast.js";
     const heroToolsHost = document.getElementById("hero-tools");
     const overviewHost = document.getElementById("overview-cards");
     const entryTipHost = document.getElementById("entry-tip");
-    const toastStage = document.getElementById("toast-stage");
+    const showToast = createToast(document.getElementById("toast-stage"));
     const entryConfig = {
       nav: [
         {title: "Workspace", href: "/"},
@@ -741,22 +701,6 @@
         "Keyboard: <code>R</code> refresh, <code>P</code> preferences, <code>A</code> agent."
       ]
     };
-
-    function showToast(title, detail, kind = ""){
-      toastStage.innerHTML = "";
-      const toast = document.createElement("div");
-      toast.className = kind ? `toast ${kind}` : "toast";
-      toast.innerHTML = `
-        <strong class="toast-title">${title}</strong>
-        <span class="toast-body">${detail}</span>
-      `;
-      toastStage.appendChild(toast);
-      requestAnimationFrame(() => toast.classList.add("show"));
-      setTimeout(() => {
-        toast.classList.remove("show");
-        setTimeout(() => toast.remove(), 180);
-      }, 1800);
-    }
 
     function escapeHtml(value){
       return String(value || "")

@@ -40,6 +40,7 @@ class PreparedMailboxRun(object):
     listener: "SubscriptionRuntime"
     message_id: str
     prompt: str
+    turn_id: str
 
 
 _DETAIL_ACTION = "detail"
@@ -389,6 +390,7 @@ class TuiMailboxFeature(object):
             listener=listener,
             message_id=request.message_id,
             prompt=message if isinstance(message, str) else "",
+            turn_id=str(item.request.payload["turn_id"]),
         )
 
     async def open(self) -> None:
@@ -542,16 +544,11 @@ def _mailbox_entries(
         message_raw = payload.get("message")
         message = message_raw if isinstance(message_raw, str) else ""
 
-        intent_raw = payload.get("intent")
-        intent = intent_raw if isinstance(intent_raw, dict) else {}
-        summary_raw = intent.get("summary")
-        summary = summary_raw.strip() if isinstance(summary_raw, str) else ""
-
         first_line = next(
             (line.strip() for line in message.splitlines() if line.strip()),
             "",
         )
-        title = summary or first_line or request.call_id or "Remote request"
+        title = first_line or request.call_id or "Remote request"
 
         entries.append(MailboxEntry(
             key=request.message_id,

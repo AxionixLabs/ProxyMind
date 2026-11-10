@@ -10,6 +10,7 @@ from dataclasses import (
     replace
 )
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from agent.ports import ProtocolCommandClient
 from agent.ports.session_deletion import SessionDeletionResult
@@ -44,6 +45,7 @@ from ..core.styles import (
     command_result_block,
     failure_text_block,
     fragment_block,
+    info_text_block,
     text_block
 )
 from ..features.agents import manage_agents
@@ -219,6 +221,7 @@ class TuiCommandDispatcher(object):
         review_catalog: WorkspaceReviewCatalogPort | None = None,
         review_preparation: WorkspaceReviewPreparationPort | None = None,
     ) -> None:
+        """初始化当前组件的依赖和运行状态。"""
         self.host = host
         self.runtime = runtime
         self.state = state
@@ -281,6 +284,11 @@ class TuiCommandDispatcher(object):
                 key="preferences",
                 name="tui preferences browser",
                 factory=self._open_preferences,
+            ),
+            "web": lambda request: StreamLocalAction(
+                key="web",
+                name="tui web browser",
+                factory=lambda: self._open_web(connect=request.normalized == "/web connect"),
             ),
             "tools": lambda _request: StreamLocalAction(
                 key="tools",
@@ -905,12 +913,35 @@ class TuiCommandDispatcher(object):
                 f"Failed to open browser for {preferences_url}: {failure}",
             ))
         else:
-            self._present(fragment_block(
-                TextSpan("• ", BODY_STYLE),
-                TextSpan(
-                    f"Opened {preferences_url} in your browser.",
-                    BRIGHT_STYLE,
-                ),
+            self._present(info_text_block(
+                f"Opened {preferences_url} in your browser.",
+            ))
+        self._present()
+
+    async def _open_web(self, *, connect: bool = False) -> None:
+        """打开订阅提供的对话页，或本机连接资料页。"""
+        try:
+            if connect:
+                provider = self.configuration_service_url
+                if provider is None:
+                    raise RuntimeError("configuration service is unavailable")
+                url = f"{provider()}/agent"
+            else:
+                listener = self.host.subscription.current
+                url = listener.web_url if listener is not None else None
+                if not url:
+                    self._present(text_block("• Start /listen start first, then use /web. Use /web connect to copy your API Key."))
+                    self._present()
+                    return
+            parsed = urlsplit(url)
+            if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("invalid web address")
+            await FileAssist.open_url(url)
+        except Exception as failure:
+            self._present(failure_text_block(f"Failed to open Mind Web: {failure}"))
+        else:
+            self._present(info_text_block(
+                f"Opened {url} in your browser.",
             ))
         self._present()
 
@@ -1324,6 +1355,10 @@ class TuiCommandDispatcher(object):
 
         if matches_command(command, "preferences"):
             await self._open_preferences()
+            return DispatchAction.HANDLED
+
+        if command in {"/web", "/web connect"}:
+            await self._open_web(connect=command == "/web connect")
             return DispatchAction.HANDLED
 
         if matches_command(command, "compact"):

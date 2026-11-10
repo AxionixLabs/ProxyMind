@@ -33,7 +33,7 @@ async def test_recovery_finishes_pages_without_treating_snapshot_as_cursor(usage
         }})
     client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     with (
-        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay, 'open_session_view_access', AsyncMock(return_value={'vt': 'view-test'})),
         patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
     ):
         event = await context_usage.recover_context_usage(usage_event['cid'], usage_event['sid'])
@@ -55,7 +55,7 @@ async def test_recovery_rejects_invalid_or_incomplete_pages(usage_event, changes
         }},
     )))
     with (
-        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay, 'open_session_view_access', AsyncMock(return_value={'vt': 'view-test'})),
         patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
         pytest.raises(ValueError),
     ):
@@ -71,7 +71,7 @@ async def test_recovery_rejects_cross_session_snapshot(usage_event):
         }},
     )))
     with (
-        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay, 'open_session_view_access', AsyncMock(return_value={'vt': 'view-test'})),
         patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
         pytest.raises(ValueError, match='identity'),
     ):
@@ -89,7 +89,7 @@ async def test_recovery_handles_empty_retained_history_and_unknown(usage_event, 
         }},
     )))
     with (
-        patch.object(session_replay, 'open_report_session', AsyncMock(return_value={'vt': 'view-test'})),
+        patch.object(session_replay, 'open_session_view_access', AsyncMock(return_value={'vt': 'view-test'})),
         patch.object(session_replay.httpx, 'AsyncClient', return_value=client),
     ):
         event = await context_usage.recover_context_usage(usage_event['cid'], usage_event['sid'])

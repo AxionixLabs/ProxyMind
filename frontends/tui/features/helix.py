@@ -45,6 +45,7 @@ from ..core.styles import (
     command_result_block,
     failure_text_block,
     fragment_block,
+    info_text_block,
     interrupted_status_block
 )
 
@@ -264,12 +265,8 @@ def render_helix_home_result(host: "TuiApplicationHost", url: str | None) -> Non
     if url is None:
         _present(host, _label_detail("Helix", "skipped"))
     else:
-        _present(host, fragment_block(
-            TextSpan("• ", BODY_STYLE),
-            TextSpan(
-                f"Opened {url} in your browser.",
-                BRIGHT_STYLE,
-            ),
+        _present(host, info_text_block(
+            f"Opened {url} in your browser.",
         ))
 
     _present(host, view_type="tui.gap")

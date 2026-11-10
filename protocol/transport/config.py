@@ -22,8 +22,8 @@ SHARED_SECRET       = r"xosspWbJNo9hUjR4OceTuSLshorCn0IXucTKO0hmdSI="
 
 DOMAIN = r"https://api.appserverx.com"
 
-ATLAS_URL         = f"{DOMAIN}/mind-atlas"
-REPORT_OPEN_URL   = f"{DOMAIN}/reports/open"
+WEB_CHAT_URL      = f"{DOMAIN}/mind"
+SESSION_VIEW_ACCESS_URL   = f"{DOMAIN}/sessions/view-access"
 HEAL_LIC_URL      = f"{DOMAIN}/mind-heal-license"
 MANIFEST_URL      = f"{DOMAIN}/mind-manifest"
 STREAM_EVENT_URL  = f"{DOMAIN}/events-ingest"

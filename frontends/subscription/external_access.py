@@ -2,6 +2,7 @@
 # Notes: ==== Mind™ ====
 
 from collections.abc import Callable
+import typing
 
 import httpx
 
@@ -11,21 +12,16 @@ from observability import (
 )
 from .models import AgentSessionRuntime
 
+ConnectionState = typing.Literal["idle", "connecting", "online", "reconnecting", "stopped", "error"]
+
 
 async def publish_external_access(
-    runtime: AgentSessionRuntime,
+    runtime: AgentSessionRuntime | None,
     *,
     configuration_service_url: Callable[[], str] | None,
+    state: ConnectionState = "connecting",
 ) -> None:
-    """把当前订阅会话的调用示例同步到本地配置页面。"""
-    example = runtime.mind_call_example
-    if not isinstance(example, dict):
-        observe("agent.page_sync.skipped", reason="mind_call_example_missing")
-        return None
-
-    if not runtime.credential:
-        observe("agent.page_sync.skipped", reason="credential_missing")
-
+    """把当前订阅会话的连接资料同步到本地配置页面。"""
     try:
         if configuration_service_url is None:
             observe(
@@ -42,9 +38,10 @@ async def publish_external_access(
                 f"{base_url}/api/agent",
                 headers={"Content-Type": "application/json"},
                 json={
-                    "session_id": runtime.session_id,
-                    "credential": runtime.credential,
-                    "mind_call": example,
+                    "session_id": runtime.session_id if runtime else "",
+                    "credential": runtime.credential if runtime else "",
+                    "web_url": runtime.web_url if runtime else "",
+                    "state": state,
                 },
             )
         response.raise_for_status()
@@ -54,8 +51,9 @@ async def publish_external_access(
 
     observe(
         "agent.page_sync.complete",
-        session_id=runtime.session_id,
-        has_credential=bool(runtime.credential),
+        level="DEBUG",
+        session_id=runtime.session_id if runtime else "",
+        has_credential=bool(runtime and runtime.credential),
     )
 
 

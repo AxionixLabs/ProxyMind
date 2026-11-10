@@ -23,7 +23,7 @@ class AgentSessionRuntime:
     ws_token: str
     resume_token: str | None
     credential: str | None
-    mind_call_example: dict[str, typing.Any] | None
+    web_url: str | None
     ws_url: str | None
     device_id: str
     client_version: str
@@ -63,6 +63,7 @@ class AgentInboxItem:
         self.error = error
 
     def __eq__(self, other: object) -> bool:
+        """比较收件箱条目的请求、状态和错误。"""
         if not isinstance(other, AgentInboxItem):
             return NotImplemented
         return (
@@ -72,6 +73,7 @@ class AgentInboxItem:
         )
 
     def __repr__(self) -> str:
+        """返回条目的调试表示。"""
         return (
             f"AgentInboxItem("
             f"request={self.request!r}, "
@@ -87,9 +89,11 @@ class AgentLiveStatus:
     detail: str = "Not connected"
 
     def snapshot(self) -> tuple[str, str]:
+        """返回当前订阅状态摘要。"""
         return self.title, self.detail
 
     def update(self, title: str, detail: str) -> None:
+        """更新订阅状态摘要。"""
         self.title = title
         self.detail = detail
 

@@ -185,7 +185,8 @@ async def test_manual_compaction_delivers_usage_before_closed_terminal() -> None
             record = await anext(events)
             assert isinstance(record, ContextUsageRecord)
             assert record.last_total_tokens == 13_000
-            assert record.total_tokens == 250_000
+            assert record.total_token_usage is not None
+            assert record.total_token_usage.total_tokens == 250_000
             assert not exchange.response.is_closed
             completed = await anext(events)
             assert completed.status == "completed"
@@ -285,7 +286,7 @@ async def test_manual_recovery_paginates_real_wire_and_preserves_terminal_metada
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     with (
-        patch.object(session_replay, "open_report_session", AsyncMock(return_value={"vt": "test-token"})),
+        patch.object(session_replay, "open_session_view_access", AsyncMock(return_value={"vt": "test-token"})),
         patch.object(session_replay.httpx, "AsyncClient", return_value=client),
     ):
         events = await ProtocolCompactionRecovery().load("cid-1", "sid-1", after_seq=1)
@@ -308,7 +309,7 @@ async def test_manual_recovery_rejects_invalid_identity_sequence_or_timing(inval
         "context_usage": None, "events": [invalid], "next_seq": 3, "gap": "none", "has_more": False,
     }})))
     with (
-        patch.object(session_replay, "open_report_session", AsyncMock(return_value={"vt": "private-token"})),
+        patch.object(session_replay, "open_session_view_access", AsyncMock(return_value={"vt": "private-token"})),
         patch.object(session_replay.httpx, "AsyncClient", return_value=client),
         pytest.raises(CompactionRecoveryError) as failure,
     ):

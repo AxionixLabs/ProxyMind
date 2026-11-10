@@ -61,6 +61,7 @@ from frontends.runtime import (
     RuntimeDownloadProgress,
 )
 from frontends.subscription.runtime import AgentRuntime
+from frontends.subscription.interaction import ApprovalControl
 from frontends.terminal.worked import emit_worked_footer
 from frontends.tui.features.conversation import ConversationCompactor
 from infrastructure.config.execution_policy_manager import ExecPolicyManager
@@ -120,6 +121,8 @@ class _ComposedFrontend(FrontendPort, typing.Protocol):
 
 class _ConfigurationServiceHost(SubscriptionHost, typing.Protocol):
     """描述组合根向订阅适配器注入配置服务地址的最小能力。"""
+
+    approval_coordinator: ApprovalControl
 
     def configuration_service_url(self) -> str:
         """返回当前进程内配置服务地址。"""
@@ -333,6 +336,7 @@ def create_subscription_runtime(
         turn_runner=bind_root_turn_runner(runtime_services),
         environment_snapshot_provider=capture_active_turn_environment,
         turn_application_factory=runtime_services.create_turn_application,
+        approvals=host.approval_coordinator,
     )
 
 

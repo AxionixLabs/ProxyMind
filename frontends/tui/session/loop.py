@@ -1001,7 +1001,7 @@ async def _handle_mailbox_run(
     try:
         if prepared is None:
             return None
-        turn_id = short_uid(12)
+        turn_id = prepared.turn_id
         runtime.append_submitted_query(prepared.prompt, turn_id)
 
         try:

@@ -2,7 +2,6 @@
 # Notes: ==== Mind™ ====
 
 import asyncio
-from collections.abc import Callable
 
 import httpx
 from websockets.exceptions import (
@@ -17,7 +16,6 @@ from observability import (
     observe_exception,
 )
 from .client import AgentClient
-from .external_access import publish_external_access
 from .forwarding import AgentForwardHandler
 from .models import (
     AgentConfig,
@@ -133,7 +131,7 @@ class AgentConnection(object):
         """打开订阅会话，并复用本地去重与任务状态。"""
         opened, device_id = await open_runtime(self.client, self.config)
 
-        session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(
+        session_id, ws_token, ws_url, resume_token, credential, web_url = normalize_open_payload(
             self.client, opened
         )
 
@@ -142,7 +140,7 @@ class AgentConnection(object):
             ws_token=ws_token,
             resume_token=resume_token,
             credential=credential,
-            mind_call_example=mind_call_example,
+            web_url=web_url,
             ws_url=ws_url,
             device_id=device_id,
             client_version=self.config.client_version,
@@ -187,7 +185,7 @@ class AgentConnection(object):
         )
 
         if resumable:
-            session_id, ws_token, ws_url, resume_token, credential, mind_call_example = normalize_open_payload(
+            session_id, ws_token, ws_url, resume_token, credential, web_url = normalize_open_payload(
                 self.client, resume_resp
             )
             self.live_status.update(
@@ -198,7 +196,7 @@ class AgentConnection(object):
                 ws_token=ws_token,
                 resume_token=resume_token,
                 credential=credential or runtime.credential,
-                mind_call_example=mind_call_example or runtime.mind_call_example,
+                web_url=web_url,
                 ws_url=ws_url,
                 device_id=runtime.device_id,
                 client_version=runtime.client_version,
@@ -243,14 +241,11 @@ class AgentSupervisor(object):
         host: SubscriptionHost,
         connection: AgentConnection,
         live_status: AgentLiveStatus,
-        *,
-        configuration_service_url: Callable[[], str] | None = None,
     ) -> None:
         """保存订阅运行所需依赖。"""
         self.host = host
         self.connection = connection
         self.live_status = live_status
-        self.configuration_service_url = configuration_service_url
         self.runtime: AgentSessionRuntime | None = None
 
     async def run(self) -> None:
@@ -275,13 +270,9 @@ class AgentSupervisor(object):
 
             observe("agent.subscription.ready", session_id=runtime.session_id)
             self.live_status.update(
-                "Subscription Ready", "Rendering external call example"
+                "Subscription Ready", "Preparing device connection details"
             )
 
-            await publish_external_access(
-                runtime,
-                configuration_service_url=self.configuration_service_url,
-            )
             self.live_status.update(
                 "Waiting for Server Tasks", "Long link established and listening"
             )
@@ -376,10 +367,6 @@ class AgentSupervisor(object):
                 await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
                 return runtime
 
-            await publish_external_access(
-                runtime,
-                configuration_service_url=self.configuration_service_url,
-            )
             self.live_status.update(
                 "Reopened and Waiting", "Returning to listening state in 1s"
             )
@@ -508,10 +495,6 @@ class AgentSupervisor(object):
             await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
             return runtime
 
-        await publish_external_access(
-            runtime,
-            configuration_service_url=self.configuration_service_url,
-        )
         self.live_status.update(
             "Reopened and Waiting", "Returning to listening state in 1s"
         )
@@ -571,10 +554,6 @@ class AgentSupervisor(object):
 
         self.live_status.update(
             "Resumed and Waiting", "Returning to listening state in 1s"
-        )
-        await publish_external_access(
-            runtime,
-            configuration_service_url=self.configuration_service_url,
         )
         await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
         return runtime

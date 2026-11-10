@@ -13,7 +13,7 @@ from protocol.schema.stream_events import (
 )
 from protocol.transport.endpoints import service_endpoints
 from protocol.transport.http_client import open_http_client
-from protocol.transport.reports import open_report_session
+from protocol.transport.session_views import open_session_view_access
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +27,7 @@ class SessionContextSnapshot:
 async def recover_session_context(cid: str, sid: str, *, after_seq: int = 0) -> SessionContextSnapshot:
     """通过报告授权读取完整分页，在单次超时及取消范围内关闭传输。"""
     async with asyncio.timeout(15):
-        grant = await open_report_session(cid, sid, proto="mind.chat")
+        grant = await open_session_view_access(cid, sid, proto="mind.chat")
         token = grant.get("vt")
         if not isinstance(token, str) or not token:
             raise ValueError("context recovery requires a report view token")

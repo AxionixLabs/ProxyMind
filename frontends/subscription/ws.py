@@ -58,6 +58,7 @@ class AgentWsProtocolError(RuntimeError):
         *,
         action: typing.Literal["reconnect", "reopen", "abort"] = "reconnect"
     ) -> None:
+        """初始化当前组件的依赖和运行状态。"""
         super().__init__(f"{code}: {message}")
 
         self.code = code
@@ -316,6 +317,11 @@ async def handle_server_message(
             request,
             live_status
         )
+        return current_seq
+
+    if message_type == "mind.control":
+        if forward_handler is not None and message.get("session_id") == runtime.session_id:
+            await forward_handler.handle_control(message)
         return current_seq
 
     if message_type == "ack":

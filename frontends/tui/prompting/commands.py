@@ -184,6 +184,11 @@ TUI_COMMANDS: typing.Final[tuple[TuiCommandSpec, ...]] = (
         stream_policy="interactive_panel",
     ),
     TuiCommandSpec(
+        "web", "/web", "Open Mind Web; /web connect shows connection details",
+        subcommands=("connect",),
+        stream_policy="local_snapshot",
+    ),
+    TuiCommandSpec(
         "diff", "/diff", "View Git changes",
         stream_policy="local_snapshot",
     ),
@@ -583,6 +588,7 @@ class SlashCommandCompleter(Completer):
         workspace_root: typing.Callable[[], Path | str | None] | None = None,
         file_search: FileSearchManager | None = None,
     ) -> None:
+        """初始化当前组件的依赖和运行状态。"""
         self._skills = skills or (lambda: ())
         self._workspace_root = workspace_root or (lambda: Path.cwd())
         self._file_search = file_search or FileSearchManager()

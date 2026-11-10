@@ -21,7 +21,10 @@ from agent.adapters.protocol.turn_projection import (
     TurnEventProjection,
     TurnProjectionCoordinator,
 )
-from agent.adapters.protocol.recovery_events import handle_stream_gap
+from agent.adapters.protocol.recovery_events import (
+    handle_stream_gap,
+    handle_turn_reconciliation,
+)
 from agent.adapters.protocol.tool_dispatch import StreamToolDispatcher
 from agent.adapters.protocol.tool_events import ToolEventHandler
 from agent.adapters.protocol.tool_results import ToolResultDelivery
@@ -29,10 +32,7 @@ from agent.adapters.protocol.tool_turn_boundary import (
     ToolTurnBoundary,
     record_unhandled_tool_error,
 )
-from agent.adapters.protocol.turn_interrupts import (
-    cancel_reconciliation_turn,
-    interrupt_approval_cancelled_turn,
-)
+from agent.adapters.protocol.turn_interrupts import interrupt_approval_cancelled_turn
 from agent.adapters.protocol.turn_setup import prepare_stream_turn
 from agent.application.tools.execution import ToolExecutionAdapter
 from agent.application.turns.exception_text import friendly_exception_text
@@ -485,63 +485,19 @@ async def stream_turn(
                 await activity_projector.request_model_wait("server_thinking")
                 continue
             if isinstance(event, TurnReconciliationRequiredEvent):
-                try:
-                    recovered = await client_tool_runner.reconcile_known_effect(
-                        event.effect_id
-                    )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as recovery_error:
-                    recovered = False
-                    observe(
-                        "stream.reconciliation_auto_recovery_failed",
-                        level="WARNING",
-                        turn_id=turn_context.turn_id,
-                        effect_id=event.effect_id,
-                        error=f"{type(recovery_error).__name__}: {recovery_error}",
-                    )
-                if recovered:
-                    observe(
-                        "stream.reconciliation_auto_recovered",
-                        turn_id=turn_context.turn_id,
-                        effect_id=event.effect_id,
-                    )
-                    await activity_projector.request_model_wait("tool_result")
-                    continue
-                cancelled = await cancel_reconciliation_turn(
-                    protocol_client,
+                recovered = await handle_turn_reconciliation(
+                    event,
+                    reconcile_known_effect=client_tool_runner.reconcile_known_effect,
+                    client=protocol_client,
                     cid=str(metadata.get("cid") or ""),
                     sid=str(metadata.get("sid") or ""),
                     turn_id=turn_context.turn_id,
-                    effect_id=event.effect_id,
+                    activity=activity_projector,
+                    outcome=outcome,
+                    presentation=run_presentation,
                 )
-
-                reconciliation_error = (
-                    event.error or "effect outcome requires reconciliation"
-                )
-
-                if not cancelled:
-                    reconciliation_error = (
-                        f"{reconciliation_error}; "
-                        "failed to release the suspended turn"
-                    )
-                outcome.require_reconciliation(reconciliation_error)
-                await activity_projector.turn_terminal(
-                    "reconciliation_required"
-                )
-
-                observe(
-                    "stream.reconciliation_required",
-                    level="ERROR",
-                    turn_id=turn_context.turn_id,
-                    effect_id=event.effect_id,
-                    error=outcome.error,
-                    turn_released=cancelled,
-                )
-                await run_presentation.emit_failure(
-                    "turn.reconciliation_required",
-                    mode=FailureProjectionMode.PROJECTION_ONLY,
-                )
+                if recovered:
+                    continue
                 break
 
             if isinstance(event, TurnCompletedEvent):

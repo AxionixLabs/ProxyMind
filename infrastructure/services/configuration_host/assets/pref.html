@@ -11,6 +11,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-title" content="__APP_NAME__" />
   <link rel="manifest" href="/static/site.webmanifest" />
+  <link rel="stylesheet" href="/static/toast.css">
   <style>
     :root{
       --bg:#0d141b;
@@ -1278,174 +1279,6 @@
       color:#ffd1df;
       border-color:rgba(224,122,122,.24);
     }
-    .toast-stage{
-      position:fixed;
-      inset:0;
-      z-index:60;
-      display:grid;
-      place-items:center;
-      padding:24px;
-      pointer-events:none;
-    }
-    .toast{
-      width:min(540px, calc(100vw - 40px));
-      border:1px solid rgba(255,255,255,.12);
-      border-radius:24px;
-      background:
-        radial-gradient(520px 220px at 20% 0%, rgba(142,202,230,.14), transparent 60%),
-        radial-gradient(420px 200px at 100% 10%, rgba(183,201,214,.12), transparent 60%),
-        rgba(6,12,18,.9);
-      box-shadow:
-        0 28px 80px rgba(0,0,0,.48),
-        0 0 0 1px rgba(142,202,230,.07) inset;
-      padding:20px 22px 20px;
-      color:var(--fg);
-      opacity:0;
-      transform:translateY(18px) scale(.965);
-      transition:opacity .26s ease, transform .26s ease;
-      backdrop-filter:blur(12px);
-      overflow:hidden;
-      position:relative;
-    }
-    .toast::before{
-      content:"";
-      position:absolute;
-      inset:auto -10% 0 -10%;
-      height:2px;
-      background:linear-gradient(90deg, transparent, rgba(142,202,230,.85), transparent);
-      box-shadow:0 0 18px rgba(142,202,230,.45);
-      animation: toastSweep 1.8s linear infinite;
-      opacity:.8;
-    }
-    .toast::after{
-      content:"";
-      position:absolute;
-      inset:50% auto auto 50%;
-      width:24px;
-      height:24px;
-      border-radius:999px;
-      border:1px solid rgba(142,202,230,.38);
-      transform:translate(-50%, -50%) scale(.2);
-      opacity:0;
-      pointer-events:none;
-    }
-    @keyframes toastSweep{
-      0%{transform:translateX(-28%)}
-      100%{transform:translateX(28%)}
-    }
-    .toast.show{
-      opacity:1;
-      transform:translateY(0) scale(1);
-    }
-    .toast.ok{
-      border-color:rgba(142,202,230,.24);
-    }
-    .toast.ok.show::after{
-      animation: toastBurst .55s ease-out 1;
-    }
-    .toast.err{
-      border-color:rgba(224,122,122,.28);
-      background:
-        radial-gradient(520px 220px at 20% 0%, rgba(224,122,122,.16), transparent 60%),
-        radial-gradient(420px 200px at 100% 10%, rgba(183,201,214,.10), transparent 60%),
-        rgba(20,8,14,.92);
-    }
-    .toast.err.show{
-      animation: toastAlert .34s ease-out 1, toastErrPulse 1.2s ease-in-out 2;
-    }
-    .toast.err::after{
-      border-color:rgba(224,122,122,.42);
-    }
-    .toast-head{
-      display:grid;
-      grid-template-columns:minmax(0, 1fr) auto;
-      align-items:center;
-      column-gap:14px;
-      position:relative;
-      z-index:1;
-    }
-    .toast-sig{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      padding:7px 11px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(0,0,0,.18);
-      font-size:11px;
-      color:var(--muted);
-      letter-spacing:.18em;
-      text-transform:uppercase;
-      width:max-content;
-      min-width:0;
-      line-height:1;
-    }
-    .toast-led{
-      width:8px;
-      height:8px;
-      border-radius:999px;
-      background:var(--accent);
-      box-shadow:0 0 0 3px rgba(142,202,230,.14), 0 0 14px rgba(142,202,230,.45);
-    }
-    .toast.err .toast-led{
-      background:var(--danger);
-      box-shadow:0 0 0 3px rgba(224,122,122,.14), 0 0 14px rgba(224,122,122,.45);
-    }
-    .toast-mark{
-      justify-self:end;
-      font-size:12px;
-      color:var(--accent);
-      letter-spacing:.22em;
-      text-transform:uppercase;
-      line-height:1;
-      text-align:right;
-      white-space:nowrap;
-      opacity:.92;
-    }
-    .toast.err .toast-mark{
-      color:var(--danger);
-    }
-    .toast-title{
-      display:block;
-      margin-top:16px;
-      font-size:24px;
-      letter-spacing:.08em;
-      text-transform:uppercase;
-      line-height:1.1;
-      position:relative;
-      z-index:1;
-    }
-    .toast-body{
-      display:block;
-      max-width:34ch;
-      margin-top:10px;
-      font-size:13px;
-      color:var(--muted);
-      line-height:1.6;
-      position:relative;
-      z-index:1;
-    }
-    @keyframes toastBurst{
-      0%{
-        opacity:.45;
-        transform:translate(-50%, -50%) scale(.2);
-      }
-      100%{
-        opacity:0;
-        transform:translate(-50%, -50%) scale(18);
-      }
-    }
-    @keyframes toastAlert{
-      0%, 100%{transform:translateY(0) scale(1)}
-      20%{transform:translateY(0) translateX(-4px) scale(1.01)}
-      40%{transform:translateY(0) translateX(4px) scale(1.01)}
-      60%{transform:translateY(0) translateX(-2px) scale(1)}
-      80%{transform:translateY(0) translateX(2px) scale(1)}
-    }
-    @keyframes toastErrPulse{
-      0%, 100%{box-shadow:0 28px 80px rgba(0,0,0,.48), 0 0 0 1px rgba(224,122,122,.10) inset}
-      50%{box-shadow:0 28px 80px rgba(0,0,0,.48), 0 0 0 1px rgba(224,122,122,.18) inset, 0 0 26px rgba(224,122,122,.16)}
-    }
     .page-footer-slot{
       padding:20px 0 24px;
     }
@@ -1866,14 +1699,15 @@
       </div>
     </div>
   </dialog>
-  <script>
+  <script type="module">
+    import { createToast } from "/static/toast.js";
+    const showToast = createToast(document.getElementById("toast-stage"));
     const byId = (id) => document.getElementById(id);
     const ui = Object.freeze({
       saveButton: byId("save-pref"),
       reloadButton: byId("reload-pref"),
       note: byId("pref-note"),
       status: byId("pref-status"),
-      toastStage: byId("toast-stage"),
       providerCount: byId("provider-count"),
       providerGrid: byId("provider-grid"),
       providerSearch: byId("provider-search"),
@@ -1979,30 +1813,6 @@
     function setMessage(text, kind = "") {
       ui.note.textContent = text;
       ui.note.className = kind ? `note ${kind}` : "note";
-    }
-
-    function showToast(title, detail, kind = "") {
-      ui.toastStage.innerHTML = "";
-      const toast = document.createElement("div");
-      toast.className = kind ? `toast ${kind}` : "toast";
-      toast.innerHTML = `
-        <div class="toast-head">
-          <div class="toast-sig"><span class="toast-led"></span><span>SIGNAL</span></div>
-          <div class="toast-mark">${kind === "err" ? "Alert" : "Confirmed"}</div>
-        </div>
-        <strong class="toast-title">${escapeHtml(title)}</strong>
-        <span class="toast-body">${escapeHtml(detail)}</span>
-      `;
-      ui.toastStage.appendChild(toast);
-
-      requestAnimationFrame(() => {
-        toast.classList.add("show");
-      });
-
-      setTimeout(() => {
-        toast.classList.remove("show");
-        setTimeout(() => toast.remove(), 220);
-      }, 2400);
     }
 
     function setBusy(busy) {

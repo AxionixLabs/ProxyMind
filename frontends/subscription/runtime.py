@@ -3,6 +3,8 @@
 
 import asyncio
 import platform
+import contextlib
+import time
 import typing
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -14,7 +16,11 @@ from infrastructure.config.runtime_paths import agent_runtime_db_path
 from metadata import const
 from observability import observe_exception
 from protocol.transport.endpoints import service_endpoints
+from protocol.schema.json_value import JsonValue
+from .interaction import ApprovalControl, interaction_payload
+from .wire import build_envelope
 from .client import AgentClient
+from .external_access import ConnectionState, publish_external_access
 from .forwarding import (
     AgentExecutor,
     AgentInbox,
@@ -85,6 +91,7 @@ class AgentRuntime(object):
         turn_runner: RootTurnRunner | None = None,
         environment_snapshot_provider: EnvironmentSnapshotProvider | None = None,
         turn_application_factory: TurnApplicationFactory | None = None,
+        approvals: ApprovalControl | None = None,
     ) -> None:
         """装配订阅连接、收件箱和执行器。"""
         self.host = host
@@ -101,6 +108,8 @@ class AgentRuntime(object):
         )
         self.live_status = live_status or AgentLiveStatus()
         self.status_outbox = AgentStatusOutbox()
+        self.approvals = approvals
+        self._active_runs: dict[str, asyncio.Task[AgentInboxItem]] = {}
 
         self.contexts: dict[str, AgentRuntimeContext] = {}
 
@@ -115,6 +124,7 @@ class AgentRuntime(object):
             self.remember_context,
             self._notify_inbox_changed,
             self._resolve_receipt_disposition,
+            control_callback=self._handle_control,
         )
         self.connection = AgentConnection(
             host,
@@ -131,9 +141,10 @@ class AgentRuntime(object):
             host,
             self.connection,
             self.live_status,
-            configuration_service_url=configuration_service_url,
         )
         self.task: asyncio.Task[None] | None = None
+        self._configuration_service_url = configuration_service_url
+        self._access_task: asyncio.Task[None] | None = None
 
     @staticmethod
     def _build_default_executor(
@@ -200,7 +211,7 @@ class AgentRuntime(object):
     ) -> None:
         """把保留的待处理消息重新绑定到当前订阅连接。"""
         self.status_outbox.bind(client, connection, runtime)
-        for item in self.inbox.pending_items():
+        for item in self.inbox.items:
             self.remember_context(
                 item,
                 client,
@@ -252,6 +263,12 @@ class AgentRuntime(object):
         """判断后台订阅任务是否运行中。"""
         return self.task is not None and not self.task.done()
 
+    @property
+    def web_url(self) -> str | None:
+        """读取当前订阅会话提供的浏览器入口。"""
+        runtime = self.supervisor.runtime
+        return runtime.web_url if runtime is not None else None
+
     def is_ready(self) -> bool:
         """判断后台订阅任务是否已经收到服务端 ready。"""
         return self.is_running() and self._ready.is_set()
@@ -284,11 +301,37 @@ class AgentRuntime(object):
             name="agent-runtime"
         )
         self.task.add_done_callback(self._task_done)
+        if self._configuration_service_url is not None and (self._access_task is None or self._access_task.done()):
+            self._access_task = asyncio.create_task(self._observe_access(), name="agent-access-publisher")
         self._notify_inbox_changed()
         return self.task
 
+    async def _observe_access(self) -> None:
+        """持续发布连接状态及凭据，重试配置服务尚未就绪的写入。"""
+        while True:
+            state: ConnectionState
+            if self.is_ready():
+                state = "online"
+            elif not self.is_running():
+                state = "error"
+            elif self.supervisor.runtime is None:
+                state = "connecting"
+            else:
+                state = "reconnecting"
+            await publish_external_access(self.supervisor.runtime,
+                configuration_service_url=self._configuration_service_url, state=state)
+            await asyncio.sleep(3)
+
     async def stop(self) -> None:
         """停止后台订阅任务。"""
+        publisher = self._access_task
+        self._access_task = None
+        if publisher is not None:
+            publisher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await publisher
+            await publish_external_access(self.supervisor.runtime,
+                configuration_service_url=self._configuration_service_url, state="stopped")
         task = self.task
         self.task = None
         self._ready.clear()
@@ -334,7 +377,7 @@ class AgentRuntime(object):
             context = self.contexts.get(message_id)
             if context is None:
                 raise RuntimeError("agent inbox item context missing")
-            return await self.inbox.accept(
+            operation = asyncio.create_task(self.inbox.accept(
                 item,
                 executor=self.executor,
                 host=self.host,
@@ -345,12 +388,77 @@ class AgentRuntime(object):
                 status_changed=notify_execution_change,
                 turn_id=turn_id,
                 status_outbox=self.status_outbox,
-            )
+            ))
+            self._active_runs[message_id] = operation
+            observer = asyncio.create_task(self._observe_interaction(message_id))
+            try:
+                return await operation
+            finally:
+                observer.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await observer
+                await self._publish_interaction(message_id, clear=True)
         finally:
+            self._active_runs.pop(message_id, None)
             self.contexts.pop(message_id, None)
             if self.inbox.find(message_id) is not None:
                 self.inbox.remove(message_id)
             self._notify_inbox_changed()
+
+    async def _publish_interaction(self, message_id: str, *, clear: bool = False) -> None:
+        """通过当前订阅连接发送可恢复的审批快照。"""
+        context = self.contexts.get(message_id)
+        item = self.inbox.find(message_id)
+        if context is None or item is None:
+            return
+        payload = interaction_payload(item.request.call_id, None if clear else self.approvals)
+        try:
+            await context.client.send_json(context.connection, build_envelope(
+                "mind.interaction", context.runtime.session_id, cid=item.request.cid,
+                sid=item.request.sid, payload=payload,
+            ))
+        except Exception as error:
+            observe_exception("agent.interaction.delivery_failed", error, level="DEBUG")
+
+    async def _observe_interaction(self, message_id: str) -> None:
+        """在任务期间持续同步审批状态以覆盖断线重连。"""
+        while True:
+            await self._publish_interaction(message_id)
+            await asyncio.sleep(1)
+
+    async def _handle_control(self, message: dict[str, JsonValue]) -> None:
+        """只控制身份匹配且仍由当前进程拥有的订阅任务。"""
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            return
+        expires = payload.get("expires_at")
+        if not isinstance(expires, (int, float)) or expires < time.time():
+            return
+        item = next((entry for entry in self.inbox.items if entry.request.call_id == payload.get("call_id")), None)
+        if item is None or item.request.cid != message.get("cid") or item.request.sid != message.get("sid"):
+            return
+        message_id = item.request.message_id
+        context = self.contexts.get(message_id)
+        if context is None or context.runtime.session_id != message.get("session_id"):
+            return
+        if payload.get("action") == "cancel":
+            task = self._active_runs.get(message_id)
+            if task is not None:
+                task.cancel()
+            elif item.status == "pending":
+                await self.discard(message_id)
+        elif payload.get("action") == "approval" and message_id in self._active_runs and self.approvals is not None:
+            current = self.approvals.snapshot.current
+            decision = payload.get("decision")
+            approval = interaction_payload(item.request.call_id, self.approvals).get("approval")
+            if (current is not None and current.key.request_id == payload.get("approval_id")
+                    and isinstance(decision, str) and isinstance(approval, dict)
+                    and isinstance(approval.get("decisions"), list) and decision in approval["decisions"]):
+                try:
+                    await self.approvals.resolve(current.key.request_id, decision, source="user")
+                except ValueError:
+                    return
+                await self._publish_interaction(message_id)
 
     async def wait_until_ready(
         self,

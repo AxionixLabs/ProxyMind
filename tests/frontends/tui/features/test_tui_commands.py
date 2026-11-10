@@ -134,6 +134,7 @@ def test_root_command_completion_order_is_stable() -> None:
         "/agent",
         "/listen",
         "/mailbox",
+        "/web",
         "/diff",
         "/export",
         "/raw",
@@ -2280,6 +2281,20 @@ async def test_helix_stop_commits_one_final_status(error, expected) -> None:
     assert statuses[0].renderable.plain_text == expected
     host.execution.unlink_service.assert_called_once_with()
     stop_runtime.assert_awaited_once_with()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("command,target",[("/web","https://example.test/mind"),("/web connect","http://127.0.0.1:8765/agent")])
+async def test_web_command_opens_the_declared_destination(monkeypatch,command,target):
+    from frontends.tui.session import dispatch as dispatch_module
+    opened = AsyncMock()
+    monkeypatch.setattr(dispatch_module.FileAssist,"open_url",opened)
+    host = SimpleNamespace(frontend=SimpleNamespace(application=SimpleNamespace(emit=Mock())),
+                           subscription=SimpleNamespace(current=SimpleNamespace(web_url="https://example.test/mind")))
+    dispatcher = TuiCommandDispatcher(host,SimpleNamespace(),SimpleNamespace(),SimpleNamespace(),
+                                      configuration_service_url=lambda:"http://127.0.0.1:8765")
+    assert await dispatcher.dispatch(command) is DispatchAction.HANDLED
+    opened.assert_awaited_once_with(target)
 
 
 def _completions(text: str):

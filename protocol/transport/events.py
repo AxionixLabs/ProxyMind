@@ -12,7 +12,7 @@ from observability import (
 )
 from protocol.schema.identifiers import short_uid
 from protocol.schema.stream_events import StreamEvent
-from protocol.transport.reports import post_stream_event
+from protocol.transport.session_views import post_stream_event
 
 
 class EventReport(object):
@@ -23,6 +23,7 @@ class EventReport(object):
         cid: str,
         sid: str,
     ):
+        """初始化当前组件的依赖和运行状态。"""
         self.cid = cid
         self.sid = sid
         self.proto = self.default_proto()
@@ -62,6 +63,7 @@ class EventReport(object):
         *,
         round_no: typing.Optional[int] = None
     ) -> str:
+        """开始记录当前轮次的事件身份。"""
         self.turn_id = str(turn_id or short_uid(12))
 
         self.round = (
@@ -74,6 +76,7 @@ class EventReport(object):
         return self.turn_id
 
     def set_round(self, round_no: typing.Any) -> None:
+        """更新当前事件轮次序号。"""
         if isinstance(round_no, int) and round_no > 0:
             self.round = round_no
 
@@ -220,6 +223,7 @@ class EventReportPool(object):
     """复用同一会话的事件上报通道，并统一管理关闭时机。"""
 
     def __init__(self) -> None:
+        """初始化当前组件的依赖和运行状态。"""
         self._reports: dict[tuple[str, str], EventReport] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
         self._closed: bool = False

@@ -54,6 +54,11 @@ class SubscriptionRuntime(typing.Protocol):
 
     inbox: SubscriptionInbox
 
+    @property
+    def web_url(self) -> str | None:
+        """返回当前订阅服务签发的浏览器入口。"""
+        ...
+
     def start_background(self) -> asyncio.Task[None]:
         """启动后台订阅连接。"""
         ...

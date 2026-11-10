@@ -49,7 +49,7 @@ def _request(message_id: str = "message-1") -> AgentForwardRequest:
         call_id=f"call-{message_id}",
         cid="cid-1",
         sid="sid-1",
-        payload={"message": "inspect workspace"},
+        payload={"message": "inspect workspace", "turn_id": "turn_remote", "session_mode": "create"},
     )
 
 
@@ -59,11 +59,62 @@ def _session_runtime() -> AgentSessionRuntime:
         ws_token="token",
         resume_token=None,
         credential=None,
-        mind_call_example=None,
+        web_url=None,
         ws_url=None,
         device_id="device-1",
         client_version="1.0.0",
     )
+
+
+@pytest.mark.anyio
+async def test_remote_control_rejects_foreign_or_expired_identity_and_cancels_current_task():
+    import time
+    runtime = AgentRuntime(SimpleNamespace(),config=_config(),client=SimpleNamespace(),
+                           supervisor=SimpleNamespace(run=AsyncMock()))
+    item = runtime.inbox.add(_request())
+    runtime.remember_context(item,SimpleNamespace(),SimpleNamespace(),_session_runtime(),runtime.live_status)
+    operation = asyncio.create_task(asyncio.Event().wait())
+    runtime._active_runs[item.request.message_id] = operation
+    control = {"session_id":"agent-session","cid":"cid-1","sid":"sid-1",
+               "payload":{"call_id":item.request.call_id,"action":"cancel","expires_at":time.time()+60}}
+    try:
+        for fields in ({"session_id":"foreign"},{"cid":"foreign"},{"sid":"foreign"},
+                       {"payload":{**control["payload"],"expires_at":0}}):
+            await runtime._handle_control({**control,**fields})
+            assert not operation.cancelling()
+        await runtime._handle_control(control)
+        with pytest.raises(asyncio.CancelledError):
+            await operation
+        runtime._active_runs.clear()
+        runtime.status_outbox.cancelled = AsyncMock()
+        await runtime._handle_control(control)
+        assert runtime.inbox.find(item.request.message_id) is None
+        runtime.status_outbox.cancelled.assert_awaited_once()
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation,return_exceptions=True)
+
+
+@pytest.mark.anyio
+async def test_access_publisher_survives_listener_restart_without_duplicate_task(monkeypatch):
+    published = asyncio.Event()
+    async def publish(*args,**kwargs):
+        published.set()
+    monkeypatch.setattr("frontends.subscription.runtime.publish_external_access",AsyncMock(side_effect=publish))
+    async def run():
+        await asyncio.Event().wait()
+    runtime = AgentRuntime(SimpleNamespace(),config=_config(),client=SimpleNamespace(),
+        supervisor=SimpleNamespace(run=run,runtime=_session_runtime()),
+        configuration_service_url=lambda:"http://127.0.0.1:37300")
+    first = runtime.start_background()
+    await published.wait()
+    publisher = runtime._access_task
+    first.cancel()
+    await asyncio.gather(first,return_exceptions=True)
+    runtime.start_background()
+    assert runtime._access_task is publisher
+    await runtime.stop()
+    assert publisher.done()
 
 
 @pytest.mark.anyio
@@ -310,10 +361,6 @@ async def test_agent_supervisor_resumes_session_after_pause(monkeypatch) -> None
         open_session_runtime=AsyncMock(return_value=first_runtime),
         resume_or_open=AsyncMock(return_value=resumed_runtime),
         connect_once=connect_once,
-    )
-    monkeypatch.setattr(
-        "frontends.subscription.loop.publish_external_access",
-        AsyncMock(),
     )
     supervisor = AgentSupervisor(
         SimpleNamespace(lifecycle=ProcessLifecycle()),

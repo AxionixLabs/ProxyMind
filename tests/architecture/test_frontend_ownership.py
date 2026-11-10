@@ -834,6 +834,7 @@ def test_subscription_adapter_is_owned_by_frontends() -> None:
         "wire.py",
         "external_access.py",
         "forwarding.py",
+        "interaction.py",
         "loop.py",
         "models.py",
         "opening.py",

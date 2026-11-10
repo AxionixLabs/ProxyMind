@@ -1212,7 +1212,7 @@ async def test_stream_requires_reconciliation_after_uncertain_transport(
         status="reconciliation_required",
         error="remote outcome requires reconciliation",
         error_code=error_code,
-        error_details={"reconciliation_required": True},
+        error_details={"reconciliation_required": True, "retryable": not observed},
     )
     report_failure.assert_not_awaited()
     assert any(
@@ -1257,6 +1257,7 @@ async def test_stream_treats_rejected_start_as_deterministic_failure(
             "status_code": 409,
             "active_turn_id": "turn_active",
             "active_status": "running",
+            "retryable": False,
         },
     )
     report_failure.assert_not_awaited()

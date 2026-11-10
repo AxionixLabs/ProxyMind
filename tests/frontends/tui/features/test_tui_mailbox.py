@@ -28,12 +28,8 @@ from frontends.tui.session.loop import _handle_mailbox_run
 def _request(
     message_id: str,
     message: str,
-    *,
-    summary: str = "",
 ) -> AgentForwardRequest:
-    payload = {"message": message}
-    if summary:
-        payload["intent"] = {"summary": summary}
+    payload = {"message": message, "turn_id": "turn_remote", "session_mode": "create"}
     return AgentForwardRequest(
         message_id=message_id,
         call_id=f"call-{message_id}",
@@ -110,7 +106,7 @@ async def _wait_for_menu(runtime: TuiRuntime, title: str) -> None:
 @pytest.mark.anyio
 async def test_mailbox_summary_uses_command_description() -> None:
     feature, runtime, _views = _feature(_Listener(
-        _request("1", "first line", summary="Inspect workspace"),
+        _request("1", "Inspect workspace"),
         _request("2", "run tests"),
     ))
     task = asyncio.create_task(feature.open())
@@ -149,7 +145,7 @@ async def test_mailbox_summary_uses_command_description() -> None:
 @pytest.mark.anyio
 async def test_mailbox_message_detail_returns_to_actions_then_queues_run() -> None:
     feature, runtime, _views = _feature(_Listener(
-        _request("1", "inspect workspace", summary="Inspect"),
+        _request("1", "inspect workspace"),
     ))
     task = asyncio.create_task(feature.open())
     await _wait_for_menu(runtime, "Mailbox")
@@ -157,7 +153,7 @@ async def test_mailbox_message_detail_returns_to_actions_then_queues_run() -> No
     await _wait_for_menu(runtime, "Mailbox Message")
     state = runtime.screen.menu.state
     assert state is not None
-    assert state.request.status == "Inspect"
+    assert state.request.status == "inspect workspace"
     assert [option.label for option in state.request.options] == [
         "Run",
         "Delete",
@@ -182,7 +178,7 @@ async def test_mailbox_message_detail_returns_to_actions_then_queues_run() -> No
 @pytest.mark.anyio
 async def test_mailbox_real_menu_detail_returns_to_same_application() -> None:
     feature, runtime, _views = _feature(_Listener(
-        _request("1", "inspect workspace", summary="Inspect"),
+        _request("1", "inspect workspace"),
     ))
     application = runtime.screen.application
 
@@ -284,7 +280,7 @@ async def test_mailbox_auto_does_not_duplicate_queued_manual_run() -> None:
     request = await runtime.submissions.read_submission()
     assert request == MailboxRunRequest("1", automatic=False)
     prepared = feature.prepare_run(request)
-    assert prepared == PreparedMailboxRun(listener, "1", "first")
+    assert prepared == PreparedMailboxRun(listener, "1", "first", turn_id="turn_remote")
     assert runtime.submissions.message_queue.empty()
 
 
@@ -438,7 +434,7 @@ async def test_mailbox_run_uses_main_tui_execution_lifecycle() -> None:
         prepare_run=Mock(return_value=PreparedMailboxRun(
             listener,
             "message-1",
-            "inspect workspace\nthen run tests",
+            "inspect workspace\nthen run tests", turn_id="turn_remote",
         )),
         finish_run=Mock(),
     )
@@ -487,7 +483,7 @@ async def test_mailbox_run_failure_is_rendered_and_releases_auto_slot() -> None:
         prepare_run=Mock(return_value=PreparedMailboxRun(
             SimpleNamespace(run_message=run_message),
             "message-1",
-            "failing remote query",
+            "failing remote query", turn_id="turn_remote",
         )),
         finish_run=Mock(),
     )
@@ -561,7 +557,7 @@ async def test_mailbox_run_keeps_query_before_approval_tools_and_long_answer() -
         prepare_run=Mock(return_value=PreparedMailboxRun(
             listener,
             "message-combined",
-            prompt,
+            prompt, turn_id="turn_remote",
         )),
         finish_run=Mock(),
     )
@@ -613,7 +609,7 @@ async def test_mailbox_interrupt_keeps_one_query_and_releases_execution() -> Non
         prepare_run=Mock(return_value=PreparedMailboxRun(
             listener,
             "message-interrupt",
-            "remote query to interrupt",
+            "remote query to interrupt", turn_id="turn_remote",
         )),
         finish_run=Mock(),
     )
