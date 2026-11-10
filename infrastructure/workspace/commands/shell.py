@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # Notes: ==== Mind™ ====
 
+import asyncio
 import os
 import shlex
 import time
@@ -618,6 +619,9 @@ class ShellCommandExecutor(WorkspaceComponent):
                     and session.process.execution_outcome_unknown
                 ),
             )
+        except asyncio.CancelledError:
+            await self._sessions.apply(session, control="kill")
+            raise
         finally:
             self._sessions.remove(session.session_id)
 

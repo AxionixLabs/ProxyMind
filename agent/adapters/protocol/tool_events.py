@@ -454,6 +454,8 @@ class ToolEventHandler:
 
     async def handle_output(self, event: ToolOutputEvent) -> None:
         """记录并展示服务端已执行工具的结果。"""
+        if event.payload.get("display") is False:
+            return
         name = event.name
         if not name:
             return

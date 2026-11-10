@@ -293,6 +293,9 @@ class ProcessCapture(object):
         except asyncio.TimeoutError:
             timed_out = True
             await terminate_process_tree(process, force=True)
+        except asyncio.CancelledError:
+            await terminate_process_tree(process, force=True)
+            raise
         finally:
             await cls._drain_readers(process, [stdout_task, stderr_task])
 
