@@ -20,6 +20,7 @@ from agent.application.approvals.models import (
     ApprovalRequestKey,
     ApprovalResolutionReason,
     ElicitationQueueRequest,
+    ResolvedApproval,
 )
 from agent.application.approvals.presenter import ApprovalPresenterPort
 from agent.domain.mcp_elicitation import (
@@ -55,6 +56,7 @@ class ApprovalCoordinator:
         queue_limit: int = DEFAULT_APPROVAL_QUEUE_LIMIT,
         snapshot_error_handler: ApprovalSnapshotErrorHandler | None = None,
     ) -> None:
+        """绑定审批展示端口并初始化有界队列和已处理记录。"""
         if queue_limit < 1:
             raise ValueError("approval queue_limit must be positive")
 
@@ -70,6 +72,7 @@ class ApprovalCoordinator:
         self._session_active = False
         self._coordinator_id = uuid.uuid4().hex
         self._revision = 0
+        self._resolved: deque[ResolvedApproval] = deque(maxlen=64)
 
     @property
     def snapshot(self) -> ApprovalQueueSnapshot:
@@ -177,6 +180,8 @@ class ApprovalCoordinator:
         if entry.future.done():
             return None
 
+        if isinstance(entry.request, ApprovalRequest) and isinstance(outcome, ApprovalOutcome):
+            self._resolved.append(ResolvedApproval(entry.request, outcome))
         self._remove_entry(entry)
         if isinstance(entry.request, ElicitationQueueRequest) and isinstance(outcome, ApprovalOutcome):
             outcome = ElicitationResponse("decline" if outcome.reason == "user" and outcome.decision == "decline" else "cancel")
@@ -210,6 +215,7 @@ class ApprovalCoordinator:
             revision=self._revision,
             coordinator_id=self._coordinator_id,
             closed=self._closed,
+            resolved=tuple(copy.deepcopy(item) for item in self._resolved),
         )
 
     def _fail_entry(

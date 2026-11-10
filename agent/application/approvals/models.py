@@ -144,6 +144,13 @@ class ElicitationQueueRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedApproval:
+    """保留已展示审批的请求与协调器确认结果。"""
+    request: ApprovalRequest
+    outcome: ApprovalOutcome
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalQueueSnapshot(object):
     """提供审批队列的不可变可观察快照。"""
     current: ApprovalRequest | ElicitationQueueRequest | None
@@ -151,6 +158,7 @@ class ApprovalQueueSnapshot(object):
     revision: int
     coordinator_id: str = ""
     closed: bool = False
+    resolved: tuple[ResolvedApproval, ...] = ()
 
     @property
     def pending_count(self) -> int:

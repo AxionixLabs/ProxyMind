@@ -6,6 +6,7 @@ import pytest
 
 from agent.application.approvals.coordinator import ApprovalCoordinator
 from frontends.interaction.noninteractive import NonInteractiveInteraction
+from frontends.subscription.interaction import interaction_payload
 
 
 class ControlledInteraction(object):
@@ -76,6 +77,12 @@ async def test_approval_coordinator_presents_fifo_in_one_session() -> None:
     assert interaction.session_ended == 1
     assert coordinator.snapshot.unresolved_count == 0
     assert interaction.snapshots[-1].unresolved_count == 0
+    resolved=coordinator.snapshot.resolved
+    assert [(entry.request.key.request_id,entry.outcome.decision) for entry in resolved]==[("first","accept"),("second","decline")]
+    cleared=interaction_payload("remote-call",coordinator,since=0,clear=True)
+    assert cleared['approval'] is None
+    assert [entry['decision'] for entry in cleared['resolved']]==['accept','decline']
+    assert interaction_payload("new-call",coordinator,since=resolved[-1].outcome.resolved_at+1)['resolved']==[]
 
 
 @pytest.mark.anyio

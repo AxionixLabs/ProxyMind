@@ -110,6 +110,7 @@ class AgentRuntime(object):
         self.status_outbox = AgentStatusOutbox()
         self.approvals = approvals
         self._active_runs: dict[str, asyncio.Task[AgentInboxItem]] = {}
+        self._interaction_started: dict[str, float] = {}
 
         self.contexts: dict[str, AgentRuntimeContext] = {}
 
@@ -377,6 +378,7 @@ class AgentRuntime(object):
             context = self.contexts.get(message_id)
             if context is None:
                 raise RuntimeError("agent inbox item context missing")
+            self._interaction_started[message_id] = time.time()
             operation = asyncio.create_task(self.inbox.accept(
                 item,
                 executor=self.executor,
@@ -400,6 +402,7 @@ class AgentRuntime(object):
                 await self._publish_interaction(message_id, clear=True)
         finally:
             self._active_runs.pop(message_id, None)
+            self._interaction_started.pop(message_id, None)
             self.contexts.pop(message_id, None)
             if self.inbox.find(message_id) is not None:
                 self.inbox.remove(message_id)
@@ -411,7 +414,8 @@ class AgentRuntime(object):
         item = self.inbox.find(message_id)
         if context is None or item is None:
             return
-        payload = interaction_payload(item.request.call_id, None if clear else self.approvals)
+        payload = interaction_payload(item.request.call_id, self.approvals,
+                                      since=self._interaction_started.get(message_id, time.time()), clear=clear)
         try:
             await context.client.send_json(context.connection, build_envelope(
                 "mind.interaction", context.runtime.session_id, cid=item.request.cid,

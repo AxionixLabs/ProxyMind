@@ -111,6 +111,22 @@ def test_normalize_forward_request_preserves_message() -> None:
 
 
 @pytest.mark.anyio
+async def test_attachment_only_forward_reaches_the_canonical_turn_input() -> None:
+    attachments=[{'kind':'image','url':'https://media.test/shot.png','filename':'shot.png','mime_type':'image/png'}]
+    turn_runner=AsyncMock(return_value=RunResult(status='completed',assistant_text='image received'))
+    host=SimpleNamespace(history_workspace='.')
+    client=SimpleNamespace(send_mind_started=AsyncMock(),send_mind_completed=AsyncMock())
+    request=AgentForwardRequest(message_id='image-message',call_id='image-call',cid='cid-image',sid='sid-image',
+        payload={'turn_id':'image-turn','session_mode':'create','message':'','attachments':attachments})
+    assert normalize_forward_request(request.payload)==''
+    await AgentExecutor(turn_runner,turn_application=_turn_application()).execute(
+        host,client,object(),SimpleNamespace(session_id='session'),request)
+    assert turn_runner.await_args.kwargs['attachments']==attachments
+    assert turn_runner.await_args.kwargs['message']==''
+    client.send_mind_completed.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_agent_executor_runs_message_and_sends_completion() -> None:
     result = RunResult(status="completed", assistant_text="done")
     turn_runner = AsyncMock(return_value=result)

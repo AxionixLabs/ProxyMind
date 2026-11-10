@@ -12,7 +12,7 @@ def test_approval_snapshot_preserves_exact_decisions_and_oversized_details_requi
     presentation = ExecApprovalPresentation(context=context,commands=("pwd",),summary="读取当前目录")
     request = ApprovalRequest(key=ApprovalRequestKey("current","runtime-approval","tool-call","shell","exec"),
         payload=ApprovalPayload(kind="exec",values={}),presentation=presentation,decisions=("accept","decline"))
-    snapshot = SimpleNamespace(current=request,revision=3)
+    snapshot = SimpleNamespace(current=request,revision=3,resolved=())
     payload = interaction_payload("remote-call",SimpleNamespace(snapshot=snapshot))
     assert payload["approval"]["approval_id"] == "current"
     assert payload["approval"]["decisions"] == ["accept","decline"]

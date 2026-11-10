@@ -98,7 +98,15 @@ def normalize_forward_request(
     message = payload.get("message")
     if not isinstance(message, str):
         raise ValueError("mind.forward payload.message must be a string")
-    if not message.strip():
+    attachments = payload.get("attachments", [])
+    if not isinstance(attachments, list) or len(attachments) > 8:
+        raise ValueError("mind.forward attachments must contain at most eight items")
+    for item in attachments:
+        if not isinstance(item, dict) or item.get("kind") not in {"image", "file"}:
+            raise ValueError("mind.forward attachment is invalid")
+        if not any(isinstance(item.get(key), str) and item[key] for key in ("url", "data_url", "text")):
+            raise ValueError("mind.forward attachment content is required")
+    if not message.strip() and not attachments:
         raise ValueError("mind.forward payload.message must be non-empty")
 
     metadata_raw = payload.get("metadata")
@@ -338,7 +346,7 @@ class AgentExecutor(object):
             run_id=f"agent-forward:{request.sid}:{request.call_id}",
             session_id=request.sid,
             message=message,
-            attachments=[],
+            attachments=request.payload.get("attachments", []),
             environment_snapshot=environment_snapshot,
             extras=command_extras,
             trace_context=trace_context,
