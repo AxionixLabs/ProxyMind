@@ -79,6 +79,7 @@ def test_changed_external_session_creates_new_boundary() -> None:
     first_sid = new_sid(cid)
     state = ConversationState(cid=cid, sid=first_sid)
     state.begin_turn()
+    state.fork_source_available = True
     next_sid = new_sid(cid)
 
     started = state.begin_turn(
@@ -91,6 +92,8 @@ def test_changed_external_session_creates_new_boundary() -> None:
     assert started.turn_index == 1
     assert started.session_started is True
     assert started.start_reason == "calling"
+    assert started.session_mode == "create"
+    assert state.fork_source_available is False
 
 
 def test_queued_context_is_consumed_by_next_turn_only() -> None:

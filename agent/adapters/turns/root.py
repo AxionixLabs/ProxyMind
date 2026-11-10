@@ -89,6 +89,11 @@ class RootTurnCommandExecutor:
             )
 
         values = command.extras_value() or {}
+        if "session_mode" in values:
+            session_mode = values["session_mode"]
+            if session_mode != "create" and session_mode != "existing":
+                raise ValueError("session_mode must be create or existing")
+            root_kwargs["session_mode"] = session_mode
         metadata = values.get("metadata")
         if isinstance(metadata, Mapping):
             root_kwargs["metadata"] = dict(metadata)

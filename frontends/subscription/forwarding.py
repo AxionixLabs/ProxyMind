@@ -223,6 +223,7 @@ class AgentExecutor(object):
                 metadata=metadata,
                 timeout_sec=timeout_sec,
                 turn_id=turn_id,
+                session_mode=session_mode,
                 environment_snapshot=environment_snapshot,
             )
 
@@ -274,16 +275,6 @@ class AgentExecutor(object):
                     sid=request.sid,
                     call_id=request.call_id
                 )
-        except asyncio.CancelledError:
-            await asyncio.shield(self._send_cancelled(
-                client,
-                connection,
-                runtime,
-                request,
-                status_outbox=status_outbox,
-                reason="user_interrupted",
-            ))
-            raise
         except Exception as error:
             if status_outbox is not None:
                 await status_outbox.failed(
@@ -317,6 +308,7 @@ class AgentExecutor(object):
         metadata: Mapping[str, typing.Any],
         timeout_sec: float | None,
         turn_id: str | None,
+        session_mode: typing.Literal["create", "existing"],
         environment_snapshot: Mapping[str, typing.Any] | None,
     ) -> SubmitTurnCommand:
         """把订阅请求冻结为可恢复的主动 Turn 命令。"""
@@ -325,6 +317,7 @@ class AgentExecutor(object):
             "sid": request.sid,
             "call_id": request.call_id,
             "message_id": request.message_id,
+            "session_mode": session_mode,
             "metadata": dict(metadata),
         }
         if timeout_sec is not None:

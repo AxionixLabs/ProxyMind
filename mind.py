@@ -337,6 +337,7 @@ def create_subscription_runtime(
         environment_snapshot_provider=capture_active_turn_environment,
         turn_application_factory=runtime_services.create_turn_application,
         approvals=host.approval_coordinator,
+        protocol_client=runtime_services.protocol_client,
     )
 
 

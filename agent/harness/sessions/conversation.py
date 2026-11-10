@@ -70,9 +70,12 @@ class ConversationState(object):
         *,
         cid: typing.Optional[str] = None,
         sid: typing.Optional[str] = None,
-        start_reason: str = ""
+        start_reason: str = "",
+        session_mode: typing.Literal["create", "existing"] | None = None,
     ) -> ConversationTurn:
         """为新轮次初始化、续用或绑定会话标识。"""
+        if session_mode is not None and session_mode not in {"create", "existing"}:
+            raise ValueError("session_mode must be create or existing")
         external_cid = self._clean(cid)
         external_sid = self._clean(sid)
 
@@ -88,9 +91,8 @@ class ConversationState(object):
         elif not self.cid or not self.sid:
             self.reset(reason="initial")
 
-        session_mode: typing.Literal["create", "existing"] = (
-            "existing" if self.fork_source_available else "create"
-        )
+        if session_mode is None:
+            session_mode = "existing" if self.fork_source_available else "create"
         session_started = self.turn_count == 0
         boundary_reason = ""
         if session_started:
@@ -205,6 +207,7 @@ class ConversationState(object):
             self.created_at = time.time()
             self.turn_count = 0
             self.session_bound = True
+            self.fork_source_available = False
             self.start_reason = str(start_reason or "").strip() or "external"
 
             self._pending_context.clear()

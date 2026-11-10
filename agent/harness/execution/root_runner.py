@@ -52,6 +52,7 @@ async def prepare_root_turn(
     attachments: typing.Iterable[Mapping[str, typing.Any]],
     extras: Mapping[str, typing.Any] | None,
     turn_id: str | None,
+    session_mode: typing.Literal["create", "existing"] | None = None,
     approval_ledger: ApprovalLedger | None = None,
     approval_coordinator: ApprovalCoordinatorPort | None = None,
     execution_policy: ExecutionPolicy | None = None,
@@ -68,6 +69,7 @@ async def prepare_root_turn(
         sid=supplied_metadata.get("sid"),
         title=title,
         source=source,
+        session_mode=session_mode,
     )
     canonical_metadata = {
         **supplied_metadata,
@@ -132,6 +134,7 @@ async def run_root_turn(
     patch_preview: PatchPreviewPort | None = None,
     session_context: TurnSessionContextPort | None = None,
     session_state: TurnSessionStatePort | None = None,
+    session_mode: typing.Literal["create", "existing"] | None = None,
     **kwargs: typing.Any,
 ) -> RunResult:
     """准备根轮次并通过主前端生命周期执行。"""
@@ -164,6 +167,7 @@ async def run_root_turn(
         attachments=attachments,
         extras=raw_extras if isinstance(raw_extras, dict) else None,
         turn_id=kwargs.pop("turn_id", None),
+        session_mode=session_mode,
         approval_ledger=session.approval_ledger,
         approval_coordinator=approval_coordinator,
         execution_policy=execution_policy,

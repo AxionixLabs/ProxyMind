@@ -6,7 +6,17 @@ from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 
+import agent.harness.execution.root_runner as root_runner_module
 import frontends.subscription.forwarding as forwarding_module
+from agent.adapters.protocol.model_request import build_model_stream_request
+from agent.harness.hooks.scope import HookExecutionScope
+from agent.harness.sessions.conversation import ConversationState
+from agent.protocol import ModelStreamRequest
+from protocol.schema.identifiers import (
+    new_cid,
+    new_sid,
+)
+from tests.composition.test_controller_runtime_cleanup import _root_session
 from frontends.subscription.forwarding import (
     AgentExecutor,
     AgentInbox,
@@ -163,6 +173,7 @@ async def test_agent_executor_runs_message_and_sends_completion() -> None:
         host,
         message="inspect workspace",
         exec_env={"snapshot_id": "envsnap_subscription"},
+        session_mode="create",
         turn_id="turn_remote",
         on_model_request_frozen=ANY,
         metadata={
@@ -189,6 +200,66 @@ async def test_existing_remote_conversation_binds_before_continuing_with_server_
     assert sequence == ["bind","run"]
     bind.assert_awaited_once_with("same-cid","same-sid",source="web")
     assert run.await_args.kwargs["turn_id"] == "next-turn"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("same_conversation", [False, True])
+async def test_forwarded_new_session_after_history_creates_then_continues(
+    monkeypatch, same_conversation,
+) -> None:
+    previous_cid = new_cid()
+    state = ConversationState(
+        cid=previous_cid, sid=new_sid(previous_cid),
+        turn_count=3, fork_source_available=True,
+    )
+    session, resources = _root_session(state)
+    resources.shutdown_root.return_value = ()
+    session.hook_scope_provider.hook_scope = HookExecutionScope.empty
+    requests: list[ModelStreamRequest] = []
+
+    async def capture_request(_runtime, preferences, execution, _operation, **_kwargs):
+        request = build_model_stream_request(
+            execution.context, pref_config=preferences,
+            message=execution.message, tools=[], options={},
+        )
+        requests.append(request)
+        session.observe_remote_turn(request.cid, request.sid, request.turn_id, terminal=True)
+        return RunResult(status="completed")
+
+    async def run_turn(host, **kwargs):
+        return await root_runner_module.run_root_turn(
+            host.conversation, tool_execution=SimpleNamespace(),
+            execution_runtime=SimpleNamespace(), **kwargs,
+        )
+
+    monkeypatch.setattr(root_runner_module, "execute_turn", capture_request)
+    executor = AgentExecutor(run_turn, turn_application=_turn_application())
+    client = SimpleNamespace(
+        send_mind_started=AsyncMock(), send_mind_completed=AsyncMock(),
+        send_mind_failed=AsyncMock(),
+    )
+    cid = previous_cid if same_conversation else new_cid()
+    sid = new_sid(cid)
+    try:
+        for index, mode in enumerate(("create", "existing")):
+            await executor.execute(
+                SimpleNamespace(conversation=session), client, SimpleNamespace(),
+                SimpleNamespace(session_id="agent-session"),
+                AgentForwardRequest(
+                    message_id=f"message-{index}", call_id=f"call-{index}", cid=cid, sid=sid,
+                    payload={"message": "inspect", "session_mode": mode, "turn_id": f"turn_remote_{index}"},
+                ),
+            )
+            assert requests[-1].options["session_mode"] == mode
+            assert (requests[-1].cid, requests[-1].sid, requests[-1].turn_id) == (cid, sid, f"turn_remote_{index}")
+            if mode == "create":
+                resources.context_recovery.load.assert_not_awaited()
+        assert client.send_mind_completed.await_count == 2
+        client.send_mind_failed.assert_not_awaited()
+        assert session.snapshot() == {"cid": cid, "sid": sid}
+    finally:
+        await executor.close()
+        await session.end(reason="exit")
 
 
 @pytest.mark.anyio
@@ -243,6 +314,7 @@ async def test_agent_executor_submits_frozen_forward_command() -> None:
         "sid": "sid-1",
         "call_id": "call-1",
         "message_id": "message-1",
+        "session_mode": "create",
         "metadata": {
             "origin": "server",
             "cid": "cid-1",
@@ -323,7 +395,7 @@ async def test_agent_executor_reports_interrupted_result_as_cancelled() -> None:
 
 
 @pytest.mark.anyio
-async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
+async def test_agent_executor_does_not_report_local_cancellation_as_remote_terminal() -> None:
     started = asyncio.Event()
 
     async def run_root_turn(_controller, **_kwargs):
@@ -359,8 +431,7 @@ async def test_agent_executor_reports_task_cancellation_as_cancelled() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    client.send_mind_cancelled.assert_awaited_once()
-    assert client.send_mind_cancelled.await_args.kwargs["reason"] == "user_interrupted"
+    client.send_mind_cancelled.assert_not_awaited()
 
 
 @pytest.mark.anyio

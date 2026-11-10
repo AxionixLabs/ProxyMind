@@ -773,6 +773,7 @@ async def test_root_calling_composes_conversation_and_terminal_lifecycle(
         sid=None,
         title="hello",
         source="calling",
+        session_mode=None,
     )
     streamed_execution = captured[0]["turn_execution"]
     context = streamed_execution.context

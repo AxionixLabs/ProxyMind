@@ -246,8 +246,9 @@ class RootTurnSessionPort(typing.Protocol):
         *,
         title: str,
         source: str,
+        session_mode: typing.Literal["create", "existing"] | None = None,
     ) -> TurnStartResultPort:
-        """登记或续用根会话并返回轮次边界快照。"""
+        """登记根会话并返回轮次边界；显式会话意图不得由本地历史改写。"""
         ...
 
     def transcript_path_for_session(self, sid: str) -> str:

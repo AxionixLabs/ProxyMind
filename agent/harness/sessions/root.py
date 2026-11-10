@@ -683,11 +683,14 @@ class RootConversationSession:
         *,
         title: str = "",
         source: str = "begin",
+        session_mode: typing.Literal["create", "existing"] | None = None,
     ) -> ConversationTurn:
         """串行验证删除门禁并初始化新轮次身份。"""
         async with self._session_mutation_lock:
             await self._assert_session_available(cid or self.cid, sid or self.sid)
-            return await self._begin_turn(cid, sid, title=title, source=source)
+            return await self._begin_turn(
+                cid, sid, title=title, source=source, session_mode=session_mode,
+            )
 
     async def _assert_session_available(self, cid: str | None, sid: str | None) -> None:
         """拒绝复用待对账或已删除身份；允许无关会话正常运行。"""
@@ -705,6 +708,7 @@ class RootConversationSession:
 
     async def _begin_turn(
         self, cid: str | None, sid: str | None, *, title: str, source: str,
+        session_mode: typing.Literal["create", "existing"] | None,
     ) -> ConversationTurn:
         """为新轮次初始化或续用当前会话标识。"""
         previous_identity = (self._state.cid, self._state.sid)
@@ -729,6 +733,7 @@ class RootConversationSession:
             cid=cid,
             sid=sid,
             start_reason=source,
+            session_mode=session_mode,
         )
         metadata = turn.metadata()
         self._history.touch(

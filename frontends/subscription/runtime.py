@@ -11,12 +11,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent.application import TurnApplication
-from agent.ports import SubscriptionHost
+from agent.ports import (
+    ProtocolCommandClient,
+    ProtocolCommandError,
+    SubscriptionHost,
+)
 from infrastructure.config.runtime_paths import agent_runtime_db_path
 from metadata import const
 from observability import observe_exception
 from protocol.transport.endpoints import service_endpoints
 from protocol.schema.json_value import JsonValue
+from protocol.schema.identifiers import (
+    normalize_request_id,
+    normalize_turn_id,
+)
 from .interaction import ApprovalControl, interaction_payload
 from .wire import build_envelope
 from .client import AgentClient
@@ -36,6 +44,7 @@ from .loop import (
 )
 from .models import (
     AgentConfig,
+    AgentForwardRequest,
     AgentInboxItem,
     AgentLiveStatus,
     AgentSessionRuntime
@@ -81,6 +90,7 @@ class AgentRuntime(object):
         self,
         host: SubscriptionHost,
         *,
+        protocol_client: ProtocolCommandClient,
         config: AgentConfig | None = None,
         client: AgentClient | None = None,
         inbox: AgentInbox | None = None,
@@ -109,7 +119,9 @@ class AgentRuntime(object):
         self.live_status = live_status or AgentLiveStatus()
         self.status_outbox = AgentStatusOutbox()
         self.approvals = approvals
+        self._protocol_client = protocol_client
         self._active_runs: dict[str, asyncio.Task[AgentInboxItem]] = {}
+        self._interrupt_tasks: dict[str, asyncio.Task[bool]] = {}
         self._interaction_started: dict[str, float] = {}
 
         self.contexts: dict[str, AgentRuntimeContext] = {}
@@ -396,10 +408,17 @@ class AgentRuntime(object):
             try:
                 return await operation
             finally:
-                observer.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await observer
-                await self._publish_interaction(message_id, clear=True)
+                interrupt = self._interrupt_tasks.pop(message_id, None)
+                try:
+                    if interrupt is not None:
+                        interrupt.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await interrupt
+                finally:
+                    observer.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await observer
+                    await self._publish_interaction(message_id, clear=True)
         finally:
             self._active_runs.pop(message_id, None)
             self._interaction_started.pop(message_id, None)
@@ -447,8 +466,26 @@ class AgentRuntime(object):
             return
         if payload.get("action") == "cancel":
             task = self._active_runs.get(message_id)
-            if task is not None:
-                task.cancel()
+            if task is not None and not task.done():
+                request_id = payload.get("request_id")
+                turn_id = item.request.payload.get("turn_id")
+                if not isinstance(request_id, str) or not isinstance(turn_id, str):
+                    return
+                try:
+                    request_id = normalize_request_id(request_id)
+                    turn_id = normalize_turn_id(turn_id)
+                except ValueError:
+                    return
+                interrupt = self._interrupt_tasks.get(message_id)
+                if interrupt is not None and (not interrupt.done() or interrupt.result()):
+                    return
+                self._interrupt_tasks[message_id] = asyncio.create_task(
+                    self._interrupt_remote_turn(
+                        self._protocol_client, item.request, task,
+                        turn_id=turn_id, request_id=request_id,
+                    ),
+                    name=f"agent-interrupt:{message_id}",
+                )
             elif item.status == "pending":
                 await self.discard(message_id)
         elif payload.get("action") == "approval" and message_id in self._active_runs and self.approvals is not None:
@@ -463,6 +500,40 @@ class AgentRuntime(object):
                 except ValueError:
                     return
                 await self._publish_interaction(message_id)
+
+    @staticmethod
+    async def _interrupt_remote_turn(
+        protocol_client: ProtocolCommandClient,
+        request: AgentForwardRequest,
+        operation: asyncio.Task[AgentInboxItem],
+        *,
+        turn_id: str,
+        request_id: str,
+    ) -> bool:
+        """提交幂等中断并吸收创建竞态；原执行任务继续观察权威终态。"""
+        retry_delay = 0.25
+        while not operation.done():
+            try:
+                await protocol_client.interrupt_turn(
+                    cid=request.cid,
+                    sid=request.sid,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                )
+                return True
+            except ProtocolCommandError as error:
+                if operation.done():
+                    return True
+                creation_pending = error.code == "turn_not_found" and error.status_code == 404
+                if not creation_pending and not error.retryable:
+                    observe_exception(
+                        "agent.interrupt.failed", error,
+                        call_id=request.call_id, turn_id=turn_id, request_id=request_id,
+                    )
+                    return False
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(2.0, retry_delay * 2)
+        return True
 
     async def wait_until_ready(
         self,

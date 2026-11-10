@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -13,6 +14,8 @@ from agent.application import (
 )
 from agent.harness.sessions.owner import SessionRuntimeOwner
 from agent.ports import (
+    ProtocolCommandClient,
+    ProtocolCommandError,
     SubscriptionHost,
     SubscriptionRuntime,
 )
@@ -21,7 +24,12 @@ from composition import (
     ApplicationHost,
     _bind_subscription_runtime,
 )
-from frontends.subscription.forwarding import AgentInbox
+from frontends.subscription.forwarding import (
+    AgentExecutor,
+    AgentInbox,
+)
+from agent.application.turns.run_result import RunResult
+from agent.protocol import TurnControlReceipt
 from frontends.subscription.models import (
     AgentConfig,
     AgentForwardRequest,
@@ -67,24 +75,31 @@ def _session_runtime() -> AgentSessionRuntime:
 
 
 @pytest.mark.anyio
-async def test_remote_control_rejects_foreign_or_expired_identity_and_cancels_current_task():
-    import time
+async def test_remote_control_rejects_foreign_or_expired_identity_and_interrupts_remote_turn():
+    protocol = SimpleNamespace(interrupt_turn=AsyncMock())
     runtime = AgentRuntime(SimpleNamespace(),config=_config(),client=SimpleNamespace(),
-                           supervisor=SimpleNamespace(run=AsyncMock()))
+                           supervisor=SimpleNamespace(run=AsyncMock()), protocol_client=protocol)
     item = runtime.inbox.add(_request())
     runtime.remember_context(item,SimpleNamespace(),SimpleNamespace(),_session_runtime(),runtime.live_status)
     operation = asyncio.create_task(asyncio.Event().wait())
     runtime._active_runs[item.request.message_id] = operation
     control = {"session_id":"agent-session","cid":"cid-1","sid":"sid-1",
-               "payload":{"call_id":item.request.call_id,"action":"cancel","expires_at":time.time()+60}}
+               "payload":{"call_id":item.request.call_id,"action":"cancel","expires_at":time.time()+60,
+                          "request_id":"interrupt_request"}}
     try:
         for fields in ({"session_id":"foreign"},{"cid":"foreign"},{"sid":"foreign"},
-                       {"payload":{**control["payload"],"expires_at":0}}):
+                       {"payload":{**control["payload"],"expires_at":0}},
+                       {"payload":{**control["payload"],"request_id":""}}):
             await runtime._handle_control({**control,**fields})
             assert not operation.cancelling()
+            protocol.interrupt_turn.assert_not_awaited()
         await runtime._handle_control(control)
-        with pytest.raises(asyncio.CancelledError):
-            await operation
+        await asyncio.wait_for(runtime._interrupt_tasks[item.request.message_id], 1)
+        await runtime._handle_control(control)
+        assert not operation.cancelling()
+        protocol.interrupt_turn.assert_awaited_once_with(
+            cid="cid-1", sid="sid-1", turn_id="turn_remote", request_id="interrupt_request",
+        )
         runtime._active_runs.clear()
         runtime.status_outbox.cancelled = AsyncMock()
         await runtime._handle_control(control)
@@ -93,6 +108,124 @@ async def test_remote_control_rejects_foreign_or_expired_identity_and_cancels_cu
     finally:
         operation.cancel()
         await asyncio.gather(operation,return_exceptions=True)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminal_status", ["interrupted", "completed"])
+@pytest.mark.parametrize("interrupt_acknowledged", [True, False])
+async def test_remote_cancel_keeps_observation_until_authoritative_terminal(
+    terminal_status, interrupt_acknowledged,
+):
+    started = asyncio.Event()
+    terminal = asyncio.Event()
+    cancelled_locally = asyncio.Event()
+    interrupt_submitted = asyncio.Event()
+
+    async def run_turn(_host, **_kwargs):
+        started.set()
+        try:
+            await terminal.wait()
+            return RunResult(status=terminal_status)
+        except asyncio.CancelledError:
+            cancelled_locally.set()
+            raise
+
+    receipt = TurnControlReceipt("accepted", "interrupt_request", "turn_remote")
+
+    async def interrupt_turn(**_kwargs):
+        interrupt_submitted.set()
+        if not interrupt_acknowledged:
+            await asyncio.Future()
+        return receipt
+
+    protocol = SimpleNamespace(interrupt_turn=AsyncMock(side_effect=interrupt_turn))
+    executor = AgentExecutor(
+        run_turn, turn_application=TurnApplication(runtime_factory=SessionRuntimeOwner),
+        environment_snapshot_provider=lambda _host: {},
+    )
+    client = SimpleNamespace(send_mind_started=AsyncMock(), send_json=AsyncMock())
+    runtime = AgentRuntime(
+        SimpleNamespace(), config=_config(), client=client, executor=executor,
+        supervisor=SimpleNamespace(run=AsyncMock()), protocol_client=protocol,
+    )
+    runtime.status_outbox.cancelled = AsyncMock()
+    runtime.status_outbox.completed = AsyncMock()
+    item = runtime.inbox.add(_request())
+    runtime.remember_context(item, client, object(), _session_runtime(), runtime.live_status)
+    operation = asyncio.create_task(runtime.run_message(item.request.message_id))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        await runtime._handle_control({
+            "session_id": "agent-session", "cid": "cid-1", "sid": "sid-1",
+            "payload": {"call_id": item.request.call_id, "action": "cancel",
+                        "request_id": "interrupt_request", "expires_at": time.time() + 60},
+        })
+        await asyncio.wait_for(interrupt_submitted.wait(), 1)
+        interrupt = runtime._interrupt_tasks[item.request.message_id]
+        if interrupt_acknowledged:
+            await asyncio.wait_for(interrupt, 1)
+        assert not operation.done()
+        assert not cancelled_locally.is_set()
+        assert item.status == "running"
+        runtime.status_outbox.cancelled.assert_not_awaited()
+        runtime.status_outbox.completed.assert_not_awaited()
+        terminal.set()
+        await asyncio.wait_for(operation, 1)
+        assert not runtime._interrupt_tasks
+        assert not runtime._active_runs
+        if not interrupt_acknowledged:
+            assert interrupt.cancelled()
+        if terminal_status == "interrupted":
+            runtime.status_outbox.cancelled.assert_awaited_once()
+            runtime.status_outbox.completed.assert_not_awaited()
+        else:
+            runtime.status_outbox.completed.assert_awaited_once()
+            runtime.status_outbox.cancelled.assert_not_awaited()
+    finally:
+        terminal.set()
+        await asyncio.gather(operation, return_exceptions=True)
+        await executor.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", [
+    ProtocolCommandError("turn_not_found", "not persisted", details={"status_code": 404}),
+    ProtocolCommandError("network_unavailable", "retry", retryable=True),
+])
+async def test_remote_interrupt_retries_with_same_identity_without_cancelling_run(failure):
+    operation = asyncio.create_task(asyncio.Event().wait())
+    protocol = SimpleNamespace(interrupt_turn=AsyncMock(side_effect=[
+        failure, TurnControlReceipt("accepted", "interrupt_request", "turn_remote"),
+    ]))
+    try:
+        accepted = await asyncio.wait_for(AgentRuntime._interrupt_remote_turn(
+            protocol, _request(), operation, turn_id="turn_remote", request_id="interrupt_request",
+        ), 2)
+        assert accepted
+        assert not operation.cancelling()
+        assert protocol.interrupt_turn.await_count == 2
+        assert protocol.interrupt_turn.await_args_list[0] == protocol.interrupt_turn.await_args_list[1]
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation, return_exceptions=True)
+
+
+@pytest.mark.anyio
+async def test_rejected_remote_interrupt_does_not_cancel_local_observation():
+    operation = asyncio.create_task(asyncio.Event().wait())
+    protocol = SimpleNamespace(interrupt_turn=AsyncMock(side_effect=ProtocolCommandError(
+        "forbidden", "denied", details={"status_code": 403},
+    )))
+    try:
+        accepted = await AgentRuntime._interrupt_remote_turn(
+            protocol, _request(), operation, turn_id="turn_remote", request_id="interrupt_request",
+        )
+        assert not accepted
+        assert not operation.cancelling()
+        protocol.interrupt_turn.assert_awaited_once()
+    finally:
+        operation.cancel()
+        await asyncio.gather(operation, return_exceptions=True)
 
 
 @pytest.mark.anyio
@@ -105,6 +238,7 @@ async def test_access_publisher_survives_listener_restart_without_duplicate_task
         await asyncio.Event().wait()
     runtime = AgentRuntime(SimpleNamespace(),config=_config(),client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run,runtime=_session_runtime()),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         configuration_service_url=lambda:"http://127.0.0.1:37300")
     first = runtime.start_background()
     await published.wait()
@@ -131,6 +265,7 @@ async def test_agent_runtime_starts_once_and_stops_listener() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -160,6 +295,7 @@ async def test_agent_runtime_composes_and_closes_injected_turn_application() -> 
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=AsyncMock()),
@@ -187,6 +323,7 @@ def test_agent_runtime_does_not_discover_turn_application_from_host() -> None:
 
     runtime = AgentRuntime(
         host,
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=AsyncMock()),
@@ -202,6 +339,7 @@ async def test_agent_runtime_consumes_background_failure() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -227,6 +365,7 @@ async def test_agent_runtime_waits_for_current_listener_ready() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -253,6 +392,7 @@ async def test_agent_runtime_ready_wait_has_a_bounded_timeout() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -273,6 +413,7 @@ async def test_agent_runtime_disconnect_clears_connection_readiness() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -296,6 +437,7 @@ async def test_agent_runtime_ready_wait_survives_transient_disconnect() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -320,6 +462,7 @@ def test_agent_runtime_rebinds_pending_messages_to_current_connection() -> None:
     item = inbox.add(_request())
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         inbox=inbox,
@@ -428,6 +571,7 @@ async def test_agent_runtime_propagates_failure_before_ready() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -450,6 +594,7 @@ async def test_agent_runtime_restart_requires_a_new_ready_message() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         supervisor=SimpleNamespace(run=run),
@@ -480,6 +625,7 @@ async def test_agent_runtime_runs_named_message_and_releases_local_state() -> No
     executor = SimpleNamespace(execute=AsyncMock())
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         inbox=inbox,
@@ -519,6 +665,7 @@ async def test_agent_runtime_discards_message_when_execution_context_is_missing(
     inbox.add(_request())
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         inbox=inbox,
@@ -538,6 +685,7 @@ async def test_agent_runtime_discards_message_without_remote_execution() -> None
     item = inbox.add(_request())
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         inbox=inbox,
@@ -577,6 +725,7 @@ async def test_agent_runtime_interrupted_message_is_not_left_running() -> None:
 
     runtime = AgentRuntime(
         SimpleNamespace(),
+        protocol_client=Mock(spec=ProtocolCommandClient),
         config=_config(),
         client=SimpleNamespace(),
         inbox=inbox,
