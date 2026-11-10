@@ -23,6 +23,7 @@ from .models import (
     AgentLiveStatus,
 )
 from .opening import (
+    extract_http_error_detail,
     normalize_open_payload,
     open_runtime,
     is_tls_certificate_error,
@@ -45,7 +46,7 @@ def summarize_ws_disconnect(exc: BaseException) -> tuple[str, str]:
         return "TLS Verification Failed", summarize_tls_certificate_error(exc)
 
     if isinstance(exc, InvalidStatus):
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        status_code = exc.response.status_code
         if isinstance(status_code, int):
             if status_code in {502, 503, 504}:
                 return "Server Unavailable", f"HTTP {status_code} · retrying session"
@@ -77,23 +78,7 @@ def get_disconnect_status_code(exc: BaseException) -> int | None:
     if not isinstance(exc, InvalidStatus):
         return None
 
-    response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
-
-    return status_code if isinstance(status_code, int) else None
-
-
-def should_retry_ws_before_resume(runtime: AgentSessionRuntime, exc: BaseException) -> bool:
-    """首轮握手尚未 ready 时，优先做有限次 WS 重连，避免无意义 resume 风暴。"""
-    if runtime.last_acked_seq > 0 or runtime.ready_received:
-        return False
-
-    if isinstance(exc, InvalidStatus):
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if isinstance(status_code, int) and status_code in {401, 403}:
-            return False
-
-    return True
+    return exc.response.status_code
 
 
 class AgentConnection(object):
@@ -159,20 +144,34 @@ class AgentConnection(object):
         self,
         runtime: AgentSessionRuntime
     ) -> AgentSessionRuntime:
-        """恢复订阅会话；不可恢复时再次打开订阅会话。"""
+        """换取新握手令牌，并在恢复凭据失效时重新创建订阅会话。"""
+        runtime.ws_token = None
         if not runtime.resume_token:
-            raise RuntimeError("resume_token missing")
+            return await self.open_session_runtime(previous=runtime)
 
         self.live_status.update(
             "Attempting Resume", f"session={runtime.session_id}"
         )
-        resume_resp = await self.client.resume_session(
-            session_id=runtime.session_id,
-            resume_token=runtime.resume_token,
-            last_acked_seq=runtime.last_acked_seq,
-            device_id=runtime.device_id,
-            agent_id=self.config.agent_id
-        )
+        try:
+            resume_resp = await self.client.resume_session(
+                session_id=runtime.session_id,
+                resume_token=runtime.resume_token,
+                last_acked_seq=runtime.last_acked_seq,
+                device_id=runtime.device_id,
+                agent_id=self.config.agent_id,
+            )
+        except httpx.HTTPStatusError as error:
+            code = extract_http_error_detail(error).get("code")
+            invalid_resume = error.response.status_code == 401 and code in {
+                "AGENT_TOKEN_INVALID", "AGENT_RESUME_SCOPE_INVALID",
+                "AGENT_RESUME_SESSION_MISMATCH", "AGENT_RESUME_DEVICE_MISMATCH",
+            }
+            missing_session = error.response.status_code == 404 and code == "AGENT_SESSION_NOT_FOUND"
+            if not invalid_resume and not missing_session:
+                raise
+            runtime.resume_token = None
+            self.live_status.update("Resume Expired", "Opening a fresh subscription session")
+            return await self.open_session_runtime(previous=runtime)
 
         resume_data = self.client.unwrap_data(resume_resp)
         resumable = bool(resume_data.get("resumable"))
@@ -202,14 +201,13 @@ class AgentConnection(object):
                 client_version=runtime.client_version,
                 last_acked_seq=runtime.last_acked_seq,
                 ready_received=runtime.ready_received,
-                pre_ready_connect_failures=runtime.pre_ready_connect_failures,
                 forwarded_message_ids=runtime.forwarded_message_ids,
             )
 
         self.live_status.update(
             "Resume Expired", "Opening a fresh subscription session"
         )
-
+        runtime.resume_token = None
         reopened = await self.open_session_runtime(previous=runtime)
         observe(
             "agent.session.reopened",
@@ -260,12 +258,8 @@ class AgentSupervisor(object):
 
             if runtime is None:
                 runtime = await self.connection.open_session_runtime()
-            elif runtime.resume_token:
-                runtime = await self.connection.resume_or_open(runtime)
             else:
-                runtime = await self.connection.open_session_runtime(
-                    previous=runtime,
-                )
+                runtime = await self.handle_resume(runtime)
             self.runtime = runtime
 
             observe("agent.subscription.ready", session_id=runtime.session_id)
@@ -332,52 +326,13 @@ class AgentSupervisor(object):
             raise exc
 
         if exc.action == "reopen":
-            self.live_status.update(
-                "Server Rejected Session", f"{exc.code} · opening fresh session"
-            )
-            try:
-                runtime = await self.connection.open_session_runtime(previous=runtime)
-            except asyncio.CancelledError:
-                self.live_status.update(
-                    "Exiting Subscription", "Canceling reopen flow"
-                )
-                raise
-            except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
-                if is_tls_certificate_error(reopen_exc):
-                    detail = summarize_tls_certificate_error(reopen_exc)
-                    observe_exception(
-                        "agent.reopen.failed",
-                        reopen_exc,
-                        reason="tls",
-                        detail=detail,
-                    )
-                    self.live_status.update("TLS Verification Failed", detail)
-                    raise
-                observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
-                self.live_status.update(
-                    "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                )
-                await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-                return runtime
-            except Exception as reopen_exc:
-                observe_exception("agent.reopen.retry", reopen_exc, level="WARNING")
-                self.live_status.update(
-                    "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
-                )
-                await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-                return runtime
-
-            self.live_status.update(
-                "Reopened and Waiting", "Returning to listening state in 1s"
-            )
-            await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
-            return runtime
+            runtime.resume_token = None
 
         self.live_status.update(
             "Reconnecting", f"{exc.code} · reconnecting in 1s"
         )
         await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
-        return runtime
+        return await self.handle_resume(runtime)
 
     async def handle_disconnect(
         self,
@@ -408,155 +363,61 @@ class AgentSupervisor(object):
             session_id=runtime.session_id,
             ready_received=runtime.ready_received,
             last_acked_seq=runtime.last_acked_seq,
-            pre_ready_failures=runtime.pre_ready_connect_failures,
             resume_available=bool(runtime.resume_token),
             status=status_code,
         )
 
-        retry_ws_before_resume = should_retry_ws_before_resume(runtime, exc)
         observe(
             "agent.recovery.decision",
-            action="ws_retry" if retry_ws_before_resume else "resume_or_reopen",
-            reason="pre_ready" if retry_ws_before_resume else "ready_or_acked",
+            action="resume_or_reopen",
+            reason="connection_closed",
         )
-
-        if retry_ws_before_resume:
-            return await self.handle_pre_ready_disconnect(runtime)
-
-        if not runtime.resume_token:
-            observe(
-                "agent.resume.skipped",
-                level="WARNING",
-                session_id=runtime.session_id,
-                reason="token_missing",
-                ready_received=runtime.ready_received,
-                last_acked_seq=runtime.last_acked_seq,
-            )
-            self.live_status.update(
-                "Resume Token Missing", "Retrying session open in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
-
+        runtime.ws_token = None
+        await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
         return await self.handle_resume(runtime)
-
-    async def handle_pre_ready_disconnect(
-        self,
-        runtime: AgentSessionRuntime
-    ) -> AgentSessionRuntime:
-        """处理 ready 前的连接中断。"""
-        runtime.pre_ready_connect_failures += 1
-
-        observe(
-            "agent.pre_ready.retry",
-            session_id=runtime.session_id,
-            attempt=runtime.pre_ready_connect_failures,
-        )
-
-        if runtime.pre_ready_connect_failures < 3:
-            self.live_status.update(
-                "Retrying Link", "Handshake not ready yet · retrying WS in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
-
-        self.live_status.update(
-            "Opening Fresh Session", "Handshake never became ready · reopening in 2s"
-        )
-        try:
-            runtime = await self.connection.open_session_runtime(previous=runtime)
-        except asyncio.CancelledError:
-            self.live_status.update(
-                "Exiting Subscription", "Canceling session reopen"
-            )
-            raise
-        except (OSError, httpx.HTTPError, asyncio.TimeoutError) as reopen_exc:
-            if is_tls_certificate_error(reopen_exc):
-                detail = summarize_tls_certificate_error(reopen_exc)
-                observe_exception(
-                    "agent.pre_ready.reopen_failed",
-                    reopen_exc,
-                    reason="tls",
-                    detail=detail,
-                )
-                self.live_status.update("TLS Verification Failed", detail)
-                raise
-            observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
-            self.live_status.update(
-                "Reopen Failed", f"{type(reopen_exc).__name__} · retrying in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
-        except Exception as reopen_exc:
-            observe_exception("agent.pre_ready.reopen_retry", reopen_exc, level="WARNING")
-            self.live_status.update(
-                "Reopen Crashed", f"{type(reopen_exc).__name__} · retrying in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
-
-        self.live_status.update(
-            "Reopened and Waiting", "Returning to listening state in 1s"
-        )
-        await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
-
-        return runtime
 
     async def handle_resume(
         self,
         runtime: AgentSessionRuntime
     ) -> AgentSessionRuntime:
-        """处理连接恢复请求。"""
-        try:
-            observe(
-                "agent.resume.start",
-                session_id=runtime.session_id,
-                last_acked_seq=runtime.last_acked_seq,
-                ready_received=runtime.ready_received,
-            )
-            runtime = await self.connection.resume_or_open(runtime)
-            observe(
-                "agent.resume.complete",
-                session_id=runtime.session_id,
-                last_acked_seq=runtime.last_acked_seq,
-                ready_received=runtime.ready_received,
-                resume_available=bool(runtime.resume_token),
-            )
-        except asyncio.CancelledError:
-            self.live_status.update(
-                "Exiting Subscription", "Canceling resume flow"
-            )
-            raise
-        except (OSError, httpx.HTTPError, asyncio.TimeoutError) as resume_exc:
-            if is_tls_certificate_error(resume_exc):
-                detail = summarize_tls_certificate_error(resume_exc)
-                observe_exception(
-                    "agent.resume.failed",
-                    resume_exc,
-                    reason="tls",
-                    detail=detail,
+        """串行恢复到可握手状态，临时失败按有界退避重试并响应退出。"""
+        runtime.ws_token = None
+        retry_delay = 2.0
+        while not self.host.lifecycle.stop_event.is_set():
+            try:
+                observe(
+                    "agent.resume.start",
+                    session_id=runtime.session_id,
+                    last_acked_seq=runtime.last_acked_seq,
                 )
-                self.live_status.update("TLS Verification Failed", detail)
-                raise
-            observe_exception("agent.resume.retry", resume_exc, level="WARNING")
-            self.live_status.update(
-                "Resume Failed", f"{type(resume_exc).__name__} · retrying in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
-        except Exception as resume_exc:
-            observe_exception("agent.resume.retry", resume_exc, level="WARNING")
-            self.live_status.update(
-                "Resume Crashed", f"{type(resume_exc).__name__} · retrying in 2s"
-            )
-            await sleep_or_stop(2.0, self.host.lifecycle.stop_event)
-            return runtime
+                recovered = await self.connection.resume_or_open(runtime)
+            except httpx.HTTPStatusError as error:
+                status = error.response.status_code
+                if status not in {408, 409, 429} and not 500 <= status < 600:
+                    self.live_status.update(
+                        "Recovery Rejected", f"HTTP {status} · check authentication or server configuration"
+                    )
+                    raise
+                observe_exception("agent.resume.retry", error, level="WARNING", status=status)
+            except (OSError, httpx.RequestError, asyncio.TimeoutError) as error:
+                if is_tls_certificate_error(error):
+                    self.live_status.update("TLS Verification Failed", summarize_tls_certificate_error(error))
+                    raise
+                observe_exception("agent.resume.retry", error, level="WARNING")
+            else:
+                observe(
+                    "agent.resume.complete",
+                    session_id=recovered.session_id,
+                    last_acked_seq=recovered.last_acked_seq,
+                    resume_available=bool(recovered.resume_token),
+                )
+                return recovered
 
-        self.live_status.update(
-            "Resumed and Waiting", "Returning to listening state in 1s"
-        )
-        await sleep_or_stop(1.0, self.host.lifecycle.stop_event)
-        return runtime
+            self.live_status.update("Recovery Pending", f"Retrying session recovery in {retry_delay:g}s")
+            await sleep_or_stop(retry_delay, self.host.lifecycle.stop_event)
+            retry_delay = min(retry_delay * 2, 30.0)
+
+        raise asyncio.CancelledError
 
 
 if __name__ == '__main__':

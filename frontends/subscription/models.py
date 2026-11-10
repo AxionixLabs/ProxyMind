@@ -20,7 +20,7 @@ class AgentConfig:
 class AgentSessionRuntime:
     """订阅会话运行态：保存断线恢复所需的动态状态。"""
     session_id: str
-    ws_token: str
+    ws_token: str | None
     resume_token: str | None
     credential: str | None
     web_url: str | None
@@ -29,7 +29,6 @@ class AgentSessionRuntime:
     client_version: str
     last_acked_seq: int = 0
     ready_received: bool = False
-    pre_ready_connect_failures: int = 0
     forwarded_message_ids: set[str] | None = None
 
 

@@ -532,10 +532,13 @@ async def test_agent_supervisor_resumes_session_after_pause(monkeypatch) -> None
 
 
 @pytest.mark.anyio
-async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
+async def test_agent_supervisor_refreshes_handshake_after_ready_timeout(
     monkeypatch,
 ) -> None:
     runtime = _session_runtime()
+    refreshed = _session_runtime()
+    refreshed.ws_token = "fresh-token"
+    connection = SimpleNamespace(resume_or_open=AsyncMock(return_value=refreshed))
     delay = AsyncMock()
     monkeypatch.setattr(
         "frontends.subscription.loop.sleep_or_stop",
@@ -545,7 +548,7 @@ async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
     lifecycle = ProcessLifecycle()
     supervisor = AgentSupervisor(
         SimpleNamespace(lifecycle=lifecycle),
-        SimpleNamespace(),
+        connection,
         live_status,
     )
 
@@ -554,12 +557,9 @@ async def test_agent_supervisor_retries_ready_timeout_as_pre_ready_failure(
         TimeoutError("server did not send ready"),
     )
 
-    assert recovered is runtime
-    assert runtime.pre_ready_connect_failures == 1
-    live_status.update.assert_any_call(
-        "Retrying Link",
-        "Handshake not ready yet · retrying WS in 2s",
-    )
+    assert recovered is refreshed
+    assert runtime.ws_token is None
+    connection.resume_or_open.assert_awaited_once_with(runtime)
     delay.assert_awaited_once_with(2.0, lifecycle.stop_event)
 
 

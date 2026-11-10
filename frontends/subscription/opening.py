@@ -153,7 +153,7 @@ async def open_with_fallback(
 async def open_runtime(
     client: AgentClient,
     config: AgentConfig
-) -> tuple[dict[str, typing.Any], str] | None:
+) -> tuple[dict[str, typing.Any], str]:
     """持续重试 open，直到成功创建会话。"""
     while True:
         try:
@@ -188,8 +188,14 @@ async def open_runtime(
             continue
 
 
-def extract_http_error_detail(exc: httpx.HTTPStatusError) -> dict[str, typing.Any]:
-    """从 HTTP 错误响应中提取结构化业务错误信息。"""
+class AgentErrorDetail(typing.TypedDict, total=False):
+    """保存订阅 HTTP 边界校验后的错误码与展示消息。"""
+    code: str
+    message: str
+
+
+def extract_http_error_detail(exc: httpx.HTTPStatusError) -> AgentErrorDetail:
+    """从正式错误信封中提取已校验的订阅错误字段。"""
     try:
         payload = exc.response.json()
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -198,21 +204,26 @@ def extract_http_error_detail(exc: httpx.HTTPStatusError) -> dict[str, typing.An
     if not isinstance(payload, dict):
         return {}
 
-    for key in ("detail", "details", "data"):
-        value = payload.get(key)
-        if isinstance(value, dict):
-            return value
-
-    return payload
+    details = payload.get("details")
+    if not isinstance(details, dict):
+        return {}
+    result: AgentErrorDetail = {}
+    code = details.get("code")
+    message = details.get("message")
+    if isinstance(code, str):
+        result["code"] = code
+    if isinstance(message, str):
+        result["message"] = message
+    return result
 
 
 def log_http_error_detail(prefix: str, exc: httpx.HTTPStatusError) -> None:
-    """记录 detail.code / detail.message / detail.extra 以便排查问题。"""
+    """记录已校验的订阅错误码与消息。"""
     _ = prefix
     detail = extract_http_error_detail(exc)
 
-    code = detail.get("code") if isinstance(detail, dict) else None
-    message = detail.get("message") if isinstance(detail, dict) else None
+    code = detail.get("code")
+    message = detail.get("message")
 
     observe(
         "agent.open.conflict",

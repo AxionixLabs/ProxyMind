@@ -698,7 +698,6 @@ async def test_agent_ready_notifies_listener_readiness() -> None:
     runtime = SimpleNamespace(
         session_id="agent-session",
         ready_received=False,
-        pre_ready_connect_failures=3,
     )
     status = AgentLiveStatus()
 
@@ -714,7 +713,6 @@ async def test_agent_ready_notifies_listener_readiness() -> None:
 
     assert seq == 9
     assert runtime.ready_received
-    assert runtime.pre_ready_connect_failures == 0
     assert status.snapshot() == (
         "Subscription Online",
         "Handshake complete, waiting for tasks",
@@ -747,7 +745,6 @@ async def test_agent_replay_propagates_ready_notification() -> None:
     runtime = SimpleNamespace(
         session_id="agent-session",
         ready_received=False,
-        pre_ready_connect_failures=1,
     )
 
     seq = await handle_server_message(

@@ -30,12 +30,14 @@ AckCallback = typing.Callable[[str], None]
 
 AGENT_WS_READY_TIMEOUT_SEC: typing.Final[float] = 15.0
 
-_REOPEN_ERROR_CODES: typing.Final[set[str]] = {
+_REFRESH_ERROR_CODES: typing.Final[set[str]] = {
     "AGENT_TOKEN_INVALID",
-    "AGENT_CLIENT_UNAUTHORIZED",
     "AGENT_WS_SCOPE_INVALID",
     "AGENT_WS_SESSION_MISMATCH",
     "AGENT_WS_DEVICE_MISMATCH",
+}
+
+_REOPEN_ERROR_CODES: typing.Final[set[str]] = {
     "AGENT_SESSION_NOT_FOUND",
     "AGENT_SESSION_OFFLINE",
     "AGENT_SESSION_NOT_CONNECTED",
@@ -44,7 +46,8 @@ _REOPEN_ERROR_CODES: typing.Final[set[str]] = {
 }
 
 _ABORT_ERROR_CODES: typing.Final[set[str]] = {
-    "AGENT_WS_PAYLOAD_INVALID"
+    "AGENT_WS_PAYLOAD_INVALID",
+    "AGENT_CLIENT_UNAUTHORIZED",
 }
 
 
@@ -233,7 +236,6 @@ async def handle_server_message(
         payload = payload_raw if isinstance(payload_raw, dict) else {}
 
         runtime.ready_received = True
-        runtime.pre_ready_connect_failures = 0
 
         if on_ready is not None:
             on_ready()
@@ -348,6 +350,8 @@ async def handle_server_message(
         )
         if code in _ABORT_ERROR_CODES:
             raise AgentWsProtocolError(code, message_text, action="abort")
+        if code in _REFRESH_ERROR_CODES:
+            raise AgentWsProtocolError(code, message_text, action="reconnect")
         if code in _REOPEN_ERROR_CODES:
             raise AgentWsProtocolError(code, message_text, action="reopen")
         return current_seq
@@ -366,11 +370,15 @@ async def connection_scope(
     *,
     on_disconnected: DisconnectedCallback | None = None
 ) -> typing.AsyncIterator[ClientConnection]:
-    """管理单个 WS 连接及其断开通知。"""
+    """消费当前握手令牌并管理单个 WS 连接及其断开通知。"""
+    ws_token = runtime.ws_token
+    if ws_token is None:
+        raise RuntimeError("WebSocket handshake requires a refreshed token")
+    runtime.ws_token = None
     try:
         connection = await client.connect_ws(
             session_id=runtime.session_id,
-            ws_token=runtime.ws_token,
+            ws_token=ws_token,
             ws_base_url=runtime.ws_url,
         )
         async with connection:
