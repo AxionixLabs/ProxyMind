@@ -10,6 +10,25 @@ from enum import Enum
 
 _TMUX_QUERY_TIMEOUT_SEC = 0.1
 
+_MACOS_IDE_BUNDLE_PREFIXES = (
+    "com.jetbrains.",
+    "com.microsoft.vscode",
+    "com.microsoft.visual-studio",
+    "com.visualstudio.code",
+    "com.vscodium.",
+    "com.google.android.studio",
+    "com.apple.dt.xcode",
+    "com.todesktop.230313mzl4w4u92",
+    "com.exafunction.windsurf",
+    "com.codeium.windsurf",
+    "dev.zed.",
+    "com.sublimetext.",
+    "com.panic.nova",
+    "org.eclipse.",
+    "org.qt-project.qtcreator",
+    "com.github.atom",
+)
+
 
 class TerminalKind(str, Enum):
     """描述当前交互终端的已知身份。"""
@@ -49,7 +68,7 @@ class TerminalIdentitySource(str, Enum):
 
 @dataclass(frozen=True)
 class TerminalIdentity:
-    """保存终端身份事实、外层复用器和判定来源。"""
+    """保存终端身份事实、IDE 宿主、外层复用器和判定来源。"""
 
     kind: TerminalKind
     name: str
@@ -60,11 +79,12 @@ class TerminalIdentity:
     multiplexer_version: str | None = None
     source: TerminalIdentitySource = TerminalIdentitySource.UNKNOWN
     source_variable: str | None = None
+    host_is_ide: bool = False
 
     @property
     def is_ide_terminal(self) -> bool:
-        """根据已解析的宿主身份判断是否属于已知 IDE 集成终端。"""
-        return self.kind in {
+        """根据终端身份和 macOS 宿主应用判断是否属于 IDE 集成终端。"""
+        return self.host_is_ide or self.kind in {
             TerminalKind.JETBRAINS_JEDITERM,
             TerminalKind.VSCODE,
             TerminalKind.ZED,
@@ -83,6 +103,8 @@ def detect_terminal_identity(
 
     env = os.environ if environ is None else environ
     multiplexer, mux_version = _detect_multiplexer(env)
+    bundle_identifier = str(env.get("__CFBundleIdentifier") or "").strip()
+    macos_ide_host = _is_macos_ide_bundle_identifier(bundle_identifier)
     program = str(env.get("TERM_PROGRAM") or "").strip()
 
     if multiplexer is TerminalKind.TMUX:
@@ -100,6 +122,7 @@ def detect_terminal_identity(
                 multiplexer_version=mux_version,
                 source=TerminalIdentitySource.TMUX_CLIENT,
                 source_variable="TMUX",
+                host_is_ide=macos_ide_host,
             )
 
     program_identity: TerminalIdentity | None = None
@@ -116,13 +139,33 @@ def detect_terminal_identity(
             multiplexer_version=mux_version,
             source=TerminalIdentitySource.TERM_PROGRAM,
             source_variable="TERM_PROGRAM",
+            host_is_ide=macos_ide_host,
         )
-        if program_identity.is_ide_terminal:
+        if program_identity.kind in {
+            TerminalKind.JETBRAINS_JEDITERM,
+            TerminalKind.VSCODE,
+            TerminalKind.ZED,
+        }:
             return program_identity
 
     # IDE 可继承外层终端的 TERM_PROGRAM，须先处理 JetBrains 明确标识。
     terminal_emulator = str(env.get("TERMINAL_EMULATOR") or "").strip()
-    if terminal_emulator.casefold() == "jetbrains-jediterm":
+    jediterm_kind, _ = _kind_and_version_from_program(
+        terminal_emulator,
+    )
+    jediterm_source = str(env.get("JEDITERM_SOURCE") or "").strip()
+    if (
+        jediterm_kind is TerminalKind.JETBRAINS_JEDITERM
+        or bool(jediterm_source)
+        or bundle_identifier.casefold().startswith("com.jetbrains.")
+    ):
+        source_variable = (
+            "TERMINAL_EMULATOR"
+            if jediterm_kind is TerminalKind.JETBRAINS_JEDITERM
+            else "JEDITERM_SOURCE"
+            if jediterm_source
+            else "__CFBundleIdentifier"
+        )
         return TerminalIdentity(
             TerminalKind.JETBRAINS_JEDITERM,
             "JetBrains-JediTerm",
@@ -130,11 +173,23 @@ def detect_terminal_identity(
             term=str(env.get("TERM") or "").strip() or None,
             multiplexer_version=mux_version,
             source=TerminalIdentitySource.DIRECT_SIGNAL,
-            source_variable="TERMINAL_EMULATOR",
+            source_variable=source_variable,
         )
 
     if program_identity is not None:
         return program_identity
+
+    if macos_ide_host:
+        return TerminalIdentity(
+            TerminalKind.UNKNOWN,
+            bundle_identifier,
+            multiplexer=multiplexer,
+            term=str(env.get("TERM") or "").strip() or None,
+            multiplexer_version=mux_version,
+            source=TerminalIdentitySource.DIRECT_SIGNAL,
+            source_variable="__CFBundleIdentifier",
+            host_is_ide=True,
+        )
 
     direct_signals = (
         ("WEZTERM_VERSION", TerminalKind.WEZTERM, "WezTerm"),
@@ -211,6 +266,16 @@ def _tmux_version(env: typing.Mapping[str, str]) -> str | None:
 
     value = str(env.get("TMUX_VERSION") or "").strip()
     return value or None
+
+
+def _is_macos_ide_bundle_identifier(value: str) -> bool:
+    """判断 macOS 宿主 bundle 标识是否属于 IDE。"""
+
+    normalized = str(value or "").strip().casefold()
+    return bool(normalized) and any(
+        normalized.startswith(prefix)
+        for prefix in _MACOS_IDE_BUNDLE_PREFIXES
+    )
 
 
 def _kind_and_version_from_program(value: str) -> tuple[TerminalKind, str | None]:

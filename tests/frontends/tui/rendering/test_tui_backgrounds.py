@@ -134,6 +134,11 @@ def test_ide_style_removes_all_backgrounds_and_preserves_text_cues(
 @pytest.mark.anyio
 @pytest.mark.parametrize(("environ", "backgrounds_allowed"), (
     ({"TERMINAL_EMULATOR": "JetBrains-JediTerm"}, False),
+    ({"JEDITERM_SOURCE": "/project/.venv/bin/activate"}, False),
+    ({"__CFBundleIdentifier": "com.jetbrains.pycharm", "TERM_PROGRAM": "Apple_Terminal"}, False),
+    ({"__CFBundleIdentifier": "com.apple.dt.Xcode", "TERM_PROGRAM": "Apple_Terminal"}, False),
+    ({"__CFBundleIdentifier": "com.microsoft.VSCode", "TERM_PROGRAM": "Apple_Terminal"}, False),
+    ({"__CFBundleIdentifier": "com.todesktop.230313mzl4w4u92", "TERM_PROGRAM": "Apple_Terminal"}, False),
     ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "Apple_Terminal"}, False),
     ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "iTerm.app"}, False),
     ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "TERM_PROGRAM": "unrecognized-terminal"}, False),

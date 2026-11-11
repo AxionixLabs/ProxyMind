@@ -121,11 +121,17 @@ def test_every_declared_terminal_kind_is_reachable() -> None:
     ("environ", "expected"),
     (
         ({"TERMINAL_EMULATOR": "JetBrains-JediTerm", "WT_SESSION": "inherited"}, True),
+        ({"JEDITERM_SOURCE": "/project/.venv/bin/activate"}, True),
+        ({"__CFBundleIdentifier": "com.jetbrains.pycharm", "TERM_PROGRAM": "Apple_Terminal"}, True),
+        ({"__CFBundleIdentifier": "com.apple.dt.Xcode", "TERM_PROGRAM": "Apple_Terminal"}, True),
+        ({"__CFBundleIdentifier": "com.microsoft.VSCode", "TERM_PROGRAM": "Apple_Terminal"}, True),
+        ({"__CFBundleIdentifier": "com.todesktop.230313mzl4w4u92", "TERM_PROGRAM": "Apple_Terminal"}, True),
         ({"TERM_PROGRAM": "JetBrains-JediTerm"}, True),
         ({"TERM_PROGRAM": "vscode", "WT_SESSION": "inherited"}, True),
         ({"TERM_PROGRAM": "vscode-insiders"}, True),
         ({"TERM_PROGRAM": "Zed", "TERM": "xterm-256color"}, True),
         ({"WT_SESSION": "session"}, False),
+        ({"__CFBundleIdentifier": "com.apple.Terminal", "TERM_PROGRAM": "Apple_Terminal"}, False),
         ({"TERM_PROGRAM": "WezTerm"}, False),
         ({"TERM_PROGRAM": "unrecognized-editor"}, False),
         ({"TERM": "xterm-256color"}, False),
@@ -136,6 +142,59 @@ def test_ide_terminal_classification_uses_detected_host(
     expected: bool,
 ) -> None:
     assert detect_terminal_identity(environ).is_ide_terminal is expected
+
+
+@pytest.mark.parametrize(
+        ("environ", "source_variable"),
+    (
+        ({"JEDITERM_SOURCE": "/project/.venv/bin/activate"}, "JEDITERM_SOURCE"),
+        ({"__CFBundleIdentifier": "com.jetbrains.pycharm"}, "__CFBundleIdentifier"),
+        (
+            {
+                "__CFBundleIdentifier": "com.jetbrains.pycharm",
+                "TERM_PROGRAM": "Apple_Terminal",
+            },
+            "__CFBundleIdentifier",
+        ),
+    ),
+)
+def test_mac_jetbrains_markers_identify_jediterm(
+    environ: dict[str, str],
+    source_variable: str,
+) -> None:
+    identity = detect_terminal_identity(environ)
+
+    assert identity.kind is TerminalKind.JETBRAINS_JEDITERM
+    assert identity.source_variable == source_variable
+
+
+@pytest.mark.parametrize(
+    "bundle_identifier",
+    (
+        "com.apple.dt.Xcode",
+        "com.microsoft.VSCode",
+        "com.todesktop.230313mzl4w4u92",
+        "com.google.android.studio",
+        "dev.zed.Zed",
+    ),
+)
+def test_macos_ide_bundle_identifiers_disable_backgrounds(
+    bundle_identifier: str,
+) -> None:
+    identity = detect_terminal_identity({
+        "__CFBundleIdentifier": bundle_identifier,
+        "TERM_PROGRAM": "Apple_Terminal",
+    })
+
+    assert identity.is_ide_terminal
+    assert identity.source_variable == "TERM_PROGRAM"
+
+
+def test_macos_ide_bundle_identifier_is_sufficient_without_term_program() -> None:
+    identity = detect_terminal_identity({"__CFBundleIdentifier": "com.apple.dt.Xcode"})
+
+    assert identity.is_ide_terminal
+    assert identity.source_variable == "__CFBundleIdentifier"
 
 
 def test_ide_terminal_classification_follows_tmux_client() -> None:
