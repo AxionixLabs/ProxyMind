@@ -210,7 +210,7 @@ async def test_view_image_does_not_insert_work_separator() -> None:
         for line in split_formatted_lines(runtime.document.fragments(width=40))
     ]
     assert lines == [
-        "• Viewed",
+        "• Viewed Image",
         "  └ C:/tmp/image.png",
         "",
         "• after",

@@ -3,6 +3,7 @@
 
 import json
 import typing
+from dataclasses import replace
 
 from agent.application.views import (
     GenericToolResultView,
@@ -121,14 +122,27 @@ def render_generic_tool_result_view(
         terminal_width=terminal_width,
         measure_width=measure_width,
     )
-    spans = tuple(render_tool_trace_parts(
-        title,
-        preview=preview,
-        ok=view.ok,
-        terminal_width=terminal_width,
-        measure_width=measure_width,
-        syntax_theme=syntax_theme,
-    ))
+    if view.name == "view_image":
+        detail_spans = render_tool_trace_parts(
+            "",
+            preview=replace(preview, kind="plain"),
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+        )
+        spans = (
+            TextSpan(title[:2], TextStyle(dim=True)),
+            TextSpan(title[2:], TextStyle(bold=True)),
+            *((TextSpan("\n"), *detail_spans) if detail_spans else ()),
+        )
+    else:
+        spans = tuple(render_tool_trace_parts(
+            title,
+            preview=preview,
+            ok=view.ok,
+            terminal_width=terminal_width,
+            measure_width=measure_width,
+            syntax_theme=syntax_theme,
+        ))
     return StyledBlock(
         plain_text=(
             "".join(span.text for span in spans)
@@ -362,7 +376,7 @@ def render_native_tool_result_raw_text(view: NativeToolResultView) -> tuple[str,
 def _generic_result_title(view: GenericToolResultView) -> str:
     """返回普通工具结果的终端标题。"""
     if view.name == "view_image":
-        return "• Viewed"
+        return "• Viewed Image"
     status = "" if view.ok else f" · {view.status}"
     return f"• Called {view.name}{status}"
 

@@ -1529,20 +1529,18 @@ def test_tool_result_uses_called_copy_and_result_colors() -> None:
 
 
 @pytest.mark.parametrize(
-    ("ok", "result_text", "detail", "dot_style"),
+    ("ok", "result_text", "detail"),
     (
         (
             True,
             "tool=view_image source=client ok=True "
             "Loaded image: screenshots/result.png",
             "screenshots/result.png",
-            SUCCESS_DOT_STYLE,
         ),
         (
             False,
             "tool=view_image source=client ok=False Image file was not found.",
             "Image file was not found.",
-            ERROR_DOT_STYLE,
         ),
     ),
     ids=("success", "failure"),
@@ -1551,15 +1549,17 @@ def test_view_image_result_uses_single_viewed_block(
     ok: bool,
     result_text: str,
     detail: str,
-    dot_style,
 ) -> None:
     view = build_generic_tool_result_view("view_image", result_text, ok=ok)
     block = render_generic_tool_result_view(view)
 
-    assert block.plain_text == f"• Viewed\n  └ {detail}"
-    assert _span_style(block, "•") == dot_style
+    assert block.plain_text == f"• Viewed Image\n  └ {detail}"
+    assert _span_style(block, "• ") == TextStyle(dim=True)
+    assert _span_style(block, "Viewed Image") == TextStyle(bold=True)
+    assert _span_style(block, "  └ ") == TextStyle(dim=True)
+    assert _span_style(block, detail) == TextStyle(dim=True)
     assert render_presentation_transcript_view(view)[0].plain_text == (
-        f"• Viewed\n{detail}"
+        f"• Viewed Image\n{detail}"
     )
     assert render_presentation_raw_view(view) == (detail,)
     assert "tool=view_image" not in block.plain_text
