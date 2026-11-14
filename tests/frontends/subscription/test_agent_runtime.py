@@ -111,6 +111,39 @@ async def test_remote_control_rejects_foreign_or_expired_identity_and_interrupts
 
 
 @pytest.mark.anyio
+async def test_shutdown_reports_active_run_as_client_shutdown_before_stopping_connection():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(*_args, **_kwargs):
+        started.set()
+        await release.wait()
+
+    executor = SimpleNamespace(execute=execute, close=AsyncMock())
+    client = SimpleNamespace(send_json=AsyncMock())
+    runtime = AgentRuntime(
+        SimpleNamespace(), config=_config(), client=client, executor=executor,
+        supervisor=SimpleNamespace(run=AsyncMock()), protocol_client=Mock(spec=ProtocolCommandClient),
+    )
+    runtime.status_outbox.cancelled = AsyncMock()
+    item = runtime.inbox.add(_request())
+    runtime.remember_context(item, client, object(), _session_runtime(), runtime.live_status)
+    operation = asyncio.create_task(runtime.run_message(item.request.message_id))
+
+    await asyncio.wait_for(started.wait(), 1)
+    await runtime.shutdown()
+
+    runtime.status_outbox.cancelled.assert_awaited_once_with(
+        item.request,
+        session_id="agent-session",
+        reason="client_shutdown",
+    )
+    assert not runtime._active_runs
+    assert runtime.inbox.find(item.request.message_id) is None
+    assert operation.done()
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("terminal_status", ["interrupted", "completed"])
 @pytest.mark.parametrize("interrupt_acknowledged", [True, False])
 async def test_remote_cancel_keeps_observation_until_authoritative_terminal(

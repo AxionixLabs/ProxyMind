@@ -121,8 +121,10 @@ class AgentRuntime(object):
         self.approvals = approvals
         self._protocol_client = protocol_client
         self._active_runs: dict[str, asyncio.Task[AgentInboxItem]] = {}
+        self._run_tasks: dict[str, asyncio.Task[AgentInboxItem]] = {}
         self._interrupt_tasks: dict[str, asyncio.Task[bool]] = {}
         self._interaction_started: dict[str, float] = {}
+        self._shutdown_requested = False
 
         self.contexts: dict[str, AgentRuntimeContext] = {}
 
@@ -308,6 +310,7 @@ class AgentRuntime(object):
         if self.is_running():
             return self.task
 
+        self._shutdown_requested = False
         self._ready.clear()
         self.task = asyncio.create_task(
             self.supervisor.run(),
@@ -380,6 +383,9 @@ class AgentRuntime(object):
             raise KeyError(message_id)
         if item.status != "pending":
             raise ValueError(f"agent inbox item is not pending: {message_id}")
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            self._run_tasks[message_id] = current_task
 
         def notify_execution_change() -> None:
             """同步可见终态，取消时由最终删除一次性刷新。"""
@@ -407,6 +413,14 @@ class AgentRuntime(object):
             observer = asyncio.create_task(self._observe_interaction(message_id))
             try:
                 return await operation
+            except asyncio.CancelledError:
+                if self._shutdown_requested:
+                    await self.status_outbox.cancelled(
+                        item.request,
+                        session_id=context.runtime.session_id,
+                        reason="client_shutdown",
+                    )
+                raise
             finally:
                 interrupt = self._interrupt_tasks.pop(message_id, None)
                 try:
@@ -420,6 +434,7 @@ class AgentRuntime(object):
                         await observer
                     await self._publish_interaction(message_id, clear=True)
         finally:
+            self._run_tasks.pop(message_id, None)
             self._active_runs.pop(message_id, None)
             self._interaction_started.pop(message_id, None)
             self.contexts.pop(message_id, None)
@@ -601,6 +616,7 @@ class AgentRuntime(object):
 
     async def shutdown(self) -> None:
         """取消尚未处理的远端任务并停止订阅运行时。"""
+        self._shutdown_requested = True
         try:
             for item in list(self.inbox.pending_items()):
                 context = self.contexts.get(item.request.message_id)
@@ -611,12 +627,19 @@ class AgentRuntime(object):
                     session_id=context.runtime.session_id,
                     reason="client_shutdown",
                 )
+            active = tuple(self._run_tasks.values())
+            for task in active:
+                if not task.done():
+                    task.cancel()
+            if active:
+                await asyncio.gather(*active, return_exceptions=True)
         finally:
             try:
-                await self.stop()
-            finally:
                 if self._executor_owned:
                     await self.executor.close()
+                await self.stop()
+            finally:
+                self._shutdown_requested = False
 
 
 if __name__ == '__main__':
